@@ -24,7 +24,6 @@ from config import config
 app = Flask(__name__)
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-IS_FLY = bool(os.environ.get("FLY_REGION"))
 
 BATCH_JOBS = {
     "collect_history": {
@@ -433,15 +432,12 @@ def api_batch():
             "pid": pid,
             "last_line": last_line[:120],
             "log_file": os.path.basename(log_path) if log_path else None,
-            "is_fly": IS_FLY,
         })
     return jsonify(jobs)
 
 
 @app.route("/api/batch/<job_id>/start", methods=["POST"])
 def api_batch_start(job_id: str):
-    if IS_FLY:
-        return jsonify({"error": "로컬 환경에서만 실행 가능합니다"}), 403
     j = BATCH_JOBS.get(job_id)
     if not j:
         return jsonify({"error": "unknown job"}), 404
@@ -459,8 +455,6 @@ def api_batch_start(job_id: str):
 
 @app.route("/api/batch/<job_id>/stop", methods=["POST"])
 def api_batch_stop(job_id: str):
-    if IS_FLY:
-        return jsonify({"error": "로컬 환경에서만 실행 가능합니다"}), 403
     j = BATCH_JOBS.get(job_id)
     if not j:
         return jsonify({"error": "unknown job"}), 404

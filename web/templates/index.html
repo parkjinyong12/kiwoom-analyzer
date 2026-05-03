@@ -1463,13 +1463,10 @@ async function loadBatch() {
 function renderBatchList(jobs) {
   document.getElementById('batch-list').innerHTML = jobs.map(j => {
     const running = j.running;
-    const isFly = j.is_fly;
     const statusColor = running ? '#4ade80' : '#475569';
-    const statusLabel = running ? `실행 중 (PID ${j.pid})` : '중지됨';
-    const btnDisabled = isFly ? 'disabled title="fly.io에서는 실행 불가"' : '';
     const startBtn = !running
-      ? `<button class="btn btn-primary" style="font-size:12px" ${btnDisabled} onclick="batchStart('${j.id}')">▶ 실행</button>`
-      : `<button class="btn btn-danger"  style="font-size:12px" ${btnDisabled} onclick="batchStop('${j.id}')">■ 중지</button>`;
+      ? `<button class="btn btn-primary" style="font-size:12px" onclick="batchStart('${j.id}')">▶ 실행</button>`
+      : `<button class="btn btn-danger"  style="font-size:12px" onclick="batchStop('${j.id}')">■ 중지</button>`;
     return `
     <div class="batch-card">
       <div class="batch-status">
@@ -1478,7 +1475,7 @@ function renderBatchList(jobs) {
       </div>
       <div class="batch-card-info">
         <div class="batch-card-name">${j.name}</div>
-        <div class="batch-card-desc">${j.desc}${isFly ? ' <span style="color:#fb923c;font-size:11px">· fly.io 원격 실행 불가</span>' : ''}</div>
+        <div class="batch-card-desc">${j.desc}</div>
         <div class="batch-card-log">${j.last_line ? `최근: ${j.last_line}` : '로그 없음'}</div>
         ${j.log_file ? `<div style="font-size:10px;color:#334155;margin-top:3px">${j.log_file}</div>` : ''}
       </div>

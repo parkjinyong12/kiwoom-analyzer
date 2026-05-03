@@ -2,10 +2,14 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+COPY requirements.txt ./
 COPY web/requirements.txt ./web/requirements.txt
-RUN pip install --no-cache-dir -r web/requirements.txt
+RUN pip install --no-cache-dir -r web/requirements.txt && \
+    pip install --no-cache-dir -r requirements.txt
 
-COPY config.py ./
+COPY config.py models.py main.py orchestrator.py ./
+COPY agents/ ./agents/
+COPY scripts/ ./scripts/
 COPY web/ ./web/
 
 ENV PYTHONDONTWRITEBYTECODE=1
