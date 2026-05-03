@@ -686,8 +686,24 @@ canvas { max-height: 220px; }
   <section id="page-batch" class="page">
     <div class="page-header">
       <div class="page-title">배치 관리</div>
-      <div class="page-sub">백그라운드 작업 실행 및 모니터링 (로컬 전용)</div>
+      <div class="page-sub">백그라운드 작업 실행 및 모니터링</div>
     </div>
+
+    <!-- 수집 설정 -->
+    <div class="panel" style="margin-bottom:16px">
+      <div class="panel-header">수집 설정</div>
+      <div style="padding:16px;display:flex;gap:20px;align-items:center;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:10px">
+          <label style="font-size:13px;color:#94a3b8;white-space:nowrap">시가총액 기준</label>
+          <input type="number" id="batch-min-cap-input" min="0" step="1"
+                 style="width:90px;padding:7px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;text-align:right"/>
+          <span style="font-size:13px;color:#64748b">조원 이상</span>
+        </div>
+        <button class="btn btn-primary" style="font-size:12px" onclick="saveCollectSettings()">저장</button>
+        <span id="batch-settings-msg" style="font-size:12px;color:#4ade80;display:none">✓ 저장됨</span>
+      </div>
+    </div>
+
     <div id="batch-list">
       <div class="loading"><span class="spinner"></span>로딩 중...</div>
     </div>
@@ -1450,9 +1466,15 @@ let batchRefreshTimer = null;
 async function loadBatch() {
   clearInterval(batchRefreshTimer);
   try {
-    const res = await fetch('/api/batch');
+    const [res, sRes] = await Promise.all([fetch('/api/batch'), fetch('/api/settings')]);
     const jobs = await res.json();
     renderBatchList(jobs);
+    if (sRes.ok) {
+      const s = await sRes.json();
+      if (s.min_market_cap != null) {
+        document.getElementById('batch-min-cap-input').value = (s.min_market_cap / 1e12).toFixed(0);
+      }
+    }
     batchRefreshTimer = setInterval(async () => {
       const r = await fetch('/api/batch');
       renderBatchList(await r.json());
@@ -1516,6 +1538,24 @@ async function batchShowLog(id, name) {
 
 function closeBatchLog() {
   document.getElementById('batch-log-panel').style.display = 'none';
+}
+
+async function saveCollectSettings() {
+  const trillionVal = parseFloat(document.getElementById('batch-min-cap-input').value);
+  if (isNaN(trillionVal) || trillionVal < 0) { alert('올바른 값을 입력하세요'); return; }
+  const rawVal = Math.round(trillionVal * 1_000_000_000_000);
+  const res = await fetch('/api/settings', {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({min_market_cap: rawVal}),
+  });
+  if (res.ok) {
+    const msg = document.getElementById('batch-settings-msg');
+    msg.style.display = 'inline';
+    setTimeout(() => { msg.style.display = 'none'; }, 2000);
+  } else {
+    alert('저장 실패');
+  }
 }
 
 // ─── 사용자 관리 페이지 ──────────────────────────────

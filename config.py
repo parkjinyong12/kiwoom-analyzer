@@ -63,7 +63,7 @@ class AppConfig:
 
     database_url: str = field(default_factory=lambda: os.environ.get("DATABASE_URL", ""))
     log_dir: str = "logs"
-    min_market_cap: int = 5_000_000_000_000  # 시가총액 필터 (5조원, 0이면 config.watchlist 사용)
+    min_market_cap: int = field(default_factory=lambda: int(os.environ.get("MIN_MARKET_CAP", "5000000000000")))
 
 
 config = AppConfig()

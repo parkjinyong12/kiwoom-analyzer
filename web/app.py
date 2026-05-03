@@ -25,6 +25,18 @@ app = Flask(__name__)
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
+
+def _ensure_app_settings_table():
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key   VARCHAR(100) PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+
 BATCH_JOBS = {
     "collect_history": {
         "name": "수급 히스토리 수집",
@@ -443,10 +455,12 @@ def api_batch_start(job_id: str):
         return jsonify({"error": "unknown job"}), 404
     if _find_pid(j["match"]):
         return jsonify({"error": "이미 실행 중입니다"}), 409
+    settings = _get_app_settings()
+    min_cap = settings.get("min_market_cap", str(5_000_000_000_000))
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = os.path.join(BASE_DIR, "logs", f"{j['log_prefix']}_{ts}.log")
     subprocess.Popen(
-        f"PYTHONUNBUFFERED=1 nohup {j['cmd']} > {log_file} 2>&1",
+        f"PYTHONUNBUFFERED=1 MIN_MARKET_CAP={min_cap} nohup {j['cmd']} > {log_file} 2>&1",
         shell=True, cwd=BASE_DIR,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
@@ -465,6 +479,33 @@ def api_batch_stop(job_id: str):
         os.kill(pid, signal.SIGTERM)
     except ProcessLookupError:
         pass
+    return jsonify({"ok": True})
+
+
+def _get_app_settings() -> dict:
+    try:
+        rows = query("SELECT key, value FROM app_settings")
+        return {r["key"]: r["value"] for r in rows}
+    except Exception:
+        return {}
+
+
+@app.route("/api/settings")
+def api_settings():
+    return jsonify(_get_app_settings())
+
+
+@app.route("/api/settings", methods=["PUT"])
+def api_save_settings():
+    data = request.get_json() or {}
+    with get_conn() as conn:
+        cur = conn.cursor()
+        for key, value in data.items():
+            cur.execute("""
+                INSERT INTO app_settings (key, value, updated_at)
+                VALUES (%s, %s, NOW())
+                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+            """, (key, str(value)))
     return jsonify({"ok": True})
 
 
@@ -487,6 +528,11 @@ def api_batch_logs(job_id: str):
 # ---------------------------------------------------------------------------
 # 엔트리포인트
 # ---------------------------------------------------------------------------
+
+try:
+    _ensure_app_settings_table()
+except Exception:
+    pass
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5001, debug=True)
