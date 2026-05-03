@@ -8,5 +8,4 @@ logs/
 db/
 .pytest_cache/
 tests/
-scripts/
 *.log
