@@ -1,0 +1,12 @@
+.git
+.env
+.token_cache.json
+__pycache__
+*.pyc
+*.pdf
+logs/
+db/
+.pytest_cache/
+tests/
+scripts/
+*.log

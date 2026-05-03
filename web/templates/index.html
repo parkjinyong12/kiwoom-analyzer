@@ -1,0 +1,1619 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>키움 분석 대시보드</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+/* ── 리셋 & 베이스 ─────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+       background: #0f1117; color: #e2e8f0; display: flex; height: 100vh; overflow: hidden; }
+
+/* ── 사이드바 ─────────────────────────────────────── */
+#sidebar {
+  width: 220px; min-width: 220px; background: #161b27;
+  display: flex; flex-direction: column;
+  border-right: 1px solid #1e2535;
+}
+.sidebar-logo {
+  padding: 24px 20px 18px;
+  font-size: 16px; font-weight: 700; color: #60a5fa;
+  border-bottom: 1px solid #1e2535;
+  letter-spacing: -0.3px;
+}
+.sidebar-logo span { font-size: 11px; color: #64748b; font-weight: 400; display: block; margin-top: 3px; }
+.nav-section { padding: 16px 12px 8px; font-size: 10px; color: #475569; letter-spacing: 1px; text-transform: uppercase; }
+.nav-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px; margin: 1px 8px; border-radius: 8px;
+  cursor: pointer; font-size: 14px; color: #94a3b8;
+  transition: all 0.15s;
+}
+.nav-item:hover { background: #1e2535; color: #e2e8f0; }
+.nav-item.active { background: #1d3a5f; color: #60a5fa; font-weight: 600; }
+.nav-item .icon { font-size: 16px; width: 20px; text-align: center; }
+.sidebar-footer {
+  margin-top: auto; padding: 16px;
+  font-size: 11px; color: #475569; border-top: 1px solid #1e2535;
+}
+#sidebar-time { color: #64748b; font-size: 12px; font-variant-numeric: tabular-nums; }
+
+/* ── 사용자 선택기 ────────────────────────────────── */
+#user-switcher {
+  padding: 12px 12px 8px;
+  border-bottom: 1px solid #1e2535;
+}
+#user-btn {
+  width: 100%; display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border-radius: 8px; border: 1px solid #1e2535;
+  background: #0f1117; cursor: pointer; color: #e2e8f0;
+  font-size: 13px; transition: all 0.15s;
+}
+#user-btn:hover { border-color: #3b82f6; background: #1a2233; }
+#user-btn .avatar {
+  width: 26px; height: 26px; border-radius: 50%;
+  background: #1d3a5f; color: #60a5fa;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; flex-shrink: 0;
+}
+#user-name-label { flex: 1; text-align: left; }
+#user-btn .caret { color: #475569; font-size: 10px; }
+
+/* ── 모달 공통 ────────────────────────────────────── */
+.modal-overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,0.6); z-index: 1000;
+  align-items: center; justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+.modal {
+  background: #161b27; border: 1px solid #1e2535;
+  border-radius: 12px; width: 360px; padding: 24px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+.modal h3 { font-size: 15px; color: #e2e8f0; margin-bottom: 18px; }
+.modal input[type=text] {
+  width: 100%; padding: 8px 12px; border-radius: 6px;
+  border: 1px solid #1e2535; background: #0f1117; color: #e2e8f0;
+  font-size: 13px; outline: none;
+}
+.modal input[type=text]:focus { border-color: #3b82f6; }
+.modal-actions { display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end; }
+.btn { padding: 7px 16px; border-radius: 6px; font-size: 13px; cursor: pointer; border: none; }
+.btn-primary { background: #3b82f6; color: #fff; }
+.btn-primary:hover { background: #2563eb; }
+.btn-ghost { background: transparent; color: #94a3b8; border: 1px solid #1e2535; }
+.btn-ghost:hover { background: #1e2535; color: #e2e8f0; }
+.btn-danger { background: transparent; color: #f87171; border: 1px solid #f8717140; font-size: 12px; padding: 5px 10px; }
+.btn-danger:hover { background: #f8717120; }
+
+/* ── 사용자 목록 ────────────────────────────────────── */
+.user-list-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border-radius: 8px; cursor: pointer;
+  border: 1px solid transparent; margin-bottom: 6px;
+  transition: all 0.15s;
+}
+.user-list-item:hover { background: #1e2535; }
+.user-list-item.selected { border-color: #3b82f6; background: #1d3a5f20; }
+.user-list-item .u-avatar {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: #1d3a5f; color: #60a5fa;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; flex-shrink: 0;
+}
+.user-list-item .u-name { flex: 1; font-size: 14px; color: #e2e8f0; }
+
+/* ── 메뉴 설정 체크박스 ─────────────────────────────── */
+.menu-check-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 0; border-bottom: 1px solid #1e253540;
+}
+.menu-check-item:last-child { border-bottom: none; }
+.menu-check-item input[type=checkbox] { accent-color: #3b82f6; width: 15px; height: 15px; cursor: pointer; }
+.menu-check-item label { font-size: 13px; color: #cbd5e1; cursor: pointer; flex: 1; }
+
+/* ── 메인 콘텐츠 ───────────────────────────────────── */
+#main {
+  flex: 1; overflow-y: auto;
+  background: #0f1117;
+}
+.page { display: none; padding: 28px 32px; }
+.page.active { display: block; }
+
+/* ── 공통 헤더 ────────────────────────────────────── */
+.page-header { margin-bottom: 24px; }
+.page-title { font-size: 22px; font-weight: 700; color: #f1f5f9; }
+.page-sub { font-size: 13px; color: #64748b; margin-top: 4px; }
+
+/* ── 카드 그리드 ───────────────────────────────────── */
+.cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px; }
+.card {
+  background: #161b27; border: 1px solid #1e2535; border-radius: 12px; padding: 20px;
+}
+.card-label { font-size: 12px; color: #64748b; margin-bottom: 8px; }
+.card-value { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.card-value.blue  { color: #60a5fa; }
+.card-value.green { color: #34d399; }
+.card-value.red   { color: #f87171; }
+.card-value.orange{ color: #fb923c; }
+.card-note { font-size: 11px; color: #475569; margin-top: 6px; }
+
+/* ── 패널 ─────────────────────────────────────────── */
+.panel {
+  background: #161b27; border: 1px solid #1e2535; border-radius: 12px;
+  margin-bottom: 20px; overflow: hidden;
+}
+.panel-header {
+  padding: 16px 20px; border-bottom: 1px solid #1e2535;
+  font-size: 14px; font-weight: 600; color: #cbd5e1;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.panel-body { padding: 0; }
+
+/* ── 테이블 ───────────────────────────────────────── */
+.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.data-table th {
+  padding: 11px 16px; text-align: left;
+  font-size: 11px; font-weight: 600; color: #64748b;
+  background: #0f1117; border-bottom: 1px solid #1e2535;
+  white-space: nowrap;
+}
+.data-table td {
+  padding: 11px 16px; border-bottom: 1px solid #1a2233;
+  color: #cbd5e1;
+}
+.data-table tr:last-child td { border-bottom: none; }
+.data-table tr:hover td { background: #1a2233; }
+.data-table td.num { font-variant-numeric: tabular-nums; text-align: right; }
+.data-table td.center { text-align: center; }
+
+/* ── 배지 ─────────────────────────────────────────── */
+.badge {
+  display: inline-block; padding: 2px 8px; border-radius: 9999px;
+  font-size: 11px; font-weight: 600;
+}
+.badge-buy    { background: #14532d; color: #4ade80; }
+.badge-sell   { background: #450a0a; color: #f87171; }
+.badge-hold   { background: #1e3a5f; color: #60a5fa; }
+.badge-success{ background: #14532d; color: #4ade80; }
+.badge-fail   { background: #450a0a; color: #f87171; }
+.badge-blocked{ background: #422006; color: #fb923c; }
+.badge-system { background: #1e3a5f; color: #93c5fd; }
+.badge-data   { background: #1e2d3d; color: #7dd3fc; }
+.badge-analysis{background: #2d1b69; color: #c4b5fd; }
+.badge-signal { background: #14532d; color: #4ade80; }
+.badge-risk   { background: #422006; color: #fb923c; }
+
+/* ── 수급 차트 영역 ────────────────────────────────── */
+.chart-area { padding: 20px; }
+canvas { max-height: 220px; }
+
+/* ── 필터 바 ──────────────────────────────────────── */
+.filter-bar {
+  padding: 14px 20px; border-bottom: 1px solid #1e2535;
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+}
+.filter-bar select, .filter-bar input {
+  background: #0f1117; border: 1px solid #2d3748; border-radius: 8px;
+  color: #e2e8f0; padding: 7px 12px; font-size: 13px;
+  outline: none;
+}
+.filter-bar select:focus, .filter-bar input:focus { border-color: #3b82f6; }
+.filter-bar label { font-size: 13px; color: #64748b; }
+
+/* ── 기간 버튼 ─────────────────────────────────────── */
+.period-btns { display: flex; gap: 4px; }
+.period-btn {
+  padding: 5px 11px; border-radius: 6px; border: 1px solid #2d3748;
+  background: transparent; color: #64748b; font-size: 12px; font-weight: 600;
+  cursor: pointer; transition: all 0.15s; white-space: nowrap;
+}
+.period-btn:hover { background: #1e2535; color: #cbd5e1; }
+.period-btn.active { background: #1d3a5f; color: #60a5fa; border-color: #3b82f6; }
+
+/* ── 로딩 스피너 ───────────────────────────────────── */
+.loading {
+  text-align: center; padding: 40px; color: #475569; font-size: 14px;
+}
+.spinner {
+  display: inline-block; width: 20px; height: 20px;
+  border: 2px solid #1e2535; border-top-color: #3b82f6;
+  border-radius: 50%; animation: spin 0.8s linear infinite;
+  margin-right: 8px; vertical-align: middle;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── 빈 상태 ──────────────────────────────────────── */
+.empty { text-align: center; padding: 60px 20px; color: #475569; font-size: 14px; }
+.empty-icon { font-size: 36px; margin-bottom: 12px; }
+
+/* ── 수급 레이아웃 ─────────────────────────────────── */
+.supply-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+
+/* ── 스크롤바 ─────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #2d3748; border-radius: 3px; }
+
+/* ── 자동완성 드롭다운 ────────────────────────────── */
+.autocomplete-wrap { position: relative; }
+#supply-stock-dropdown {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 200;
+  background: #161b27; border: 1px solid #3b82f6;
+  border-radius: 8px; min-width: 280px; max-height: 300px;
+  overflow-y: auto; box-shadow: 0 8px 28px rgba(0,0,0,0.5);
+}
+.ac-item {
+  padding: 8px 14px; cursor: pointer; font-size: 13px;
+  display: flex; align-items: center; gap: 10px;
+  border-bottom: 1px solid #1a2233;
+}
+.ac-item:last-child { border-bottom: none; }
+.ac-item:hover, .ac-item.kbd-active { background: #1d3a5f; }
+.ac-code { font-family: monospace; color: #60a5fa; font-size: 12px; min-width: 58px; flex-shrink: 0; }
+.ac-name { color: #e2e8f0; }
+.ac-hl { color: #fbbf24; font-weight: 700; }
+.ac-empty { padding: 14px; color: #64748b; font-size: 13px; text-align: center; }
+</style>
+</head>
+<body>
+
+<!-- ===== 사이드바 ===== -->
+<nav id="sidebar">
+  <div class="sidebar-logo">
+    📊 키움 분석
+    <span>Chart Analysis System</span>
+  </div>
+
+  <!-- 사용자 선택기 -->
+  <div id="user-switcher">
+    <button id="user-btn" onclick="openUserModal()">
+      <div class="avatar" id="user-avatar">?</div>
+      <span id="user-name-label">로딩 중...</span>
+      <span class="caret">▼</span>
+    </button>
+  </div>
+
+  <div id="nav-menu">
+    <div class="nav-section">분석</div>
+    <div class="nav-item active" data-page="dashboard" onclick="showPage('dashboard')">
+      <span class="icon">🏠</span> 대시보드
+    </div>
+    <div class="nav-item" data-page="supply" onclick="showPage('supply')">
+      <span class="icon">💹</span> 수급 현황
+    </div>
+    <div class="nav-item" data-page="signals" onclick="showPage('signals')">
+      <span class="icon">📈</span> 매매 신호
+    </div>
+
+    <div class="nav-section">시스템</div>
+    <div class="nav-item" data-page="auditlog" onclick="showPage('auditlog')">
+      <span class="icon">📋</span> 감사 로그
+    </div>
+    <div class="nav-item" data-page="stocks" onclick="showPage('stocks')">
+      <span class="icon">🔭</span> 감시 종목
+    </div>
+  </div>
+
+  <div class="sidebar-footer">
+    <div id="sidebar-time">--:--:--</div>
+    <div style="margin-top:4px">KST 기준</div>
+  </div>
+</nav>
+
+<!-- ===== 사용자 모달 ===== -->
+<div class="modal-overlay" id="user-modal" onclick="e => e.target===this && closeUserModal()">
+  <div class="modal" style="width:400px" onclick="event.stopPropagation()">
+    <h3>사용자 전환</h3>
+    <div id="user-list"></div>
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid #1e2535">
+      <div style="font-size:12px;color:#64748b;margin-bottom:8px">새 사용자 추가</div>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="new-user-input" placeholder="이름 입력" maxlength="20"
+               onkeydown="if(event.key==='Enter') addUser()"
+               style="flex:1"/>
+        <button class="btn btn-primary" onclick="addUser()">추가</button>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeUserModal()">닫기</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 사용자 설정 모달 ===== -->
+<div class="modal-overlay" id="pref-modal" onclick="event.target===this && closePrefModal()">
+  <div class="modal" style="width:380px" onclick="event.stopPropagation()">
+    <h3 id="pref-modal-title">메뉴 설정</h3>
+    <div style="font-size:12px;color:#64748b;margin-bottom:12px">표시할 메뉴를 선택하세요</div>
+    <div id="menu-checks"></div>
+    <div style="margin-top:18px;padding-top:14px;border-top:1px solid #1e2535">
+      <div style="font-size:12px;color:#64748b;margin-bottom:10px">수급현황 기본값</div>
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px">
+        <label style="font-size:12px;color:#94a3b8;width:60px">기본 종목</label>
+        <select id="pref-stock" style="flex:1;padding:6px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:12px">
+          <option value="">선택 안함</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <label style="font-size:12px;color:#94a3b8;width:60px">기본 기간</label>
+        <select id="pref-period" style="flex:1;padding:6px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:12px">
+          <option value="10">2W</option>
+          <option value="20">1M</option>
+          <option value="60">3M</option>
+          <option value="120">6M</option>
+          <option value="180">9M</option>
+          <option value="250">1Y</option>
+          <option value="375">1.5Y</option>
+          <option value="500" selected>2Y</option>
+          <option value="99999">MAX</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-danger" id="pref-delete-btn" onclick="deleteCurrentEditUser()">삭제</button>
+      <div style="flex:1"></div>
+      <button class="btn btn-ghost" onclick="closePrefModal()">취소</button>
+      <button class="btn btn-primary" onclick="savePrefs()">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 메인 콘텐츠 ===== -->
+<main id="main">
+
+  <!-- ─── 대시보드 ─── -->
+  <section id="page-dashboard" class="page active">
+    <div class="page-header">
+      <div class="page-title">대시보드</div>
+      <div class="page-sub">오늘의 분석 현황 요약</div>
+    </div>
+
+    <div class="cards" id="dash-cards">
+      <div class="card"><div class="card-label">감시 종목</div>
+        <div class="card-value blue" id="d-watched">-</div>
+        <div class="card-note">watched = TRUE</div></div>
+      <div class="card"><div class="card-label">오늘 신호</div>
+        <div class="card-value green" id="d-signals">-</div>
+        <div class="card-note">BUY / SELL 합산</div></div>
+      <div class="card"><div class="card-label">수급 경보</div>
+        <div class="card-value orange" id="d-supply">-</div>
+        <div class="card-note">오늘 발생 건수</div></div>
+      <div class="card"><div class="card-label">오늘 에러</div>
+        <div class="card-value red" id="d-errors">-</div>
+        <div class="card-note">FAIL 이벤트</div></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 340px;gap:20px">
+      <div class="panel">
+        <div class="panel-header">최근 매매 신호</div>
+        <div class="panel-body">
+          <div id="dash-signals-loading" class="loading"><span class="spinner"></span>로딩 중...</div>
+          <table class="data-table" id="dash-signals-table" style="display:none">
+            <thead><tr>
+              <th>시간</th><th>종목</th><th>신호</th>
+              <th class="num">현재가</th><th class="num">신뢰도</th><th>전략</th>
+            </tr></thead>
+            <tbody id="dash-signals-body"></tbody>
+          </table>
+          <div id="dash-signals-empty" class="empty" style="display:none">
+            <div class="empty-icon">📭</div>신호 없음
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">30일 신호 분포</div>
+        <div class="chart-area" style="padding:24px">
+          <canvas id="signal-pie"></canvas>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── 수급 현황 ─── -->
+  <section id="page-supply" class="page">
+    <div class="page-header">
+      <div class="page-title">수급 현황</div>
+      <div class="page-sub">외국인·기관 보유 추이 및 순매수 동향 (최대 500일)</div>
+    </div>
+
+    <!-- 수집 현황 카드 -->
+    <div class="cards" id="supply-summary-cards" style="grid-template-columns:repeat(4,1fr)">
+      <div class="card"><div class="card-label">수집 완료 종목</div>
+        <div class="card-value blue" id="sc-stocks">-</div><div class="card-note">수급 DB 보유</div></div>
+      <div class="card"><div class="card-label">총 수집 행수</div>
+        <div class="card-value green" id="sc-rows">-</div><div class="card-note">supply_demand 테이블</div></div>
+      <div class="card"><div class="card-label">종목당 평균</div>
+        <div class="card-value orange" id="sc-avg">-</div><div class="card-note">평균 수집 일수</div></div>
+      <div class="card"><div class="card-label">미수집 종목</div>
+        <div class="card-value red" id="sc-missing">-</div><div class="card-note">watched 중 데이터 없음</div></div>
+    </div>
+
+    <div class="panel">
+      <div class="filter-bar">
+        <label>종목</label>
+        <div class="autocomplete-wrap">
+          <input type="text" id="supply-stock-input"
+                 placeholder="종목명 또는 코드 검색..."
+                 autocomplete="off" style="width:220px"
+                 oninput="onStockInput()"
+                 onfocus="onStockFocus()"
+                 onblur="onStockBlur()"
+                 onkeydown="onStockKey(event)"/>
+          <input type="hidden" id="supply-stock-code"/>
+          <div id="supply-stock-dropdown" style="display:none"></div>
+        </div>
+        <div style="width:1px;height:20px;background:#2d3748;margin:0 6px"></div>
+        <div class="period-btns" id="supply-period-btns">
+          <button class="period-btn" data-days="10"    onclick="setPeriod(this,10)">2W</button>
+          <button class="period-btn" data-days="20"    onclick="setPeriod(this,20)">1M</button>
+          <button class="period-btn" data-days="60"    onclick="setPeriod(this,60)">3M</button>
+          <button class="period-btn" data-days="120"   onclick="setPeriod(this,120)">6M</button>
+          <button class="period-btn" data-days="180"   onclick="setPeriod(this,180)">9M</button>
+          <button class="period-btn" data-days="250"   onclick="setPeriod(this,250)">1Y</button>
+          <button class="period-btn" data-days="375"   onclick="setPeriod(this,375)">1.5Y</button>
+          <button class="period-btn active" data-days="500"   onclick="setPeriod(this,500)">2Y</button>
+          <button class="period-btn" data-days="99999" onclick="setPeriod(this,99999)">MAX</button>
+        </div>
+        <span id="supply-data-count" style="margin-left:auto;font-size:12px;color:#64748b"></span>
+      </div>
+
+      <div id="supply-empty" class="empty">
+        <div class="empty-icon">🔍</div>종목을 선택하면 수급 데이터가 표시됩니다
+        <div style="margin-top:12px;font-size:12px;color:#475569">
+          히스토리 수집: <code style="background:#1e2535;padding:2px 6px;border-radius:4px">python main.py --collect-history</code>
+        </div>
+      </div>
+
+      <div id="supply-content" style="display:none">
+        <!-- 가격 + 누적 수급 괴리 차트 (전폭) -->
+        <div style="padding:20px 20px 0">
+          <div style="font-size:12px;color:#e2e8f0;font-weight:600;margin-bottom:6px">
+            가격 vs 누적 순매수 (기관+외국인)
+            <span style="font-size:11px;color:#64748b;font-weight:400;margin-left:8px">— 수급 선행 · 가격 후행 구간 포착</span>
+            <span id="supply-price-last" style="font-size:12px;color:#fbbf24;font-weight:700;margin-left:12px"></span>
+          </div>
+          <canvas id="supply-price-chart" style="max-height:200px"></canvas>
+        </div>
+
+        <!-- 2×2 차트 그리드 -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;padding:16px 20px 0">
+          <!-- 외국인 누적 -->
+          <div style="padding-right:16px;border-right:1px solid #1e2535">
+            <div style="font-size:12px;color:#60a5fa;font-weight:600;margin-bottom:10px">
+              외국인 누적 순매수
+              <span id="supply-for-cumul-last" style="font-size:11px;color:#94a3b8;margin-left:8px"></span>
+            </div>
+            <canvas id="supply-for-cumul-chart" style="max-height:150px"></canvas>
+          </div>
+          <!-- 기관 누적 -->
+          <div style="padding-left:16px">
+            <div style="font-size:12px;color:#34d399;font-weight:600;margin-bottom:10px">
+              기관 누적 순매수
+              <span id="supply-orgn-cumul-last" style="font-size:11px;color:#94a3b8;margin-left:8px"></span>
+            </div>
+            <canvas id="supply-orgn-cumul-chart" style="max-height:150px"></canvas>
+          </div>
+        </div>
+
+        <!-- 일별 바 차트 2개 -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;padding:12px 20px 0">
+          <div style="padding-right:16px;border-right:1px solid #1e2535">
+            <div style="font-size:12px;color:#60a5fa;font-weight:600;margin-bottom:10px">외국인 일별 순매수</div>
+            <canvas id="supply-for-chart" style="max-height:110px"></canvas>
+          </div>
+          <div style="padding-left:16px">
+            <div style="font-size:12px;color:#34d399;font-weight:600;margin-bottom:10px">기관 일별 순매수</div>
+            <canvas id="supply-orgn-chart" style="max-height:110px"></canvas>
+          </div>
+        </div>
+
+        <!-- 상세 테이블 -->
+        <div style="padding:0 20px 20px">
+          <div style="font-size:13px;color:#64748b;margin-bottom:12px;font-weight:600">일별 수급 상세</div>
+          <div style="max-height:360px;overflow-y:auto">
+            <table class="data-table">
+              <thead style="position:sticky;top:0;z-index:1">
+                <tr>
+                  <th>날짜</th>
+                  <th class="num" style="color:#fbbf24">종가</th>
+                  <th class="num" style="color:#60a5fa">외국인 일별</th>
+                  <th class="num" style="color:#60a5fa">외국인 누적</th>
+                  <th class="num" style="color:#34d399">기관 일별</th>
+                  <th class="num" style="color:#34d399">기관 누적</th>
+                  <th class="num" style="color:#94a3b8">개인 일별</th>
+                </tr>
+              </thead>
+              <tbody id="supply-table-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── 매매 신호 ─── -->
+  <section id="page-signals" class="page">
+    <div class="page-header">
+      <div class="page-title">매매 신호</div>
+      <div class="page-sub">전략 에이전트가 생성한 BUY / SELL 신호 이력 (최근 100건)</div>
+    </div>
+
+    <div class="panel">
+      <div class="filter-bar">
+        <label>방향 필터</label>
+        <select id="signal-filter" onchange="filterSignals()">
+          <option value="">전체</option>
+          <option value="BUY">매수</option>
+          <option value="SELL">매도</option>
+        </select>
+        <label>종목 검색</label>
+        <input type="text" id="signal-search" placeholder="종목코드 또는 종목명" oninput="filterSignals()" style="width:180px"/>
+      </div>
+      <div class="panel-body">
+        <div id="signals-loading" class="loading"><span class="spinner"></span>로딩 중...</div>
+        <table class="data-table" id="signals-table" style="display:none">
+          <thead><tr>
+            <th>시간</th><th>종목</th><th class="center">신호</th>
+            <th class="num">현재가</th><th class="num">목표가</th><th class="num">손절가</th>
+            <th class="num">신뢰도</th><th>전략</th>
+          </tr></thead>
+          <tbody id="signals-body"></tbody>
+        </table>
+        <div id="signals-empty" class="empty" style="display:none">
+          <div class="empty-icon">📭</div>해당 조건의 신호가 없습니다
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── 감사 로그 ─── -->
+  <section id="page-auditlog" class="page">
+    <div class="page-header">
+      <div class="page-title">감사 로그</div>
+      <div class="page-sub">파이프라인 전체 이벤트 이력 (최근 200건)</div>
+    </div>
+
+    <div class="panel">
+      <div class="filter-bar">
+        <label>이벤트 타입</label>
+        <select id="event-type-filter" onchange="filterEvents()">
+          <option value="">전체</option>
+          <option value="DATA_FETCH">데이터 수집</option>
+          <option value="ANALYSIS">차트 분석</option>
+          <option value="SIGNAL">신호 생성</option>
+          <option value="RISK_CHECK">리스크 검사</option>
+          <option value="NOTIFICATION">알림 발송</option>
+          <option value="ERROR">에러</option>
+          <option value="SYSTEM">시스템</option>
+        </select>
+        <label>상태</label>
+        <select id="event-status-filter" onchange="filterEvents()">
+          <option value="">전체</option>
+          <option value="SUCCESS">성공</option>
+          <option value="FAIL">실패</option>
+          <option value="BLOCKED">차단</option>
+        </select>
+        <label>종목</label>
+        <input type="text" id="event-ticker-filter" placeholder="종목코드" oninput="filterEvents()" style="width:110px"/>
+      </div>
+      <div class="panel-body">
+        <div id="events-loading" class="loading"><span class="spinner"></span>로딩 중...</div>
+        <table class="data-table" id="events-table" style="display:none">
+          <thead><tr>
+            <th>시간</th><th>타입</th><th>에이전트</th>
+            <th>종목</th><th class="center">상태</th><th>내용</th>
+          </tr></thead>
+          <tbody id="events-body"></tbody>
+        </table>
+        <div id="events-empty" class="empty" style="display:none">
+          <div class="empty-icon">📭</div>해당 조건의 이벤트가 없습니다
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── 감시 종목 ─── -->
+  <section id="page-stocks" class="page">
+    <div class="page-header">
+      <div class="page-title">감시 종목</div>
+      <div class="page-sub">현재 watched = TRUE 종목 목록 (시가총액 내림차순)</div>
+    </div>
+
+    <div class="panel">
+      <div class="filter-bar">
+        <label>검색</label>
+        <input type="text" id="stocks-search" placeholder="종목코드 또는 종목명" oninput="filterStocks()" style="width:200px"/>
+        <label>시장</label>
+        <select id="stocks-market" onchange="filterStocks()">
+          <option value="">전체</option>
+          <option value="코스피">코스피</option>
+          <option value="코스닥">코스닥</option>
+        </select>
+        <span id="stocks-count" style="margin-left:auto;font-size:13px;color:#64748b"></span>
+      </div>
+      <div class="panel-body">
+        <div id="stocks-loading" class="loading"><span class="spinner"></span>로딩 중...</div>
+        <table class="data-table" id="stocks-table" style="display:none">
+          <thead><tr>
+            <th>종목코드</th><th>종목명</th><th>시장</th>
+            <th class="num">현재가</th><th class="num">시가총액</th><th>기준일</th>
+          </tr></thead>
+          <tbody id="stocks-body"></tbody>
+        </table>
+        <div id="stocks-empty" class="empty" style="display:none">
+          <div class="empty-icon">📭</div>종목 데이터가 없습니다
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+// ─── 전역 상태 ────────────────────────────────────────
+let allSignals         = [];
+let allEvents          = [];
+let allStocks          = [];
+let allSupplyRows      = [];
+let allStockOptions    = [];  // {code, name}
+let acActiveIdx        = -1;
+let supplyChartPrice     = null;
+let supplyChartForCumul  = null;
+let supplyChartOrgnCumul = null;
+let supplyChartFor       = null;
+let supplyChartOrgn      = null;
+let signalPieChart       = null;
+
+// ─── 페이지 전환 ─────────────────────────────────────
+function showPage(name, fromHash) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  const navEl = document.querySelector(`.nav-item[data-page="${name}"]`);
+  if (navEl) navEl.classList.add('active');
+
+  if (!fromHash) location.hash = name;
+
+  restoreFilters(name);
+
+  if (name === 'dashboard') loadDashboard();
+  if (name === 'supply')    loadSupplyStocksAndRestore();
+  if (name === 'signals')   loadSignals();
+  if (name === 'auditlog')  loadEvents();
+  if (name === 'stocks')    loadStocks();
+}
+
+// ─── 대시보드 ─────────────────────────────────────────
+async function loadDashboard() {
+  try {
+    const res = await fetch('/api/dashboard');
+    const d = await res.json();
+
+    document.getElementById('d-watched').textContent  = d.watched_count.toLocaleString();
+    document.getElementById('d-signals').textContent  = d.signals_today;
+    document.getElementById('d-supply').textContent   = d.supply_alerts_today;
+    document.getElementById('d-errors').textContent   = d.errors_today;
+
+    // 최근 신호 테이블
+    const tbody = document.getElementById('dash-signals-body');
+    const table = document.getElementById('dash-signals-table');
+    const loading = document.getElementById('dash-signals-loading');
+    const empty = document.getElementById('dash-signals-empty');
+
+    loading.style.display = 'none';
+    if (!d.recent_signals || d.recent_signals.length === 0) {
+      empty.style.display = 'block';
+    } else {
+      table.style.display = 'table';
+      tbody.innerHTML = d.recent_signals.map(s => `
+        <tr>
+          <td style="color:#64748b">${s.ts}</td>
+          <td><b>${s.ticker}</b> <span style="color:#64748b;font-size:12px">${s.stock_name}</span></td>
+          <td class="center"><span class="badge badge-${s.signal.toLowerCase()}">${signalLabel(s.signal)}</span></td>
+          <td class="num">${s.price}</td>
+          <td class="num">${s.confidence_pct}</td>
+          <td style="color:#94a3b8;font-size:12px">${s.strategy || '-'}</td>
+        </tr>
+      `).join('');
+    }
+
+    // 파이 차트
+    const stats = d.signal_stats_30d || {};
+    drawSignalPie(stats);
+
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+function drawSignalPie(stats) {
+  const ctx = document.getElementById('signal-pie').getContext('2d');
+  if (signalPieChart) signalPieChart.destroy();
+
+  const labels = Object.keys(stats).map(k => signalLabel(k));
+  const data   = Object.values(stats);
+  const colors = Object.keys(stats).map(k =>
+    k === 'BUY' ? '#4ade80' : k === 'SELL' ? '#f87171' : '#60a5fa'
+  );
+
+  if (data.length === 0) {
+    document.getElementById('signal-pie').parentElement.innerHTML =
+      '<div class="empty"><div class="empty-icon">📊</div>신호 데이터 없음</div>';
+    return;
+  }
+
+  signalPieChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: { labels, datasets: [{ data, backgroundColor: colors, borderWidth: 0 }] },
+    options: {
+      plugins: {
+        legend: { labels: { color: '#94a3b8', font: { size: 13 } } }
+      },
+      cutout: '60%',
+    }
+  });
+}
+
+// ─── 수급 현황 ─────────────────────────────────────────
+async function loadSupplyStocks() {
+  // 수집 현황 카드
+  try {
+    const sr = await fetch('/api/supply_demand/summary');
+    const sd = await sr.json();
+    document.getElementById('sc-stocks').textContent  = sd.collected_stocks.toLocaleString();
+    document.getElementById('sc-rows').textContent    = sd.total_rows.toLocaleString();
+    document.getElementById('sc-avg').textContent     = sd.avg_days_per_stock + '일';
+    document.getElementById('sc-missing').textContent = sd.watched_without_data.toLocaleString();
+  } catch(e) { console.error(e); }
+
+  // 종목 목록 (자동완성용)
+  if (allStockOptions.length) return;
+  try {
+    const res = await fetch('/api/supply_demand/stocks');
+    const list = await res.json();
+    allStockOptions = list.map(s => ({ code: s.stock_code, name: s.stock_name }));
+  } catch(e) { console.error(e); }
+}
+
+// ─── 자동완성 ─────────────────────────────────────────
+function onStockInput() {
+  const q = document.getElementById('supply-stock-input').value;
+  if (!q.trim()) {
+    document.getElementById('supply-stock-code').value = '';
+    document.getElementById('supply-content').style.display = 'none';
+    document.getElementById('supply-empty').style.display = 'block';
+  }
+  renderAcDropdown(q);
+  saveFilters();
+}
+
+function onStockFocus() {
+  document.getElementById('supply-stock-input').value = '';
+  renderAcDropdown('');
+}
+
+function onStockBlur() {
+  setTimeout(hideAcDropdown, 150);
+}
+
+function onStockKey(e) {
+  const items = document.querySelectorAll('#supply-stock-dropdown .ac-item');
+  if (!items.length) return;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    acActiveIdx = Math.min(acActiveIdx + 1, items.length - 1);
+    updateAcActive(items);
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    acActiveIdx = Math.max(acActiveIdx - 1, 0);
+    updateAcActive(items);
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (acActiveIdx >= 0 && items[acActiveIdx]) {
+      const el = items[acActiveIdx];
+      selectStockOption(el.dataset.code, el.dataset.name);
+    }
+  } else if (e.key === 'Escape') {
+    hideAcDropdown();
+  }
+}
+
+function updateAcActive(items) {
+  items.forEach((el, i) => el.classList.toggle('kbd-active', i === acActiveIdx));
+  if (items[acActiveIdx]) items[acActiveIdx].scrollIntoView({ block: 'nearest' });
+}
+
+function renderAcDropdown(q) {
+  const dd = document.getElementById('supply-stock-dropdown');
+  acActiveIdx = -1;
+  const lower = q.trim().toLowerCase();
+
+  const filtered = lower
+    ? allStockOptions.filter(s =>
+        s.code.includes(lower) || s.name.toLowerCase().includes(lower)
+      ).slice(0, 40)
+    : allStockOptions.slice(0, 80);
+
+  if (!filtered.length) {
+    dd.innerHTML = '<div class="ac-empty">검색 결과 없음</div>';
+  } else {
+    dd.innerHTML = filtered.map(s => {
+      const hl = v => {
+        if (!lower) return v;
+        const idx = v.toLowerCase().indexOf(lower);
+        if (idx < 0) return v;
+        return v.slice(0, idx)
+          + `<span class="ac-hl">${v.slice(idx, idx + lower.length)}</span>`
+          + v.slice(idx + lower.length);
+      };
+      const safeName = s.name.replace(/'/g, "\\'");
+      return `<div class="ac-item" data-code="${s.code}" data-name="${s.name}"
+                   onclick="selectStockOption('${s.code}','${safeName}')">
+        <span class="ac-code">${hl(s.code)}</span>
+        <span class="ac-name">${hl(s.name)}</span>
+      </div>`;
+    }).join('');
+  }
+  dd.style.display = 'block';
+}
+
+function hideAcDropdown() {
+  document.getElementById('supply-stock-dropdown').style.display = 'none';
+}
+
+function selectStockOption(code, name) {
+  document.getElementById('supply-stock-input').value = `${code} ${name}`;
+  document.getElementById('supply-stock-code').value = code;
+  hideAcDropdown();
+  loadSupplyDemand();
+}
+
+async function loadSupplyStocksAndRestore() {
+  await loadSupplyStocks();
+
+  // 우선순위: 사용자 기본값 → 마지막 필터 저장값
+  let state;
+  try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch { state = {}; }
+  const userStock  = currentUser?.supply_default_stock || '';
+  const userPeriod = currentUser?.supply_default_period || 500;
+
+  const targetCode = userStock || state.supply_stock || '';
+  if (targetCode) {
+    const opt = allStockOptions.find(s => s.code === targetCode);
+    if (opt) {
+      document.getElementById('supply-stock-input').value = `${opt.code} ${opt.name}`;
+      document.getElementById('supply-stock-code').value = opt.code;
+    }
+  }
+
+  // 기간: 사용자 기본값 적용
+  currentPeriod = userPeriod;
+  document.querySelectorAll('#supply-period-btns .period-btn').forEach(b => {
+    b.classList.toggle('active', Number(b.dataset.days) === currentPeriod);
+  });
+
+  if (document.getElementById('supply-stock-code').value) loadSupplyDemand();
+}
+
+async function loadSupplyDemand() {
+  saveFilters();
+  const code = document.getElementById('supply-stock-code').value;
+  const content = document.getElementById('supply-content');
+  const empty   = document.getElementById('supply-empty');
+
+  if (!code) { content.style.display='none'; empty.style.display='block'; return; }
+  empty.style.display = 'none';
+  content.style.display = 'block';
+
+  try {
+    const res = await fetch(`/api/supply_demand/${code}`);
+    allSupplyRows = await res.json();
+    applySupplyRange();
+  } catch(e) { console.error(e); }
+}
+
+let currentPeriod = 500;
+
+function setPeriod(btn, n) {
+  currentPeriod = n;
+  document.querySelectorAll('#supply-period-btns .period-btn')
+    .forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  saveFilters();
+  applySupplyRange();
+}
+
+function applySupplyRange() {
+  if (!allSupplyRows.length) return;
+  const n = currentPeriod;
+  const rows = allSupplyRows.slice(-n);
+
+  document.getElementById('supply-data-count').textContent =
+    `${rows.length}일치 표시 (전체 ${allSupplyRows.length}일)`;
+
+  // 차트 레이블: 데이터 많을수록 간격 벌리기
+  const step = rows.length > 200 ? Math.ceil(rows.length / 40) : rows.length > 60 ? 5 : 1;
+  const labels = rows.map((r, i) => (i % step === 0) ? r.date_short : '');
+
+  const ratios = rows.map(r => {
+    const v = parseFloat((r.for_hold_ratio || '').replace('+', ''));
+    return isNaN(v) ? null : v;
+  });
+  const orgn   = rows.map(r => r.orgn_net_qty  || 0);
+  const forNet = rows.map(r => r.for_net_qty    || 0);
+  const fullLabels = rows.map(r => r.date);
+
+  const cumulOrgn = rows.map(r => r.cumul_orgn || 0);
+  const cumulFor  = rows.map(r => r.cumul_for  || 0);
+  const pw = rows.length > 200 ? 1.5 : 2;
+
+  // 가격 데이터
+  const prices = rows.map(r => r.close_price || null);
+  const cumulTotal = rows.map(r => (r.cumul_for || 0) + (r.cumul_orgn || 0));
+  const lastPrice = prices.filter(Boolean).slice(-1)[0];
+  if (lastPrice) document.getElementById('supply-price-last').textContent = lastPrice.toLocaleString() + '원';
+
+  // 마지막 누적값 표시
+  const lastFor  = cumulFor[cumulFor.length - 1]  || 0;
+  const lastOrgn = cumulOrgn[cumulOrgn.length - 1] || 0;
+  document.getElementById('supply-for-cumul-last').textContent  = (lastFor  >= 0 ? '+' : '') + fmtLargeNum(lastFor)  + '주';
+  document.getElementById('supply-orgn-cumul-last').textContent = (lastOrgn >= 0 ? '+' : '') + fmtLargeNum(lastOrgn) + '주';
+
+  // ── 가격 vs 누적 순매수 (듀얼 Y축)
+  if (supplyChartPrice) supplyChartPrice.destroy();
+  supplyChartPrice = new Chart(
+    document.getElementById('supply-price-chart').getContext('2d'), {
+      type: 'line',
+      data: {
+        labels: fullLabels,
+        datasets: [
+          {
+            label: '종가',
+            data: prices,
+            borderColor: '#fbbf24',
+            backgroundColor: 'rgba(251,191,36,0.05)',
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.2,
+            fill: false,
+            yAxisID: 'yPrice',
+          },
+          {
+            label: '누적 순매수 (기관+외국인)',
+            data: cumulTotal,
+            borderColor: 'rgba(167,139,250,0.9)',
+            backgroundColor: 'rgba(167,139,250,0.06)',
+            borderWidth: 1.5,
+            pointRadius: 0,
+            tension: 0.3,
+            fill: 'origin',
+            yAxisID: 'ySupply',
+          },
+        ]
+      },
+      options: {
+        responsive: true,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 12 } },
+          tooltip: {
+            callbacks: {
+              title: ctx => fullLabels[ctx[0].dataIndex],
+              label: ctx => ctx.datasetIndex === 0
+                ? ` 종가: ${(ctx.raw || 0).toLocaleString()}원`
+                : ` 누적: ${ctx.raw >= 0 ? '+' : ''}${fmtLargeNum(ctx.raw)}주`,
+            }
+          },
+        },
+        scales: {
+          x: {
+            ticks: { color: '#475569', font: { size: 10 }, maxRotation: 0,
+              callback: (_, i) => (i % step === 0) ? fullLabels[i].slice(5) : '' },
+            grid: { color: '#1a2233' },
+          },
+          yPrice: {
+            type: 'linear', position: 'left',
+            ticks: { color: '#fbbf24', font: { size: 10 },
+              callback: v => v.toLocaleString() },
+            grid: { color: '#1a2233' },
+          },
+          ySupply: {
+            type: 'linear', position: 'right',
+            ticks: { color: '#a78bfa', font: { size: 10 },
+              callback: v => fmtLargeNum(v) },
+            grid: { drawOnChartArea: false },
+          },
+        }
+      }
+    }
+  );
+
+  // ── 외국인 누적 순매수 라인 차트
+  if (supplyChartForCumul) supplyChartForCumul.destroy();
+  supplyChartForCumul = new Chart(
+    document.getElementById('supply-for-cumul-chart').getContext('2d'),
+    makeCumulChart(fullLabels, cumulFor, '#60a5fa', 'rgba(96,165,250,0.07)', step)
+  );
+
+  // ── 기관 누적 순매수 라인 차트
+  if (supplyChartOrgnCumul) supplyChartOrgnCumul.destroy();
+  supplyChartOrgnCumul = new Chart(
+    document.getElementById('supply-orgn-cumul-chart').getContext('2d'),
+    makeCumulChart(fullLabels, cumulOrgn, '#34d399', 'rgba(52,211,153,0.07)', step)
+  );
+
+  // ── 외국인 일별 순매수 바 차트
+  if (supplyChartFor) supplyChartFor.destroy();
+  supplyChartFor = new Chart(
+    document.getElementById('supply-for-chart').getContext('2d'), {
+      type: 'bar',
+      data: {
+        labels: fullLabels,
+        datasets: [{
+          label: '외국인 일별',
+          data: forNet,
+          backgroundColor: forNet.map(v => v >= 0 ? 'rgba(96,165,250,0.8)' : 'rgba(251,146,60,0.8)'),
+          borderWidth: 0,
+        }]
+      },
+      options: supplyChartOpts(fullLabels, step),
+    }
+  );
+
+  // ── 기관 일별 순매수 바 차트
+  if (supplyChartOrgn) supplyChartOrgn.destroy();
+  supplyChartOrgn = new Chart(
+    document.getElementById('supply-orgn-chart').getContext('2d'), {
+      type: 'bar',
+      data: {
+        labels: fullLabels,
+        datasets: [{
+          label: '기관 일별',
+          data: orgn,
+          backgroundColor: orgn.map(v => v >= 0 ? 'rgba(52,211,153,0.8)' : 'rgba(248,113,113,0.8)'),
+          borderWidth: 0,
+        }]
+      },
+      options: supplyChartOpts(fullLabels, step),
+    }
+  );
+
+  // ── 테이블 (최신순)
+  const tbody = document.getElementById('supply-table-body');
+  tbody.innerHTML = [...rows].reverse().map(r => {
+    const fmtC = v => v != null ? `<b>${fmtQty(v)}</b>` : '-';
+    return `<tr>
+      <td style="font-size:12px;color:#94a3b8">${r.date}</td>
+      <td class="num" style="color:#fbbf24">${r.close_price ? r.close_price.toLocaleString() : '-'}</td>
+      <td class="num" style="color:${qtyColor(r.for_net_qty)}">${r.for_net_qty != null ? fmtQty(r.for_net_qty) : '-'}</td>
+      <td class="num" style="color:${qtyColor(r.cumul_for)};font-size:12px">${fmtC(r.cumul_for)}</td>
+      <td class="num" style="color:${qtyColor(r.orgn_net_qty)}">${r.orgn_net_qty != null ? fmtQty(r.orgn_net_qty) : '-'}</td>
+      <td class="num" style="color:${qtyColor(r.cumul_orgn)};font-size:12px">${fmtC(r.cumul_orgn)}</td>
+      <td class="num" style="color:${qtyColor(r.ind_net_qty)}">${r.ind_net_qty != null ? fmtQty(r.ind_net_qty) : '-'}</td>
+    </tr>`;
+  }).join('');
+}
+
+function fmtLargeNum(v) {
+  const a = Math.abs(v);
+  if (a >= 1e8) return (v / 1e8).toFixed(1) + '억';
+  if (a >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+  if (a >= 1e3) return (v / 1e3).toFixed(0) + 'K';
+  return v.toLocaleString();
+}
+
+function makeCumulChart(labels, data, color, bgColor, step) {
+  const pw = data.length > 200 ? 1.5 : 2;
+  // 0 기준선 색상: 데이터 상승 중이면 color, 하락이면 빨강
+  const last = data[data.length - 1] || 0;
+  const fillColor = last >= 0 ? bgColor : bgColor.replace(/[\d.]+\)$/, '0.07)');
+
+  return {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data,
+        borderColor: color,
+        backgroundColor: fillColor,
+        borderWidth: pw,
+        pointRadius: 0,
+        fill: 'origin',
+        tension: 0.3,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            title: ctx => labels[ctx[0].dataIndex],
+            label: ctx => {
+              const v = ctx.raw;
+              return ` ${v >= 0 ? '+' : ''}${fmtLargeNum(v)}주`;
+            },
+          }
+        },
+      },
+      scales: {
+        x: {
+          ticks: {
+            color: '#475569', font: { size: 10 }, maxRotation: 0,
+            callback: (_, i) => (i % step === 0) ? labels[i].slice(5) : '',
+          },
+          grid: { color: '#1a2233' },
+        },
+        y: {
+          ticks: {
+            color: '#64748b', font: { size: 10 },
+            callback: v => fmtLargeNum(v),
+          },
+          grid: { color: '#1a2233' },
+        },
+      }
+    }
+  };
+}
+
+function supplyChartOpts(labels, step) {
+  return {
+    responsive: true,
+    plugins: {
+      legend: { labels: { color: '#94a3b8', font: { size: 12 } } },
+      tooltip: { callbacks: { title: ctx => labels[ctx[0].dataIndex] } },
+    },
+    scales: {
+      x: {
+        ticks: {
+          color: '#475569', font: { size: 10 },
+          maxRotation: 0,
+          callback: (_, i) => (i % step === 0) ? labels[i].slice(5) : '',
+        },
+        grid: { color: '#1a2233' },
+      },
+      y: {
+        ticks: { color: '#475569', font: { size: 11 } },
+        grid: { color: '#1a2233' },
+      },
+    }
+  };
+}
+
+function chartOpts(yLabel, color) {
+  return {
+    responsive: true,
+    plugins: { legend: { labels: { color: '#94a3b8', font: { size: 12 } } } },
+    scales: {
+      x: { ticks: { color: '#475569', font: { size: 11 } }, grid: { color: '#1e2535' } },
+      y: { ticks: { color: '#475569', font: { size: 11 } }, grid: { color: '#1e2535' },
+           title: { display: false } },
+    }
+  };
+}
+
+// ─── 매매 신호 ─────────────────────────────────────────
+async function loadSignals() {
+  const loading = document.getElementById('signals-loading');
+  const table   = document.getElementById('signals-table');
+  const empty   = document.getElementById('signals-empty');
+
+  loading.style.display = 'block';
+  table.style.display = 'none';
+  empty.style.display = 'none';
+
+  try {
+    const res = await fetch('/api/signals');
+    allSignals = await res.json();
+    loading.style.display = 'none';
+    renderSignals(allSignals);
+  } catch(e) { loading.textContent = '로드 실패'; }
+}
+
+function filterSignals() {
+  saveFilters();
+  const dir    = document.getElementById('signal-filter').value;
+  const search = document.getElementById('signal-search').value.toLowerCase();
+  const filtered = allSignals.filter(s => {
+    if (dir && s.signal !== dir) return false;
+    if (search && !s.ticker.includes(search) && !s.stock_name.toLowerCase().includes(search)) return false;
+    return true;
+  });
+  renderSignals(filtered);
+}
+
+function renderSignals(list) {
+  const table = document.getElementById('signals-table');
+  const empty = document.getElementById('signals-empty');
+  const tbody = document.getElementById('signals-body');
+
+  if (!list.length) { table.style.display='none'; empty.style.display='block'; return; }
+  empty.style.display = 'none';
+  table.style.display = 'table';
+  tbody.innerHTML = list.map(s => `
+    <tr>
+      <td style="color:#64748b">${s.ts}</td>
+      <td><b>${s.ticker}</b> <span style="color:#64748b;font-size:12px">${s.stock_name}</span></td>
+      <td class="center"><span class="badge badge-${s.signal.toLowerCase()}">${signalLabel(s.signal)}</span></td>
+      <td class="num">${s.price}</td>
+      <td class="num" style="color:#4ade80">${s.target_price}</td>
+      <td class="num" style="color:#f87171">${s.stop_loss}</td>
+      <td class="num">${s.confidence}</td>
+      <td style="color:#94a3b8;font-size:12px">${s.strategy}</td>
+    </tr>
+  `).join('');
+}
+
+// ─── 감사 로그 ─────────────────────────────────────────
+async function loadEvents() {
+  const loading = document.getElementById('events-loading');
+  loading.style.display = 'block';
+  document.getElementById('events-table').style.display = 'none';
+  document.getElementById('events-empty').style.display = 'none';
+
+  try {
+    const res = await fetch('/api/events');
+    allEvents = await res.json();
+    loading.style.display = 'none';
+    renderEvents(allEvents);
+  } catch(e) { loading.textContent = '로드 실패'; }
+}
+
+function filterEvents() {
+  saveFilters();
+  const tp     = document.getElementById('event-type-filter').value;
+  const st     = document.getElementById('event-status-filter').value;
+  const ticker = document.getElementById('event-ticker-filter').value.toUpperCase();
+
+  const filtered = allEvents.filter(e => {
+    if (tp     && e.event_type !== tp)             return false;
+    if (st     && e.status !== st)                 return false;
+    if (ticker && !e.ticker.includes(ticker))      return false;
+    return true;
+  });
+  renderEvents(filtered);
+}
+
+function renderEvents(list) {
+  const table = document.getElementById('events-table');
+  const empty = document.getElementById('events-empty');
+  const tbody = document.getElementById('events-body');
+
+  if (!list.length) { table.style.display='none'; empty.style.display='block'; return; }
+  empty.style.display = 'none';
+  table.style.display = 'table';
+  tbody.innerHTML = list.map(e => `
+    <tr>
+      <td style="color:#64748b;font-size:12px">${e.ts}</td>
+      <td><span class="badge badge-${e.event_type.toLowerCase().replace('_','')}">${eventLabel(e.event_type)}</span></td>
+      <td style="color:#94a3b8;font-size:12px">${e.agent}</td>
+      <td style="font-size:12px">${e.ticker}</td>
+      <td class="center"><span class="badge badge-${e.status.toLowerCase()}">${statusLabel(e.status)}</span></td>
+      <td style="color:#64748b;font-size:12px">${e.detail}</td>
+    </tr>
+  `).join('');
+}
+
+// ─── 감시 종목 ─────────────────────────────────────────
+async function loadStocks() {
+  const loading = document.getElementById('stocks-loading');
+  loading.style.display = 'block';
+  document.getElementById('stocks-table').style.display = 'none';
+  document.getElementById('stocks-empty').style.display = 'none';
+
+  try {
+    const res = await fetch('/api/stocks');
+    allStocks = await res.json();
+    loading.style.display = 'none';
+    renderStocks(allStocks);
+  } catch(e) { loading.textContent = '로드 실패'; }
+}
+
+function filterStocks() {
+  saveFilters();
+  const search = document.getElementById('stocks-search').value.toLowerCase();
+  const market = document.getElementById('stocks-market').value;
+  const filtered = allStocks.filter(s => {
+    if (market && !s.market_name.includes(market)) return false;
+    if (search && !s.stock_code.includes(search) && !s.stock_name.toLowerCase().includes(search)) return false;
+    return true;
+  });
+  renderStocks(filtered);
+}
+
+function renderStocks(list) {
+  const table = document.getElementById('stocks-table');
+  const empty = document.getElementById('stocks-empty');
+  const tbody = document.getElementById('stocks-body');
+
+  document.getElementById('stocks-count').textContent = `총 ${list.length}개`;
+
+  if (!list.length) { table.style.display='none'; empty.style.display='block'; return; }
+  empty.style.display = 'none';
+  table.style.display = 'table';
+  tbody.innerHTML = list.map(s => `
+    <tr>
+      <td style="font-family:monospace;color:#60a5fa">${s.stock_code}</td>
+      <td><b>${s.stock_name}</b></td>
+      <td><span style="font-size:12px;color:#94a3b8">${s.market_name}</span></td>
+      <td class="num">${s.last_price}원</td>
+      <td class="num" style="color:#60a5fa">${s.market_cap}</td>
+      <td style="color:#475569;font-size:12px">${s.fetched_at}</td>
+    </tr>
+  `).join('');
+}
+
+// ─── 헬퍼 ──────────────────────────────────────────────
+function signalLabel(s) {
+  return { BUY: '매수', SELL: '매도', HOLD: '관망' }[s] || s;
+}
+function statusLabel(s) {
+  return { SUCCESS: '성공', FAIL: '실패', BLOCKED: '차단' }[s] || s;
+}
+function eventLabel(t) {
+  return {
+    DATA_FETCH: '수집', ANALYSIS: '분석', SIGNAL: '신호',
+    RISK_CHECK: '리스크', NOTIFICATION: '알림', ERROR: '에러', SYSTEM: '시스템',
+  }[t] || t;
+}
+function fmtQty(v) {
+  if (v == null) return '-';
+  return (v >= 0 ? '+' : '') + v.toLocaleString();
+}
+function qtyColor(v) {
+  if (v == null) return '#64748b';
+  return v > 0 ? '#4ade80' : v < 0 ? '#f87171' : '#64748b';
+}
+
+// ─── 시계 ──────────────────────────────────────────────
+function updateClock() {
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2,'0');
+  const mm = String(now.getMinutes()).padStart(2,'0');
+  const ss = String(now.getSeconds()).padStart(2,'0');
+  document.getElementById('sidebar-time').textContent = `${hh}:${mm}:${ss}`;
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ─── 사용자 관리 ─────────────────────────────────────────
+const MENU_META = {
+  dashboard: { label: '대시보드', icon: '🏠', section: '분석' },
+  supply:    { label: '수급 현황', icon: '💹', section: '분석' },
+  signals:   { label: '매매 신호', icon: '📈', section: '분석' },
+  auditlog:  { label: '감사 로그', icon: '📋', section: '시스템' },
+  stocks:    { label: '감시 종목', icon: '🔭', section: '시스템' },
+};
+
+let allUsers = [];
+let currentUser = null;
+let editingUserId = null;
+
+async function loadUsers() {
+  const res = await fetch('/api/users');
+  allUsers = await res.json();
+
+  const savedId = parseInt(localStorage.getItem('current_user_id') || '0');
+  currentUser = allUsers.find(u => u.id === savedId) || allUsers[0];
+  if (currentUser) applyUser(currentUser);
+}
+
+function applyUser(user) {
+  currentUser = user;
+  localStorage.setItem('current_user_id', user.id);
+
+  // 사이드바 표시
+  document.getElementById('user-avatar').textContent = user.name[0].toUpperCase();
+  document.getElementById('user-name-label').textContent = user.name;
+
+  // 메뉴 on/off
+  const visible = user.visible_menus || PAGES;
+  document.querySelectorAll('.nav-item[data-page]').forEach(el => {
+    el.style.display = visible.includes(el.dataset.page) ? '' : 'none';
+  });
+  // nav-section 헤더도 관련 메뉴가 모두 숨겨지면 숨김
+  document.querySelectorAll('.nav-section').forEach(sec => {
+    let next = sec.nextElementSibling;
+    let anyVisible = false;
+    while (next && !next.classList.contains('nav-section')) {
+      if (next.style.display !== 'none') anyVisible = true;
+      next = next.nextElementSibling;
+    }
+    sec.style.display = anyVisible ? '' : 'none';
+  });
+}
+
+function openUserModal() {
+  renderUserList();
+  document.getElementById('user-modal').classList.add('open');
+  document.getElementById('new-user-input').value = '';
+}
+function closeUserModal() {
+  document.getElementById('user-modal').classList.remove('open');
+}
+
+function renderUserList() {
+  document.getElementById('user-list').innerHTML = allUsers.map(u => `
+    <div class="user-list-item ${u.id === currentUser?.id ? 'selected' : ''}"
+         onclick="selectUser(${u.id})">
+      <div class="u-avatar">${u.name[0].toUpperCase()}</div>
+      <span class="u-name">${u.name}</span>
+      <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px"
+              onclick="event.stopPropagation();openPrefModal(${u.id})">설정</button>
+    </div>
+  `).join('');
+}
+
+function selectUser(id) {
+  const user = allUsers.find(u => u.id === id);
+  if (!user) return;
+  applyUser(user);
+  closeUserModal();
+
+  // 현재 보이지 않는 페이지에 있으면 첫 번째 보이는 메뉴로 이동
+  const hash = location.hash.replace('#','');
+  if (!user.visible_menus.includes(hash)) {
+    showPage(user.visible_menus[0] || 'dashboard', false);
+  }
+}
+
+async function addUser() {
+  const name = document.getElementById('new-user-input').value.trim();
+  if (!name) return;
+  const res = await fetch('/api/users', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name}),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    alert(err.error || '오류가 발생했습니다');
+    return;
+  }
+  const newUser = await res.json();
+  allUsers.push(newUser);
+  document.getElementById('new-user-input').value = '';
+  renderUserList();
+}
+
+// ── 설정 모달
+async function openPrefModal(userId) {
+  editingUserId = userId;
+  const user = allUsers.find(u => u.id === userId);
+  document.getElementById('pref-modal-title').textContent = `${user.name} — 메뉴 설정`;
+  document.getElementById('pref-delete-btn').style.display = allUsers.length > 1 ? '' : 'none';
+
+  // 메뉴 체크박스
+  const visible = user.visible_menus || PAGES;
+  document.getElementById('menu-checks').innerHTML = Object.entries(MENU_META).map(([key, m]) => `
+    <div class="menu-check-item">
+      <input type="checkbox" id="mc-${key}" ${visible.includes(key) ? 'checked' : ''}
+             ${key === 'dashboard' ? 'disabled' : ''}>
+      <label for="mc-${key}">${m.icon} ${m.label}</label>
+    </div>
+  `).join('');
+
+  // 기본 종목 드롭다운 로드
+  const sel = document.getElementById('pref-stock');
+  if (sel.options.length <= 1) {
+    try {
+      const list = allStockOptions.length
+        ? allStockOptions.map(s => ({stock_code: s.code, stock_name: s.name}))
+        : await fetch('/api/supply_demand/stocks').then(r => r.json());
+      list.forEach(s => sel.add(new Option(`${s.stock_code} ${s.stock_name}`, s.stock_code)));
+    } catch {}
+  }
+  sel.value = user.supply_default_stock || '';
+  document.getElementById('pref-period').value = String(user.supply_default_period || 500);
+
+  closeUserModal();
+  document.getElementById('pref-modal').classList.add('open');
+}
+
+function closePrefModal() {
+  document.getElementById('pref-modal').classList.remove('open');
+  editingUserId = null;
+}
+
+async function savePrefs() {
+  if (!editingUserId) return;
+  const visible = PAGES.filter(p =>
+    p === 'dashboard' || document.getElementById(`mc-${p}`)?.checked
+  );
+  const stock  = document.getElementById('pref-stock').value;
+  const period = parseInt(document.getElementById('pref-period').value);
+
+  await fetch(`/api/users/${editingUserId}/preferences`, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({visible_menus: visible, supply_default_stock: stock, supply_default_period: period}),
+  });
+
+  // 로컬 업데이트
+  const user = allUsers.find(u => u.id === editingUserId);
+  if (user) {
+    user.visible_menus = visible;
+    user.supply_default_stock = stock;
+    user.supply_default_period = period;
+    if (editingUserId === currentUser?.id) applyUser(user);
+  }
+  closePrefModal();
+}
+
+async function deleteCurrentEditUser() {
+  if (!editingUserId) return;
+  const user = allUsers.find(u => u.id === editingUserId);
+  if (!confirm(`"${user?.name}" 사용자를 삭제할까요?`)) return;
+  const res = await fetch(`/api/users/${editingUserId}`, {method: 'DELETE'});
+  if (!res.ok) { const e = await res.json(); alert(e.error); return; }
+  allUsers = allUsers.filter(u => u.id !== editingUserId);
+  if (currentUser?.id === editingUserId) selectUser(allUsers[0]?.id);
+  closePrefModal();
+}
+
+// ─── 필터 상태 저장/복원 ────────────────────────────────
+const LS_KEY = 'kiwoom_filters';
+
+function saveFilters() {
+  const state = {
+    supply_stock:   document.getElementById('supply-stock-code')?.value || '',
+    supply_period:  currentPeriod,
+    signal_filter:  document.getElementById('signal-filter')?.value || '',
+    signal_search:  document.getElementById('signal-search')?.value || '',
+    event_type:     document.getElementById('event-type-filter')?.value || '',
+    event_status:   document.getElementById('event-status-filter')?.value || '',
+    event_ticker:   document.getElementById('event-ticker-filter')?.value || '',
+    stocks_search:  document.getElementById('stocks-search')?.value || '',
+    stocks_market:  document.getElementById('stocks-market')?.value || '',
+  };
+  localStorage.setItem(LS_KEY, JSON.stringify(state));
+}
+
+function restoreFilters(page) {
+  let state;
+  try { state = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch { state = {}; }
+
+  if (page === 'supply') {
+    if (state.supply_period) {
+      currentPeriod = state.supply_period;
+      document.querySelectorAll('#supply-period-btns .period-btn').forEach(b => {
+        b.classList.toggle('active', Number(b.dataset.days) === currentPeriod);
+      });
+    }
+    // 종목 선택은 드롭다운 로드 후 적용 (loadSupplyStocksAndRestore 에서)
+  }
+  if (page === 'signals') {
+    if (state.signal_filter) document.getElementById('signal-filter').value = state.signal_filter;
+    if (state.signal_search) document.getElementById('signal-search').value = state.signal_search;
+  }
+  if (page === 'auditlog') {
+    if (state.event_type)   document.getElementById('event-type-filter').value   = state.event_type;
+    if (state.event_status) document.getElementById('event-status-filter').value = state.event_status;
+    if (state.event_ticker) document.getElementById('event-ticker-filter').value = state.event_ticker;
+  }
+  if (page === 'stocks') {
+    if (state.stocks_search) document.getElementById('stocks-search').value  = state.stocks_search;
+    if (state.stocks_market) document.getElementById('stocks-market').value  = state.stocks_market;
+  }
+}
+
+// ─── 초기 로드 (해시 기반 페이지 복원) ───────────────────
+const PAGES = ['dashboard','supply','signals','auditlog','stocks'];
+function initPage() {
+  const hash = location.hash.replace('#','');
+  const page = PAGES.includes(hash) ? hash : 'dashboard';
+  showPage(page, true);
+}
+window.addEventListener('hashchange', () => {
+  const hash = location.hash.replace('#','');
+  if (PAGES.includes(hash)) showPage(hash, true);
+});
+loadUsers().then(initPage);
+</script>
+</body>
+</html>
