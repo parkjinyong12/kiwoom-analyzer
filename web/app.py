@@ -472,13 +472,11 @@ def api_batch_stop(job_id: str):
     j = BATCH_JOBS.get(job_id)
     if not j:
         return jsonify({"error": "unknown job"}), 404
-    pid = _find_pid(j["match"])
-    if not pid:
+    if not _find_pid(j["match"]):
         return jsonify({"error": "실행 중이 아닙니다"}), 409
-    try:
-        os.kill(pid, signal.SIGTERM)
-    except ProcessLookupError:
-        pass
+    # shell=True로 실행 시 셸 프로세스 + Python 자식 프로세스가 모두 생성되므로
+    # pkill -f 로 매칭되는 모든 프로세스를 한 번에 종료
+    subprocess.run(["pkill", "-TERM", "-f", j["match"]], check=False)
     return jsonify({"ok": True})
 
 
