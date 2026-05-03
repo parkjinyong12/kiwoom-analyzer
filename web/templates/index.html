@@ -238,6 +238,27 @@ canvas { max-height: 220px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #2d3748; border-radius: 3px; }
 
+/* ── 배치 카드 ───────────────────────────────────── */
+.batch-card {
+  background: #161b27; border: 1px solid #1e2535; border-radius: 12px;
+  padding: 20px 24px; margin-bottom: 16px;
+  display: flex; align-items: center; gap: 20px;
+}
+.batch-card-info { flex: 1; min-width: 0; }
+.batch-card-name { font-size: 15px; font-weight: 700; color: #e2e8f0; margin-bottom: 4px; }
+.batch-card-desc { font-size: 12px; color: #64748b; margin-bottom: 8px; }
+.batch-card-log  { font-size: 11px; color: #475569; font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 600px; }
+.batch-status { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 80px; }
+.batch-dot { width: 10px; height: 10px; border-radius: 50%; }
+.batch-dot.running { background: #4ade80; box-shadow: 0 0 6px #4ade80; }
+.batch-dot.stopped { background: #475569; }
+.batch-status-label { font-size: 11px; font-weight: 600; }
+.batch-actions { display: flex; gap: 8px; flex-direction: column; }
+
+/* ── 권한 매트릭스 ────────────────────────────────── */
+#perm-table th.menu-col { text-align: center; min-width: 68px; }
+#perm-table td.menu-col { text-align: center; }
+
 /* ── 자동완성 드롭다운 ────────────────────────────── */
 .autocomplete-wrap { position: relative; }
 #supply-stock-dropdown {
@@ -295,6 +316,14 @@ canvas { max-height: 220px; }
     </div>
     <div class="nav-item" data-page="stocks" onclick="showPage('stocks')">
       <span class="icon">🔭</span> 감시 종목
+    </div>
+
+    <div class="nav-section">관리</div>
+    <div class="nav-item" data-page="batch" onclick="showPage('batch')">
+      <span class="icon">⚙️</span> 배치 관리
+    </div>
+    <div class="nav-item" data-page="usermgmt" onclick="showPage('usermgmt')">
+      <span class="icon">👥</span> 사용자 관리
     </div>
   </div>
 
@@ -652,6 +681,49 @@ canvas { max-height: 220px; }
     </div>
   </section>
 
+
+  <!-- ─── 배치 관리 ─── -->
+  <section id="page-batch" class="page">
+    <div class="page-header">
+      <div class="page-title">배치 관리</div>
+      <div class="page-sub">백그라운드 작업 실행 및 모니터링 (로컬 전용)</div>
+    </div>
+    <div id="batch-list">
+      <div class="loading"><span class="spinner"></span>로딩 중...</div>
+    </div>
+    <div class="panel" id="batch-log-panel" style="display:none;margin-top:4px">
+      <div class="panel-header">
+        <span id="batch-log-title">로그</span>
+        <button class="btn btn-ghost" style="padding:3px 10px;font-size:12px" onclick="closeBatchLog()">✕ 닫기</button>
+      </div>
+      <pre id="batch-log-body" style="padding:16px;font-size:11px;color:#94a3b8;max-height:380px;overflow-y:auto;background:#0a0e17;margin:0;white-space:pre-wrap;word-break:break-all;line-height:1.6"></pre>
+    </div>
+  </section>
+
+  <!-- ─── 사용자 관리 ─── -->
+  <section id="page-usermgmt" class="page">
+    <div class="page-header">
+      <div class="page-title">사용자 관리</div>
+      <div class="page-sub">사용자 추가/삭제 및 메뉴 접근 권한 설정</div>
+    </div>
+    <div class="panel">
+      <div class="panel-header">
+        <span>사용자 목록</span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="text" id="um-new-name" placeholder="새 사용자 이름" maxlength="20"
+                 style="padding:6px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:12px;width:160px"
+                 onkeydown="if(event.key==='Enter')umAddUser()"/>
+          <button class="btn btn-primary" style="font-size:12px" onclick="umAddUser()">추가</button>
+        </div>
+      </div>
+      <div style="overflow-x:auto">
+        <div id="um-table-wrap" style="padding:16px">
+          <div class="loading"><span class="spinner"></span>로딩 중...</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
 </main>
 
 <script>
@@ -686,6 +758,8 @@ function showPage(name, fromHash) {
   if (name === 'signals')   loadSignals();
   if (name === 'auditlog')  loadEvents();
   if (name === 'stocks')    loadStocks();
+  if (name === 'batch')     loadBatch();
+  if (name === 'usermgmt')  loadUserMgmt();
 }
 
 // ─── 대시보드 ─────────────────────────────────────────
@@ -1370,6 +1444,205 @@ function qtyColor(v) {
   return v > 0 ? '#4ade80' : v < 0 ? '#f87171' : '#64748b';
 }
 
+// ─── 배치 관리 ────────────────────────────────────────
+let batchRefreshTimer = null;
+
+async function loadBatch() {
+  clearInterval(batchRefreshTimer);
+  try {
+    const res = await fetch('/api/batch');
+    const jobs = await res.json();
+    renderBatchList(jobs);
+    batchRefreshTimer = setInterval(async () => {
+      const r = await fetch('/api/batch');
+      renderBatchList(await r.json());
+    }, 8000);
+  } catch(e) { document.getElementById('batch-list').innerHTML = '<div class="empty">로드 실패</div>'; }
+}
+
+function renderBatchList(jobs) {
+  document.getElementById('batch-list').innerHTML = jobs.map(j => {
+    const running = j.running;
+    const isFly = j.is_fly;
+    const statusColor = running ? '#4ade80' : '#475569';
+    const statusLabel = running ? `실행 중 (PID ${j.pid})` : '중지됨';
+    const btnDisabled = isFly ? 'disabled title="fly.io에서는 실행 불가"' : '';
+    const startBtn = !running
+      ? `<button class="btn btn-primary" style="font-size:12px" ${btnDisabled} onclick="batchStart('${j.id}')">▶ 실행</button>`
+      : `<button class="btn btn-danger"  style="font-size:12px" ${btnDisabled} onclick="batchStop('${j.id}')">■ 중지</button>`;
+    return `
+    <div class="batch-card">
+      <div class="batch-status">
+        <div class="batch-dot ${running ? 'running' : 'stopped'}"></div>
+        <div class="batch-status-label" style="color:${statusColor}">${running ? '실행중' : '중지'}</div>
+      </div>
+      <div class="batch-card-info">
+        <div class="batch-card-name">${j.name}</div>
+        <div class="batch-card-desc">${j.desc}${isFly ? ' <span style="color:#fb923c;font-size:11px">· fly.io 원격 실행 불가</span>' : ''}</div>
+        <div class="batch-card-log">${j.last_line ? `최근: ${j.last_line}` : '로그 없음'}</div>
+        ${j.log_file ? `<div style="font-size:10px;color:#334155;margin-top:3px">${j.log_file}</div>` : ''}
+      </div>
+      <div class="batch-actions">
+        ${startBtn}
+        <button class="btn btn-ghost" style="font-size:12px" onclick="batchShowLog('${j.id}','${j.name}')">로그 보기</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function batchStart(id) {
+  const res = await fetch(`/api/batch/${id}/start`, {method:'POST'});
+  const d = await res.json();
+  if (!res.ok) { alert(d.error); return; }
+  setTimeout(loadBatch, 1000);
+}
+
+async function batchStop(id) {
+  if (!confirm('작업을 중지할까요?')) return;
+  const res = await fetch(`/api/batch/${id}/stop`, {method:'POST'});
+  const d = await res.json();
+  if (!res.ok) { alert(d.error); return; }
+  setTimeout(loadBatch, 500);
+}
+
+async function batchShowLog(id, name) {
+  document.getElementById('batch-log-title').textContent = `${name} — 로그 (최근 100줄)`;
+  document.getElementById('batch-log-body').textContent = '로딩 중...';
+  document.getElementById('batch-log-panel').style.display = 'block';
+  document.getElementById('batch-log-panel').scrollIntoView({behavior:'smooth', block:'nearest'});
+  const res = await fetch(`/api/batch/${id}/logs`);
+  const lines = await res.json();
+  const body = document.getElementById('batch-log-body');
+  body.textContent = lines.join('\n') || '로그 없음';
+  body.scrollTop = body.scrollHeight;
+}
+
+function closeBatchLog() {
+  document.getElementById('batch-log-panel').style.display = 'none';
+}
+
+// ─── 사용자 관리 페이지 ──────────────────────────────
+async function loadUserMgmt() {
+  const res = await fetch('/api/users');
+  allUsers = await res.json();
+  if (!allStockOptions.length) {
+    try {
+      const sr = await fetch('/api/supply_demand/stocks');
+      const list = await sr.json();
+      allStockOptions = list.map(s => ({code: s.stock_code, name: s.stock_name}));
+    } catch {}
+  }
+  renderPermMatrix();
+}
+
+function renderPermMatrix() {
+  const menus = Object.keys(MENU_META);
+  const stockOptsBase = '<option value="">없음</option>' +
+    allStockOptions.map(s => `<option value="${s.code}">${s.code} ${s.name}</option>`).join('');
+  const periods = [10,20,60,120,180,250,375,500,99999];
+  const periodLabels = ['2W','1M','3M','6M','9M','1Y','1.5Y','2Y','MAX'];
+
+  const rows = allUsers.map(u => {
+    const vis = u.visible_menus || menus;
+    const menuCells = menus.map(k => {
+      const checked = vis.includes(k) ? 'checked' : '';
+      const disabled = k === 'dashboard' ? 'disabled' : '';
+      return `<td class="menu-col"><input type="checkbox" data-uid="${u.id}" data-menu="${k}" ${checked} ${disabled} style="accent-color:#3b82f6;width:15px;height:15px;cursor:pointer"></td>`;
+    }).join('');
+
+    const stockSel = '<select data-uid="' + u.id + '" class="um-stock" style="background:#0f1117;border:1px solid #1e2535;color:#e2e8f0;border-radius:6px;padding:4px 6px;font-size:12px;max-width:160px">' +
+      stockOptsBase.replace(`value="${u.supply_default_stock}"`, `value="${u.supply_default_stock}" selected`) + '</select>';
+
+    const periodSel = '<select data-uid="' + u.id + '" class="um-period" style="background:#0f1117;border:1px solid #1e2535;color:#e2e8f0;border-radius:6px;padding:4px 6px;font-size:12px">' +
+      periods.map((p,i) => `<option value="${p}"${u.supply_default_period===p?' selected':''}>${periodLabels[i]}</option>`).join('') + '</select>';
+
+    return `<tr>
+      <td><div style="display:flex;align-items:center;gap:8px">
+        <div style="width:28px;height:28px;border-radius:50%;background:#1d3a5f;color:#60a5fa;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">${u.name[0].toUpperCase()}</div>
+        <span style="font-weight:600">${u.name}</span>
+      </div></td>
+      ${menuCells}
+      <td>${stockSel}</td>
+      <td>${periodSel}</td>
+      <td><div style="display:flex;gap:6px">
+        <button class="btn btn-primary" style="font-size:11px;padding:5px 12px;white-space:nowrap" onclick="umSaveUser(${u.id})">저장</button>
+        ${allUsers.length > 1 ? `<button class="btn btn-danger" onclick="umDeleteUser(${u.id})">삭제</button>` : ''}
+      </div></td>
+    </tr>`;
+  }).join('');
+
+  const thMenus = menus.map(k =>
+    `<th class="menu-col" style="font-size:10px;text-align:center">${MENU_META[k].icon}<br/>${MENU_META[k].label}</th>`
+  ).join('');
+
+  document.getElementById('um-table-wrap').innerHTML = `
+    <table class="data-table" id="perm-table" style="min-width:900px">
+      <thead><tr>
+        <th style="min-width:120px">사용자</th>
+        ${thMenus}
+        <th style="min-width:170px">수급 기본 종목</th>
+        <th style="min-width:70px">기간</th>
+        <th></th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+async function umSaveUser(uid) {
+  const row = document.querySelector(`#perm-table tbody tr:has(button[onclick="umSaveUser(${uid})"])`);
+  const visible = Array.from(row.querySelectorAll('input[type=checkbox]'))
+    .filter(cb => cb.checked || cb.disabled)
+    .map(cb => cb.dataset.menu);
+  const stock  = row.querySelector('.um-stock').value;
+  const period = parseInt(row.querySelector('.um-period').value);
+
+  const res = await fetch(`/api/users/${uid}/preferences`, {
+    method: 'PUT',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({visible_menus: visible, supply_default_stock: stock, supply_default_period: period}),
+  });
+  if (!res.ok) { alert('저장 실패'); return; }
+
+  const user = allUsers.find(u => u.id === uid);
+  if (user) {
+    user.visible_menus = visible;
+    user.supply_default_stock = stock;
+    user.supply_default_period = period;
+    if (currentUser?.id === uid) applyUser(user);
+  }
+
+  const btn = row.querySelector('button.btn-primary');
+  const orig = btn.textContent;
+  btn.textContent = '✓ 저장됨';
+  btn.style.background = '#16a34a';
+  setTimeout(() => { btn.textContent = orig; btn.style.background = ''; }, 1500);
+}
+
+async function umAddUser() {
+  const name = document.getElementById('um-new-name').value.trim();
+  if (!name) return;
+  const res = await fetch('/api/users', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({name}),
+  });
+  if (!res.ok) { const e = await res.json(); alert(e.error); return; }
+  const newUser = await res.json();
+  allUsers.push(newUser);
+  document.getElementById('um-new-name').value = '';
+  renderPermMatrix();
+}
+
+async function umDeleteUser(uid) {
+  const user = allUsers.find(u => u.id === uid);
+  if (!confirm(`"${user?.name}" 사용자를 삭제할까요?`)) return;
+  const res = await fetch(`/api/users/${uid}`, {method:'DELETE'});
+  if (!res.ok) { const e = await res.json(); alert(e.error); return; }
+  allUsers = allUsers.filter(u => u.id !== uid);
+  if (currentUser?.id === uid) selectUser(allUsers[0]?.id);
+  renderPermMatrix();
+}
+
 // ─── 시계 ──────────────────────────────────────────────
 function updateClock() {
   const now = new Date();
@@ -1388,6 +1661,8 @@ const MENU_META = {
   signals:   { label: '매매 신호', icon: '📈', section: '분석' },
   auditlog:  { label: '감사 로그', icon: '📋', section: '시스템' },
   stocks:    { label: '감시 종목', icon: '🔭', section: '시스템' },
+  batch:     { label: '배치 관리', icon: '⚙️', section: '관리' },
+  usermgmt:  { label: '사용자 관리', icon: '👥', section: '관리' },
 };
 
 let allUsers = [];
@@ -1603,7 +1878,7 @@ function restoreFilters(page) {
 }
 
 // ─── 초기 로드 (해시 기반 페이지 복원) ───────────────────
-const PAGES = ['dashboard','supply','signals','auditlog','stocks'];
+const PAGES = ['dashboard','supply','signals','auditlog','stocks','batch','usermgmt'];
 function initPage() {
   const hash = location.hash.replace('#','');
   const page = PAGES.includes(hash) ? hash : 'dashboard';

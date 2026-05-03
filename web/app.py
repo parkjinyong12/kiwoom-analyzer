@@ -14,11 +14,48 @@ from datetime import datetime, timedelta, timezone
 import psycopg2
 import psycopg2.extras
 import json
+import subprocess
+import glob
+import signal
 from flask import Flask, jsonify, render_template, request
 
 from config import config
 
 app = Flask(__name__)
+
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+IS_FLY = bool(os.environ.get("FLY_REGION"))
+
+BATCH_JOBS = {
+    "collect_history": {
+        "name": "수급 히스토리 수집",
+        "desc": "시총 5조 이상 종목 수급 500일치 수집",
+        "match": "main.py.*collect-history",
+        "cmd": "python -u main.py --collect-history --days 500",
+        "log_prefix": "supply_collect",
+    },
+    "backfill_close": {
+        "name": "종가 백필",
+        "desc": "close_price NULL 종목 종가 채우기",
+        "match": "backfill_close_price",
+        "cmd": "python -u scripts/backfill_close_price.py",
+        "log_prefix": "backfill",
+    },
+}
+
+
+def _find_pid(match: str) -> int | None:
+    try:
+        r = subprocess.run(["pgrep", "-f", match], capture_output=True, text=True)
+        pids = [int(p) for p in r.stdout.strip().split() if p]
+        return pids[0] if pids else None
+    except Exception:
+        return None
+
+
+def _latest_log(prefix: str) -> str | None:
+    files = sorted(glob.glob(os.path.join(BASE_DIR, "logs", f"{prefix}_*.log")))
+    return files[-1] if files else None
 
 
 # ---------------------------------------------------------------------------
@@ -302,7 +339,7 @@ def api_stocks():
 # API — 사용자 관리
 # ---------------------------------------------------------------------------
 
-ALL_MENUS = ["dashboard", "supply", "signals", "auditlog", "stocks"]
+ALL_MENUS = ["dashboard", "supply", "signals", "auditlog", "stocks", "batch", "usermgmt"]
 
 @app.route("/api/users")
 def api_users():
@@ -367,6 +404,90 @@ def api_save_prefs(user_id: int):
 def _get_user_prefs(user_id: int) -> dict:
     rows = query("SELECT key, value FROM user_preferences WHERE user_id = %s", (user_id,))
     return {r["key"]: r["value"] for r in rows}
+
+
+# ---------------------------------------------------------------------------
+# API — 배치 관리
+# ---------------------------------------------------------------------------
+
+@app.route("/api/batch")
+def api_batch():
+    jobs = []
+    for jid, j in BATCH_JOBS.items():
+        pid = _find_pid(j["match"])
+        log_path = _latest_log(j["log_prefix"])
+        last_line = ""
+        if log_path:
+            try:
+                size = os.path.getsize(log_path)
+                with open(log_path, "rb") as f:
+                    f.seek(-min(2000, size), 2)
+                    last_line = f.readlines()[-1].decode("utf-8", errors="replace").strip()
+            except Exception:
+                pass
+        jobs.append({
+            "id": jid,
+            "name": j["name"],
+            "desc": j["desc"],
+            "running": pid is not None,
+            "pid": pid,
+            "last_line": last_line[:120],
+            "log_file": os.path.basename(log_path) if log_path else None,
+            "is_fly": IS_FLY,
+        })
+    return jsonify(jobs)
+
+
+@app.route("/api/batch/<job_id>/start", methods=["POST"])
+def api_batch_start(job_id: str):
+    if IS_FLY:
+        return jsonify({"error": "로컬 환경에서만 실행 가능합니다"}), 403
+    j = BATCH_JOBS.get(job_id)
+    if not j:
+        return jsonify({"error": "unknown job"}), 404
+    if _find_pid(j["match"]):
+        return jsonify({"error": "이미 실행 중입니다"}), 409
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = os.path.join(BASE_DIR, "logs", f"{j['log_prefix']}_{ts}.log")
+    subprocess.Popen(
+        f"PYTHONUNBUFFERED=1 nohup {j['cmd']} > {log_file} 2>&1",
+        shell=True, cwd=BASE_DIR,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    return jsonify({"ok": True, "log_file": os.path.basename(log_file)})
+
+
+@app.route("/api/batch/<job_id>/stop", methods=["POST"])
+def api_batch_stop(job_id: str):
+    if IS_FLY:
+        return jsonify({"error": "로컬 환경에서만 실행 가능합니다"}), 403
+    j = BATCH_JOBS.get(job_id)
+    if not j:
+        return jsonify({"error": "unknown job"}), 404
+    pid = _find_pid(j["match"])
+    if not pid:
+        return jsonify({"error": "실행 중이 아닙니다"}), 409
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    return jsonify({"ok": True})
+
+
+@app.route("/api/batch/<job_id>/logs")
+def api_batch_logs(job_id: str):
+    j = BATCH_JOBS.get(job_id)
+    if not j:
+        return jsonify([])
+    log_path = _latest_log(j["log_prefix"])
+    if not log_path:
+        return jsonify([])
+    try:
+        with open(log_path, "r", errors="replace") as f:
+            lines = f.readlines()
+        return jsonify([ln.rstrip() for ln in lines[-100:]])
+    except Exception:
+        return jsonify([])
 
 
 # ---------------------------------------------------------------------------
