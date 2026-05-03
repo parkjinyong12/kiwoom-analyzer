@@ -1,6 +1,6 @@
 requests>=2.31
-pandas==2.2.3
-numpy==1.26.4
+pandas>=2.0
+numpy>=2.2.6
 pandas-ta==0.4.71b0
 slack-sdk>=3.27
 APScheduler>=3.10
