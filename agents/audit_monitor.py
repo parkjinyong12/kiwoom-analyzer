@@ -520,6 +520,120 @@ class AuditDB:
             )
             return [dict(r) for r in cur.fetchall()]
 
+    def get_supply_price_divergence(
+        self,
+        window_days: int = 20,
+        min_data_days: int = 10,
+        price_flat_pct: float = 3.0,
+        ignore_ratio: float = 0.15,
+    ) -> list[dict]:
+        """
+        수급 상승 + 가격 비상승 종목 탐지 (수급-가격 다이버전스).
+
+        - window_days일 누적 외국인/기관 순매수 계산
+        - 두 수급 절대값 비율 < ignore_ratio 이면 작은 쪽 무시
+        - 유효 수급 중 하나라도 양수 AND 가격 변화율 <= price_flat_pct% → 다이버전스
+        """
+        # 캘린더 기준으로 약 window_days 영업일을 커버하도록 넉넉히 조회
+        fetch_days = int(window_days * 1.6)
+        with self._connect() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                WITH window_data AS (
+                    SELECT
+                        stock_code,
+                        SUM(COALESCE(for_net_qty, 0))  AS for_net_cum,
+                        SUM(COALESCE(orgn_net_qty, 0)) AS orgn_net_cum,
+                        COUNT(*)                        AS day_cnt,
+                        (ARRAY_AGG(close_price ORDER BY date DESC)
+                            FILTER (WHERE close_price IS NOT NULL AND close_price > 0))[1]
+                            AS latest_price,
+                        (ARRAY_AGG(close_price ORDER BY date ASC)
+                            FILTER (WHERE close_price IS NOT NULL AND close_price > 0))[1]
+                            AS oldest_price
+                    FROM supply_demand
+                    WHERE date >= CURRENT_DATE - %(fetch_days)s * INTERVAL '1 day'
+                    GROUP BY stock_code
+                    HAVING COUNT(*) >= %(min_days)s
+                )
+                SELECT
+                    w.stock_code,
+                    s.stock_name,
+                    w.for_net_cum,
+                    w.orgn_net_cum,
+                    w.latest_price,
+                    w.oldest_price,
+                    w.day_cnt,
+                    CASE
+                        WHEN w.oldest_price > 0 AND w.latest_price > 0
+                        THEN ROUND(
+                            (w.latest_price - w.oldest_price)::numeric
+                            / w.oldest_price * 100, 2)
+                        ELSE NULL
+                    END AS price_chg_pct
+                FROM window_data w
+                LEFT JOIN stocks s ON s.stock_code = w.stock_code
+                ORDER BY (w.for_net_cum + w.orgn_net_cum) DESC
+                """,
+                {"fetch_days": fetch_days, "min_days": min_data_days},
+            )
+            rows = [dict(r) for r in cur.fetchall()]
+
+        results = []
+        for row in rows:
+            for_net  = int(row["for_net_cum"]  or 0)
+            orgn_net = int(row["orgn_net_cum"] or 0)
+            price_chg = row["price_chg_pct"]
+            if price_chg is None:
+                continue
+
+            # ── 작은 쪽 수급 무시 판단 ──────────────────────────
+            abs_for  = abs(for_net)
+            abs_orgn = abs(orgn_net)
+            for_valid = orgn_valid = True
+            if abs_for > 0 and abs_orgn > 0:
+                if min(abs_for, abs_orgn) / max(abs_for, abs_orgn) < ignore_ratio:
+                    if abs_for < abs_orgn:
+                        for_valid = False   # 외국인이 작은 쪽 → 무시
+                    else:
+                        orgn_valid = False  # 기관이 작은 쪽 → 무시
+
+            supply_rising = (for_valid and for_net > 0) or (orgn_valid and orgn_net > 0)
+            if not supply_rising:
+                continue
+            if float(price_chg) > price_flat_pct:
+                continue
+
+            rising_parts = []
+            if for_valid and for_net > 0:
+                rising_parts.append("외국인")
+            if orgn_valid and orgn_net > 0:
+                rising_parts.append("기관")
+
+            results.append({
+                "stock_code":   row["stock_code"],
+                "stock_name":   row["stock_name"] or row["stock_code"],
+                "for_net_cum":  for_net,
+                "orgn_net_cum": orgn_net,
+                "latest_price": row["latest_price"],
+                "price_chg_pct": float(price_chg),
+                "day_cnt":      row["day_cnt"],
+                "rising_type":  "+".join(rising_parts),
+                "for_valid":    for_valid,
+                "orgn_valid":   orgn_valid,
+            })
+
+        # 유효 수급 합계 기준 내림차순 정렬
+        results.sort(
+            key=lambda x: (
+                (x["for_net_cum"] if x["for_valid"] else 0)
+                + (x["orgn_net_cum"] if x["orgn_valid"] else 0)
+            ),
+            reverse=True,
+        )
+        return results
+
 
 # ---------------------------------------------------------------------------
 # 수급 트렌드 분석기

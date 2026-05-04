@@ -222,6 +222,22 @@ def api_supply_demand(stock_code: str):
     return jsonify(result)
 
 
+@app.route("/api/supply_divergence")
+def api_supply_divergence():
+    """수급 상승 + 가격 비상승 다이버전스 종목 탐지."""
+    from agents.audit_monitor import AuditDB
+    window   = int(request.args.get("window", 20))
+    price_th = float(request.args.get("price_th", 3.0))
+    ig_ratio = float(request.args.get("ignore_ratio", 0.15))
+    db = AuditDB(config.database_url)
+    rows = db.get_supply_price_divergence(
+        window_days=window,
+        price_flat_pct=price_th,
+        ignore_ratio=ig_ratio,
+    )
+    return jsonify(rows)
+
+
 @app.route("/api/supply_demand/summary")
 def api_supply_summary():
     """수급 데이터 수집 현황 요약."""
