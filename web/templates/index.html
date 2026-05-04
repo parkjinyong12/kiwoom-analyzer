@@ -635,6 +635,10 @@ canvas { max-height: 220px; }
           <input type="checkbox" id="snap-watched" checked style="accent-color:#60a5fa"> 감시 종목만
         </label>
         <button class="btn btn-primary" onclick="loadSnapshot()">조회</button>
+        <div style="width:1px;height:20px;background:#2d3748;margin:0 4px"></div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+          <input type="checkbox" id="snap-filter-diverge" style="accent-color:#60a5fa" onchange="_renderSnapTable()"> 가격↓ + 수급↑ 종목만
+        </label>
       </div>
 
       <!-- 지표 탭 -->
@@ -1429,6 +1433,24 @@ function _renderSnapTable() {
     return supCell(c, tab === 'for' ? 'for_net_cum' : 'orgn_net_cum', tabColor);
   };
 
+  // 가격↓ + 수급↑ 필터
+  const filterDiverge = document.getElementById('snap-filter-diverge')?.checked;
+  const passesFilter = r => {
+    const comps = ps.map(p => r.comparisons[String(p)]);
+    if (comps.some(c => !c || c.price_chg_pct == null)) return false;
+    if (!comps.every(c => c.price_chg_pct < 0)) return false;
+    return comps.every(c => c.for_net_cum > 0) || comps.every(c => c.orgn_net_cum > 0);
+  };
+  const rows = (isPrice && filterDiverge) ? _snapData.filter(passesFilter) : _snapData;
+
+  const countEl = document.getElementById('snap-count');
+  if (countEl) {
+    if (isPrice && filterDiverge)
+      countEl.textContent = `${rows.length} / ${_snapData.length}개 종목`;
+    else
+      countEl.textContent = `${_snapData.length}개 종목`;
+  }
+
   let html = `<table class="data-table" style="min-width:max-content">
     <thead style="position:sticky;top:0;z-index:1"><tr>
       <th style="min-width:80px">종목코드</th>
@@ -1440,7 +1462,7 @@ function _renderSnapTable() {
   }
   html += `</tr></thead><tbody>`;
 
-  for (const r of _snapData) {
+  for (const r of rows) {
     const isOpen = _snapOpenSet.has(r.stock_code);
     const clickAttr = isPrice
       ? `style="cursor:pointer;user-select:none" onclick="snapToggle('${r.stock_code}')"`
@@ -1481,10 +1503,10 @@ function _renderSnapTable() {
 
 async function loadSnapshot() {
   const body       = document.getElementById('snap-body');
-  const countEl    = document.getElementById('snap-count');
   const periods    = document.getElementById('snap-periods').value.trim() || '1,3,5,10,20';
   const watchedOnly = document.getElementById('snap-watched').checked;
   body.innerHTML   = '<div class="empty">조회 중...</div>';
+  const countEl = document.getElementById('snap-count');
   if (countEl) countEl.textContent = '';
   _snapData = [];
   try {
@@ -1495,7 +1517,6 @@ async function loadSnapshot() {
       return;
     }
     _snapData = data;
-    if (countEl) countEl.textContent = `${data.length}개 종목`;
     _renderSnapTable();
   } catch(e) {
     body.innerHTML = `<div class="empty" style="color:#f87171">조회 실패: ${e.message}</div>`;
