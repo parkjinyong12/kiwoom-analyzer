@@ -1865,13 +1865,14 @@ updateClock();
 
 // ─── 사용자 관리 ─────────────────────────────────────────
 const MENU_META = {
-  dashboard: { label: '대시보드', icon: '🏠', section: '분석' },
-  supply:    { label: '수급 현황', icon: '💹', section: '분석' },
-  signals:   { label: '매매 신호', icon: '📈', section: '분석' },
-  auditlog:  { label: '감사 로그', icon: '📋', section: '시스템' },
-  stocks:    { label: '감시 종목', icon: '🔭', section: '시스템' },
-  batch:     { label: '배치 관리', icon: '⚙️', section: '관리' },
-  usermgmt:  { label: '사용자 관리', icon: '👥', section: '관리' },
+  dashboard:  { label: '대시보드',       icon: '🏠', section: '분석' },
+  supply:     { label: '수급 현황',       icon: '💹', section: '분석' },
+  divergence: { label: '수급↑ 가격↔',   icon: '🔍', section: '분석' },
+  signals:    { label: '매매 신호',       icon: '📈', section: '분석' },
+  auditlog:   { label: '감사 로그',       icon: '📋', section: '시스템' },
+  stocks:     { label: '감시 종목',       icon: '🔭', section: '시스템' },
+  batch:      { label: '배치 관리',       icon: '⚙️', section: '관리' },
+  usermgmt:   { label: '사용자 관리',     icon: '👥', section: '관리' },
 };
 
 let allUsers = [];
@@ -1896,7 +1897,10 @@ function applyUser(user) {
   document.getElementById('user-name-label').textContent = user.name;
 
   // 메뉴 on/off
-  const visible = user.visible_menus || PAGES;
+  // 저장된 visible_menus에 없는 신규 페이지(PAGES_V1 이후 추가)는 기본 표시
+  const newPages = PAGES.filter(p => !PAGES_V1.includes(p));
+  const saved = user.visible_menus || PAGES;
+  const visible = [...new Set([...saved, ...newPages])];
   document.querySelectorAll('.nav-item[data-page]').forEach(el => {
     el.style.display = visible.includes(el.dataset.page) ? '' : 'none';
   });
@@ -1972,8 +1976,9 @@ async function openPrefModal(userId) {
   document.getElementById('pref-modal-title').textContent = `${user.name} — 메뉴 설정`;
   document.getElementById('pref-delete-btn').style.display = allUsers.length > 1 ? '' : 'none';
 
-  // 메뉴 체크박스
-  const visible = user.visible_menus || PAGES;
+  // 메뉴 체크박스 (신규 페이지는 기본 체크)
+  const newPages = PAGES.filter(p => !PAGES_V1.includes(p));
+  const visible = [...new Set([...(user.visible_menus || PAGES), ...newPages])];
   document.getElementById('menu-checks').innerHTML = Object.entries(MENU_META).map(([key, m]) => `
     <div class="menu-check-item">
       <input type="checkbox" id="mc-${key}" ${visible.includes(key) ? 'checked' : ''}
@@ -2087,7 +2092,9 @@ function restoreFilters(page) {
 }
 
 // ─── 초기 로드 (해시 기반 페이지 복원) ───────────────────
-const PAGES = ['dashboard','supply','signals','auditlog','stocks','batch','usermgmt'];
+const PAGES = ['dashboard','supply','divergence','signals','auditlog','stocks','batch','usermgmt'];
+// visible_menus 저장 시점 이전에 존재하던 페이지 목록
+const PAGES_V1 = ['dashboard','supply','signals','auditlog','stocks','batch','usermgmt'];
 function initPage() {
   const hash = location.hash.replace('#','');
   const page = PAGES.includes(hash) ? hash : 'dashboard';
