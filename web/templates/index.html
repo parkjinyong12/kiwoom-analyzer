@@ -309,6 +309,9 @@ canvas { max-height: 220px; }
     <div class="nav-item" data-page="divergence" onclick="showPage('divergence')">
       <span class="icon">🔍</span> 수급↑ 가격↔
     </div>
+    <div class="nav-item" data-page="snapshot" onclick="showPage('snapshot')">
+      <span class="icon">📊</span> 기간별 변화
+    </div>
     <div class="nav-item" data-page="signals" onclick="showPage('signals')">
       <span class="icon">📈</span> 매매 신호
     </div>
@@ -612,6 +615,31 @@ canvas { max-height: 220px; }
     </div>
   </section>
 
+  <!-- ─── 기간별 변화 스냅샷 ─── -->
+  <section id="page-snapshot" class="page">
+    <div class="page-header">
+      <div class="page-title">기간별 변화</div>
+      <div class="page-sub">종목별 최신일 기준 N일 전 대비 가격·수급 변화 비교</div>
+    </div>
+    <div class="panel">
+      <div class="filter-bar" style="flex-wrap:wrap;gap:10px">
+        <label>비교 기간 (영업일)</label>
+        <input id="snap-periods" type="text" value="1,3,5,10,20"
+               style="width:160px;background:#1e2535;color:#e2e8f0;border:1px solid #2d3748;border-radius:6px;padding:4px 10px;font-size:13px"
+               placeholder="예: 1,3,5,10,20"/>
+        <div style="width:1px;height:20px;background:#2d3748;margin:0 4px"></div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+          <input type="checkbox" id="snap-watched" checked style="accent-color:#60a5fa"> 감시 종목만
+        </label>
+        <button class="btn btn-primary" onclick="loadSnapshot()">조회</button>
+        <span id="snap-count" style="margin-left:auto;font-size:12px;color:#64748b"></span>
+      </div>
+      <div id="snap-body" style="padding:16px 20px;overflow-x:auto">
+        <div class="empty">조회 버튼을 눌러 기간별 변화를 확인하세요</div>
+      </div>
+    </div>
+  </section>
+
   <!-- ─── 매매 신호 ─── -->
   <section id="page-signals" class="page">
     <div class="page-header">
@@ -819,6 +847,7 @@ function showPage(name, fromHash) {
   if (name === 'dashboard') loadDashboard();
   if (name === 'supply')      loadSupplyStocksAndRestore();
   if (name === 'divergence')  loadDivergence();
+  if (name === 'snapshot')    loadSnapshot();
   if (name === 'signals')     loadSignals();
   if (name === 'auditlog')  loadEvents();
   if (name === 'stocks')    loadStocks();
@@ -1333,6 +1362,87 @@ function chartOpts(yLabel, color) {
            title: { display: false } },
     }
   };
+}
+
+// ─── 기간별 변화 스냅샷 ──────────────────────────────────
+async function loadSnapshot() {
+  const body    = document.getElementById('snap-body');
+  const countEl = document.getElementById('snap-count');
+  const periods  = document.getElementById('snap-periods').value.trim() || '1,3,5,10,20';
+  const watchedOnly = document.getElementById('snap-watched').checked;
+  body.innerHTML = '<div class="empty">조회 중...</div>';
+  if (countEl) countEl.textContent = '';
+
+  try {
+    const res  = await fetch(`/api/snapshot?periods=${periods}&watched_only=${watchedOnly}`);
+    const data = await res.json();
+    if (!data.length) {
+      body.innerHTML = '<div class="empty">데이터가 없습니다</div>';
+      return;
+    }
+
+    const ps = periods.split(',').map(Number).filter(Boolean).sort((a,b)=>a-b);
+    if (countEl) countEl.textContent = `${data.length}개 종목`;
+
+    const fmt   = v => v == null ? '-' : Number(v).toLocaleString();
+    const arrow = v => v == null ? '<span style="color:#475569">-</span>'
+      : v > 0  ? `<span style="color:#f87171">▲</span>`
+      : v < 0  ? `<span style="color:#4ade80">▼</span>`
+      :          `<span style="color:#64748b">─</span>`;
+    const pctFmt = v => v == null ? '-'
+      : v > 0  ? `<span style="color:#f87171">+${v}%</span>`
+      : v < 0  ? `<span style="color:#4ade80">${v}%</span>`
+      :          `<span style="color:#64748b">0%</span>`;
+    const supFmt = (v, posColor) => v == null ? '-'
+      : v > 0  ? `<span style="color:${posColor}">+${fmt(v)}</span>`
+      : v < 0  ? `<span style="color:#f87171">${fmt(v)}</span>`
+      :          `<span style="color:#64748b">0</span>`;
+
+    // ── 헤더 ────────────────────────────────────────────
+    let html = `<table class="data-table" style="min-width:max-content">
+      <thead style="position:sticky;top:0;z-index:1">
+        <tr>
+          <th rowspan="2" style="min-width:80px">종목코드</th>
+          <th rowspan="2" style="min-width:100px">종목명</th>
+          <th rowspan="2" style="min-width:70px;color:#fbbf24">현재가</th>
+          <th rowspan="2" style="min-width:90px;color:#64748b">최신일</th>`;
+    for (const p of ps) {
+      html += `<th colspan="3" style="text-align:center;border-left:1px solid #2d3748;color:#94a3b8">${p}일 전 비교</th>`;
+    }
+    html += `</tr><tr>`;
+    for (const p of ps) {
+      html += `
+        <th class="num" style="border-left:1px solid #2d3748;color:#fbbf24;min-width:75px">가격</th>
+        <th class="num" style="color:#60a5fa;min-width:90px">외국인</th>
+        <th class="num" style="color:#34d399;min-width:90px">기관</th>`;
+    }
+    html += `</tr></thead><tbody>`;
+
+    // ── 행 ──────────────────────────────────────────────
+    for (const r of data) {
+      html += `<tr>
+        <td><code style="font-size:11px">${r.stock_code}</code></td>
+        <td style="font-weight:600">${r.stock_name}</td>
+        <td class="num" style="color:#fbbf24">${fmt(r.latest_price)}</td>
+        <td class="num" style="color:#64748b;font-size:11px">${r.latest_date}</td>`;
+      for (const p of ps) {
+        const c = r.comparisons[String(p)];
+        if (!c) {
+          html += `<td class="num" style="border-left:1px solid #1e2535;color:#2d3748" colspan="3">-</td>`;
+          continue;
+        }
+        html += `
+          <td class="num" style="border-left:1px solid #1e2535">${arrow(c.price_chg_pct)} ${pctFmt(c.price_chg_pct)}</td>
+          <td class="num">${arrow(c.for_net_cum)} ${supFmt(c.for_net_cum,'#60a5fa')}</td>
+          <td class="num">${arrow(c.orgn_net_cum)} ${supFmt(c.orgn_net_cum,'#34d399')}</td>`;
+      }
+      html += `</tr>`;
+    }
+    html += `</tbody></table>`;
+    body.innerHTML = html;
+  } catch(e) {
+    body.innerHTML = `<div class="empty" style="color:#f87171">조회 실패: ${e.message}</div>`;
+  }
 }
 
 // ─── 수급-가격 다이버전스 ─────────────────────────────────
@@ -1871,6 +1981,7 @@ const MENU_META = {
   dashboard:  { label: '대시보드',       icon: '🏠', section: '분석' },
   supply:     { label: '수급 현황',       icon: '💹', section: '분석' },
   divergence: { label: '수급↑ 가격↔',   icon: '🔍', section: '분석' },
+  snapshot:   { label: '기간별 변화',     icon: '📊', section: '분석' },
   signals:    { label: '매매 신호',       icon: '📈', section: '분석' },
   auditlog:   { label: '감사 로그',       icon: '📋', section: '시스템' },
   stocks:     { label: '감시 종목',       icon: '🔭', section: '시스템' },
@@ -2095,7 +2206,7 @@ function restoreFilters(page) {
 }
 
 // ─── 초기 로드 (해시 기반 페이지 복원) ───────────────────
-const PAGES = ['dashboard','supply','divergence','signals','auditlog','stocks','batch','usermgmt'];
+const PAGES = ['dashboard','supply','divergence','snapshot','signals','auditlog','stocks','batch','usermgmt'];
 // visible_menus 저장 시점 이전에 존재하던 페이지 목록
 const PAGES_V1 = ['dashboard','supply','signals','auditlog','stocks','batch','usermgmt'];
 function initPage() {

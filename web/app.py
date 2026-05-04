@@ -238,6 +238,20 @@ def api_supply_divergence():
     return jsonify(rows)
 
 
+@app.route("/api/snapshot")
+def api_snapshot():
+    """종목별 최신일 기준 N일 전 대비 가격·수급 변화 스냅샷."""
+    from agents.audit_monitor import AuditDB
+    raw = request.args.get("periods", "1,3,5,10,20")
+    try:
+        periods = [int(p) for p in raw.split(",") if p.strip().isdigit()]
+    except ValueError:
+        periods = [1, 3, 5, 10, 20]
+    watched_only = request.args.get("watched_only", "true").lower() != "false"
+    db = AuditDB(config.database_url)
+    return jsonify(db.get_snapshot_compare(periods=periods, watched_only=watched_only))
+
+
 @app.route("/api/supply_demand/summary")
 def api_supply_summary():
     """수급 데이터 수집 현황 요약."""

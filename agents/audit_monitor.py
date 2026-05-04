@@ -699,6 +699,105 @@ class AuditDB:
         results.sort(key=lambda x: x["score"], reverse=True)
         return results
 
+    def get_snapshot_compare(
+        self,
+        periods: list[int] | None = None,
+        watched_only: bool = True,
+    ) -> list[dict]:
+        """
+        종목별 최신일 기준 N일 전 대비 가격·수급 변화 스냅샷.
+
+        periods: 비교할 영업일 수 목록 (기본 [1,3,5,10,20])
+        반환: 종목마다 comparisons[N] = {price_chg_pct, for_net_cum, orgn_net_cum}
+        """
+        if periods is None:
+            periods = [1, 3, 5, 10, 20]
+        max_rn = max(periods) + 1   # 최신일(rn=1) + 비교 기준일까지
+
+        with self._connect() as conn:
+            cur = conn.cursor()
+            watched_join = (
+                "INNER JOIN stocks s ON s.stock_code = sd.stock_code AND s.watched = TRUE"
+                if watched_only else
+                "LEFT  JOIN stocks s ON s.stock_code = sd.stock_code"
+            )
+            cur.execute(
+                f"""
+                WITH ranked AS (
+                    SELECT
+                        sd.stock_code,
+                        s.stock_name,
+                        sd.date,
+                        sd.close_price,
+                        COALESCE(sd.for_net_qty,  0) AS for_net,
+                        COALESCE(sd.orgn_net_qty, 0) AS orgn_net,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY sd.stock_code ORDER BY sd.date DESC
+                        ) AS rn
+                    FROM supply_demand sd
+                    {watched_join}
+                )
+                SELECT stock_code, stock_name, date, close_price, for_net, orgn_net, rn
+                FROM ranked
+                WHERE rn <= %(max_rn)s
+                ORDER BY stock_code, rn
+                """,
+                {"max_rn": max_rn},
+            )
+            rows = [dict(r) for r in cur.fetchall()]
+
+        # stock_code → list[row] (rn=1이 최신)
+        by_stock: dict[str, list] = {}
+        for row in rows:
+            by_stock.setdefault(row["stock_code"], []).append(row)
+
+        results = []
+        for code, data in by_stock.items():
+            data.sort(key=lambda x: x["rn"])   # rn=1 최신
+            latest = data[0]
+            latest_price = latest["close_price"]
+            stock_name   = latest["stock_name"] or code
+
+            comparisons: dict[str, dict] = {}
+            for p in periods:
+                # 기준일: rn = p+1 (p 영업일 전)
+                ref_idx = p   # 0-based: data[0]=rn1, data[p]=rn(p+1)
+                if ref_idx >= len(data):
+                    continue
+                ref = data[ref_idx]
+                ref_price = ref["close_price"]
+
+                price_chg = None
+                if latest_price and ref_price and ref_price > 0:
+                    price_chg = round(
+                        (latest_price - ref_price) / ref_price * 100, 2
+                    )
+
+                # 최근 p일 누적 순매수 (data[0]~data[p-1])
+                for_cum  = sum(d["for_net"]  for d in data[:p])
+                orgn_cum = sum(d["orgn_net"] for d in data[:p])
+
+                comparisons[str(p)] = {
+                    "price_chg_pct": price_chg,
+                    "for_net_cum":   for_cum,
+                    "orgn_net_cum":  orgn_cum,
+                    "ref_date":      str(ref["date"]),
+                }
+
+            if not comparisons:
+                continue
+
+            results.append({
+                "stock_code":   code,
+                "stock_name":   stock_name,
+                "latest_date":  str(latest["date"]),
+                "latest_price": latest_price,
+                "comparisons":  comparisons,
+            })
+
+        results.sort(key=lambda x: x["stock_code"])
+        return results
+
 
 # ---------------------------------------------------------------------------
 # 수급 트렌드 분석기
