@@ -17,7 +17,10 @@ import json
 import subprocess
 import glob
 import signal
+import logging
 from flask import Flask, jsonify, render_template, request
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 
 from config import config
 
@@ -33,6 +36,22 @@ def _ensure_app_settings_table():
             CREATE TABLE IF NOT EXISTS app_settings (
                 key   VARCHAR(100) PRIMARY KEY,
                 value TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+
+
+def _ensure_batch_schedules_table():
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS batch_schedules (
+                job_id     VARCHAR(50) PRIMARY KEY,
+                enabled    BOOLEAN NOT NULL DEFAULT FALSE,
+                hour       SMALLINT NOT NULL DEFAULT 9,
+                minute     SMALLINT NOT NULL DEFAULT 0,
+                days       VARCHAR(20) NOT NULL DEFAULT 'weekdays',
+                last_run   TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT NOW()
             )
         """)
@@ -537,6 +556,41 @@ def api_save_settings():
     return jsonify({"ok": True})
 
 
+@app.route("/api/schedule")
+def api_schedule_get():
+    rows = query("SELECT job_id, enabled, hour, minute, days, last_run FROM batch_schedules")
+    result = {r["job_id"]: dict(r) for r in rows}
+    for jid in BATCH_JOBS:
+        if jid not in result:
+            result[jid] = {"job_id": jid, "enabled": False, "hour": 9, "minute": 0, "days": "weekdays", "last_run": None}
+    return jsonify(result)
+
+
+@app.route("/api/schedule/<job_id>", methods=["PUT"])
+def api_schedule_save(job_id: str):
+    if job_id not in BATCH_JOBS:
+        return jsonify({"error": "unknown job"}), 404
+    data = request.get_json() or {}
+    enabled = bool(data.get("enabled", False))
+    hour    = int(data.get("hour", 9))
+    minute  = int(data.get("minute", 0))
+    days    = data.get("days", "weekdays")
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO batch_schedules (job_id, enabled, hour, minute, days, updated_at)
+            VALUES (%s, %s, %s, %s, %s, NOW())
+            ON CONFLICT (job_id) DO UPDATE
+              SET enabled = EXCLUDED.enabled,
+                  hour    = EXCLUDED.hour,
+                  minute  = EXCLUDED.minute,
+                  days    = EXCLUDED.days,
+                  updated_at = NOW()
+        """, (job_id, enabled, hour, minute, days))
+    _reload_scheduler_job(job_id, enabled, hour, minute, days)
+    return jsonify({"ok": True})
+
+
 @app.route("/api/batch/<job_id>/logs")
 def api_batch_logs(job_id: str):
     j = BATCH_JOBS.get(job_id)
@@ -554,6 +608,73 @@ def api_batch_logs(job_id: str):
 
 
 # ---------------------------------------------------------------------------
+# 스케줄러
+# ---------------------------------------------------------------------------
+
+_DAYS_MAP = {
+    "daily":    "mon,tue,wed,thu,fri,sat,sun",
+    "weekdays": "mon,tue,wed,thu,fri",
+    "weekends": "sat,sun",
+}
+
+_scheduler = BackgroundScheduler(timezone="Asia/Seoul")
+
+
+def _run_scheduled_job(job_id: str):
+    j = BATCH_JOBS.get(job_id)
+    if not j:
+        return
+    if _find_pid(j["match"]):
+        logging.info("[scheduler] %s 이미 실행 중 — 스킵", job_id)
+        return
+    settings = _get_app_settings()
+    min_cap = settings.get("min_market_cap", str(5_000_000_000_000))
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = os.path.join(BASE_DIR, "logs", f"{j['log_prefix']}_{ts}.log")
+    logging.info("[scheduler] %s 자동 실행 시작 → %s", job_id, log_file)
+    subprocess.Popen(
+        f"PYTHONUNBUFFERED=1 MIN_MARKET_CAP={min_cap} nohup {j['cmd']} > {log_file} 2>&1",
+        shell=True, cwd=BASE_DIR,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    try:
+        with get_conn() as conn:
+            conn.cursor().execute(
+                "UPDATE batch_schedules SET last_run = NOW() WHERE job_id = %s", (job_id,)
+            )
+    except Exception:
+        pass
+
+
+def _reload_scheduler_job(job_id: str, enabled: bool, hour: int, minute: int, days: str):
+    sched_id = f"batch_{job_id}"
+    if _scheduler.get_job(sched_id):
+        _scheduler.remove_job(sched_id)
+    if not enabled:
+        return
+    day_str = _DAYS_MAP.get(days, "mon,tue,wed,thu,fri")
+    _scheduler.add_job(
+        _run_scheduled_job,
+        CronTrigger(day_of_week=day_str, hour=hour, minute=minute, timezone="Asia/Seoul"),
+        id=sched_id,
+        args=[job_id],
+        replace_existing=True,
+    )
+    logging.info("[scheduler] %s 등록: %02d:%02d [%s]", job_id, hour, minute, days)
+
+
+def _init_scheduler():
+    try:
+        rows = query("SELECT job_id, enabled, hour, minute, days FROM batch_schedules")
+        for r in rows:
+            if r["enabled"]:
+                _reload_scheduler_job(r["job_id"], True, r["hour"], r["minute"], r["days"])
+    except Exception as e:
+        logging.warning("[scheduler] 초기화 실패: %s", e)
+    _scheduler.start()
+
+
+# ---------------------------------------------------------------------------
 # 엔트리포인트
 # ---------------------------------------------------------------------------
 
@@ -562,5 +683,15 @@ try:
 except Exception:
     pass
 
+try:
+    _ensure_batch_schedules_table()
+except Exception:
+    pass
+
+try:
+    _init_scheduler()
+except Exception as e:
+    logging.warning("스케줄러 시작 실패: %s", e)
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5001, debug=True)
+    app.run(host="0.0.0.0", port=5001, debug=True, use_reloader=False)

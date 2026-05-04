@@ -797,6 +797,15 @@ canvas { max-height: 220px; }
     <div id="batch-list">
       <div class="loading"><span class="spinner"></span>로딩 중...</div>
     </div>
+
+    <!-- 스케줄 설정 -->
+    <div class="panel" style="margin-top:16px">
+      <div class="panel-header">스케줄 설정</div>
+      <div id="schedule-list" style="padding:16px;display:flex;flex-direction:column;gap:16px">
+        <div class="loading"><span class="spinner"></span>로딩 중...</div>
+      </div>
+    </div>
+
     <div class="panel" id="batch-log-panel" style="display:none;margin-top:4px">
       <div class="panel-header">
         <span id="batch-log-title">로그</span>
@@ -1838,6 +1847,7 @@ async function loadBatch() {
         document.getElementById('batch-min-cap-input').value = (s.min_market_cap / 1e12).toFixed(0);
       }
     }
+    await loadSchedule();
     batchRefreshTimer = setInterval(async () => {
       const r = await fetch('/api/batch');
       renderBatchList(await r.json());
@@ -1901,6 +1911,96 @@ async function batchShowLog(id, name) {
 
 function closeBatchLog() {
   document.getElementById('batch-log-panel').style.display = 'none';
+}
+
+// ─── 스케줄 관리 ────────────────────────────────────────
+let _scheduleData = {};
+
+async function loadSchedule() {
+  const res = await fetch('/api/schedule');
+  _scheduleData = await res.json();
+  renderScheduleList();
+}
+
+function renderScheduleList() {
+  const batchNames = {};
+  document.querySelectorAll('.batch-card-name').forEach(el => {
+    const card = el.closest('.batch-card');
+    if (!card) return;
+    const btn = card.querySelector('[onclick^="batchStart"],  [onclick^="batchStop"]');
+    if (!btn) return;
+    const id = (btn.getAttribute('onclick').match(/'([^']+)'/) || [])[1];
+    if (id) batchNames[id] = el.textContent.trim();
+  });
+
+  const BATCH_LABELS = {
+    collect_history: '수급 히스토리 수집',
+    backfill_close:  '종가 백필',
+  };
+
+  const html = Object.entries(_scheduleData).map(([jid, s]) => {
+    const label   = BATCH_LABELS[jid] || jid;
+    const enabled = s.enabled;
+    const hour    = String(s.hour ?? 9).padStart(2,'0');
+    const minute  = String(s.minute ?? 0).padStart(2,'0');
+    const days    = s.days || 'weekdays';
+    const lastRun = s.last_run ? new Date(s.last_run).toLocaleString('ko-KR') : '실행 이력 없음';
+
+    return `
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:12px 0;border-bottom:1px solid #1e2535">
+      <div style="min-width:160px">
+        <div style="font-size:14px;font-weight:700;color:#e2e8f0">${label}</div>
+        <div style="font-size:11px;color:#475569;margin-top:2px">마지막 자동 실행: ${lastRun}</div>
+      </div>
+
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+        <input type="checkbox" id="sch-enabled-${jid}" ${enabled ? 'checked' : ''}
+               style="accent-color:#60a5fa;width:16px;height:16px">
+        활성화
+      </label>
+
+      <div style="display:flex;align-items:center;gap:6px">
+        <label style="font-size:12px;color:#94a3b8">시간</label>
+        <input type="number" id="sch-hour-${jid}" value="${hour}" min="0" max="23"
+               style="width:54px;padding:5px 8px;border-radius:6px;border:1px solid #2d3748;background:#0f1117;color:#e2e8f0;font-size:13px;text-align:center"/>
+        <span style="color:#64748b">:</span>
+        <input type="number" id="sch-min-${jid}" value="${minute}" min="0" max="59"
+               style="width:54px;padding:5px 8px;border-radius:6px;border:1px solid #2d3748;background:#0f1117;color:#e2e8f0;font-size:13px;text-align:center"/>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:6px">
+        <label style="font-size:12px;color:#94a3b8">요일</label>
+        <select id="sch-days-${jid}"
+                style="padding:5px 10px;border-radius:6px;border:1px solid #2d3748;background:#0f1117;color:#e2e8f0;font-size:13px">
+          <option value="daily"    ${days==='daily'    ? 'selected':''}>매일</option>
+          <option value="weekdays" ${days==='weekdays' ? 'selected':''}>평일만</option>
+          <option value="weekends" ${days==='weekends' ? 'selected':''}>주말만</option>
+        </select>
+      </div>
+
+      <button class="btn btn-primary" style="font-size:12px" onclick="saveSchedule('${jid}')">저장</button>
+      <span id="sch-msg-${jid}" style="font-size:12px;color:#4ade80;display:none">✓ 저장됨</span>
+    </div>`;
+  }).join('');
+
+  document.getElementById('schedule-list').innerHTML = html || '<div class="empty">등록된 배치가 없습니다</div>';
+}
+
+async function saveSchedule(jid) {
+  const enabled = document.getElementById(`sch-enabled-${jid}`).checked;
+  const hour    = parseInt(document.getElementById(`sch-hour-${jid}`).value) || 0;
+  const minute  = parseInt(document.getElementById(`sch-min-${jid}`).value) || 0;
+  const days    = document.getElementById(`sch-days-${jid}`).value;
+  const res = await fetch(`/api/schedule/${jid}`, {
+    method: 'PUT',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({enabled, hour, minute, days}),
+  });
+  if (!res.ok) { alert('저장 실패'); return; }
+  const msg = document.getElementById(`sch-msg-${jid}`);
+  msg.style.display = 'inline';
+  setTimeout(() => msg.style.display = 'none', 2000);
+  await loadSchedule();
 }
 
 async function saveCollectSettings() {
