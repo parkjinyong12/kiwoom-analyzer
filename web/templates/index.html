@@ -339,23 +339,26 @@ canvas { max-height: 220px; }
   <div class="sidebar-footer">
     <div id="sidebar-time">--:--:--</div>
     <div style="margin-top:4px">KST 기준</div>
+    <div id="view-as-badge" style="display:none;margin-top:8px;font-size:11px;color:#f59e0b;background:#1c1408;border:1px solid #78350f;border-radius:6px;padding:4px 8px">
+      다른 사용자로 보는 중
+    </div>
+    <button onclick="doLogout()"
+            style="margin-top:10px;width:100%;padding:7px;border-radius:6px;border:1px solid #2d3748;background:transparent;color:#64748b;font-size:12px;cursor:pointer;transition:all 0.15s"
+            onmouseover="this.style.background='#1e2535';this.style.color='#94a3b8'"
+            onmouseout="this.style.background='transparent';this.style.color='#64748b'">
+      로그아웃
+    </button>
   </div>
 </nav>
 
 <!-- ===== 사용자 모달 ===== -->
 <div class="modal-overlay" id="user-modal" onclick="e => e.target===this && closeUserModal()">
   <div class="modal" style="width:400px" onclick="event.stopPropagation()">
-    <h3>사용자 전환</h3>
-    <div id="user-list"></div>
-    <div style="margin-top:14px;padding-top:14px;border-top:1px solid #1e2535">
-      <div style="font-size:12px;color:#64748b;margin-bottom:8px">새 사용자 추가</div>
-      <div style="display:flex;gap:8px">
-        <input type="text" id="new-user-input" placeholder="이름 입력" maxlength="20"
-               onkeydown="if(event.key==='Enter') addUser()"
-               style="flex:1"/>
-        <button class="btn btn-primary" onclick="addUser()">추가</button>
-      </div>
+    <h3>다른 사용자로 보기</h3>
+    <div style="font-size:12px;color:#64748b;margin-bottom:12px">
+      다른 사용자를 선택하면 해당 사용자의 메뉴 설정으로 전환됩니다
     </div>
+    <div id="user-list"></div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeUserModal()">닫기</button>
     </div>
@@ -396,6 +399,34 @@ canvas { max-height: 220px; }
       <div style="flex:1"></div>
       <button class="btn btn-ghost" onclick="closePrefModal()">취소</button>
       <button class="btn btn-primary" onclick="savePrefs()">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 계정 설정 모달 ===== -->
+<div class="modal-overlay" id="cred-modal" onclick="event.target===this && closeCredModal()">
+  <div class="modal" style="width:340px" onclick="event.stopPropagation()">
+    <h3 id="cred-modal-title">계정 설정</h3>
+    <div style="font-size:12px;color:#64748b;margin-bottom:16px">로그인 아이디와 비밀번호를 설정합니다</div>
+    <div style="margin-bottom:12px">
+      <label style="font-size:12px;color:#94a3b8;display:block;margin-bottom:5px">로그인 아이디</label>
+      <input type="text" id="cred-login-id" placeholder="영문/숫자, 4자 이상" autocomplete="off"
+             style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #2d3748;background:#0f1117;color:#e2e8f0;font-size:13px"/>
+    </div>
+    <div style="margin-bottom:6px">
+      <label style="font-size:12px;color:#94a3b8;display:block;margin-bottom:5px">비밀번호</label>
+      <input type="password" id="cred-password" placeholder="새 비밀번호 (변경 시만 입력)" autocomplete="new-password"
+             style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #2d3748;background:#0f1117;color:#e2e8f0;font-size:13px"/>
+    </div>
+    <div style="margin-bottom:16px">
+      <label style="font-size:12px;color:#94a3b8;display:block;margin-bottom:5px">비밀번호 확인</label>
+      <input type="password" id="cred-password2" placeholder="비밀번호 재입력" autocomplete="new-password"
+             style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #2d3748;background:#0f1117;color:#e2e8f0;font-size:13px"/>
+    </div>
+    <div id="cred-msg" style="font-size:12px;min-height:18px;margin-bottom:8px"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeCredModal()">취소</button>
+      <button class="btn btn-primary" onclick="saveCredentials()">저장</button>
     </div>
   </div>
 </div>
@@ -2056,17 +2087,25 @@ function renderPermMatrix() {
     const periodSel = '<select data-uid="' + u.id + '" class="um-period" style="background:#0f1117;border:1px solid #1e2535;color:#e2e8f0;border-radius:6px;padding:4px 6px;font-size:12px">' +
       periods.map((p,i) => `<option value="${p}"${u.supply_default_period===p?' selected':''}>${periodLabels[i]}</option>`).join('') + '</select>';
 
+    const loginIdBadge = u.login_id
+      ? `<span style="font-size:10px;color:#4ade80;background:#052e16;padding:1px 6px;border-radius:10px;margin-left:4px">${u.login_id}</span>`
+      : `<span style="font-size:10px;color:#f59e0b;background:#1c1408;padding:1px 6px;border-radius:10px;margin-left:4px">미설정</span>`;
+
     return `<tr>
       <td><div style="display:flex;align-items:center;gap:8px">
         <div style="width:28px;height:28px;border-radius:50%;background:#1d3a5f;color:#60a5fa;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">${u.name[0].toUpperCase()}</div>
-        <span style="font-weight:600">${u.name}</span>
+        <div>
+          <div style="font-weight:600">${u.name}</div>
+          <div style="margin-top:2px">${loginIdBadge}</div>
+        </div>
       </div></td>
       ${menuCells}
       <td>${stockSel}</td>
       <td>${periodSel}</td>
-      <td><div style="display:flex;gap:6px">
+      <td><div style="display:flex;gap:6px;flex-wrap:wrap">
         <button class="btn btn-primary" style="font-size:11px;padding:5px 12px;white-space:nowrap" onclick="umSaveUser(${u.id})">저장</button>
-        ${allUsers.length > 1 ? `<button class="btn btn-danger" onclick="umDeleteUser(${u.id})">삭제</button>` : ''}
+        <button class="btn btn-ghost"   style="font-size:11px;padding:5px 10px;white-space:nowrap" onclick="openCredModal(${u.id})">계정</button>
+        ${allUsers.length > 1 ? `<button class="btn btn-danger" style="font-size:11px" onclick="umDeleteUser(${u.id})">삭제</button>` : ''}
       </div></td>
     </tr>`;
   }).join('');
@@ -2170,23 +2209,29 @@ const MENU_META = {
 let allUsers = [];
 let currentUser = null;
 let editingUserId = null;
+let loggedInUserId = null;
 
 async function loadUsers() {
   const res = await fetch('/api/users');
   allUsers = await res.json();
-
-  const savedId = parseInt(localStorage.getItem('current_user_id') || '0');
-  currentUser = allUsers.find(u => u.id === savedId) || allUsers[0];
+  currentUser = allUsers.find(u => u.id === loggedInUserId) || allUsers[0];
   if (currentUser) applyUser(currentUser);
+}
+
+async function doLogout() {
+  await fetch('/api/logout', {method: 'POST'});
+  window.location.href = '/login';
 }
 
 function applyUser(user) {
   currentUser = user;
-  localStorage.setItem('current_user_id', user.id);
 
   // 사이드바 표시
   document.getElementById('user-avatar').textContent = user.name[0].toUpperCase();
-  document.getElementById('user-name-label').textContent = user.name;
+  const isMe = (user.id === loggedInUserId);
+  document.getElementById('user-name-label').textContent = isMe ? user.name : `${user.name} (보기 중)`;
+  const badge = document.getElementById('view-as-badge');
+  if (badge) badge.style.display = isMe ? 'none' : '';
 
   // 메뉴 on/off
   // 저장된 visible_menus에 없는 신규 페이지(PAGES_V1 이후 추가)는 기본 표시
@@ -2218,15 +2263,20 @@ function closeUserModal() {
 }
 
 function renderUserList() {
-  document.getElementById('user-list').innerHTML = allUsers.map(u => `
-    <div class="user-list-item ${u.id === currentUser?.id ? 'selected' : ''}"
+  document.getElementById('user-list').innerHTML = allUsers.map(u => {
+    const isLoggedIn = (u.id === loggedInUserId);
+    const isViewing  = (u.id === currentUser?.id);
+    return `
+    <div class="user-list-item ${isViewing ? 'selected' : ''}"
          onclick="selectUser(${u.id})">
       <div class="u-avatar">${u.name[0].toUpperCase()}</div>
-      <span class="u-name">${u.name}</span>
-      <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px"
-              onclick="event.stopPropagation();openPrefModal(${u.id})">설정</button>
-    </div>
-  `).join('');
+      <div style="flex:1">
+        <span class="u-name">${u.name}</span>
+        ${isLoggedIn ? '<span style="margin-left:6px;font-size:10px;color:#60a5fa;background:#1d3a5f;padding:1px 6px;border-radius:10px">내 계정</span>' : ''}
+      </div>
+      ${isViewing ? '<span style="font-size:11px;color:#4ade80">보는 중</span>' : ''}
+    </div>`;
+  }).join('');
 }
 
 function selectUser(id) {
@@ -2383,20 +2433,80 @@ function restoreFilters(page) {
   }
 }
 
+// ─── 계정 설정 모달 ─────────────────────────────────────
+let credEditingUserId = null;
+
+function openCredModal(uid) {
+  const user = allUsers.find(u => u.id === uid);
+  credEditingUserId = uid;
+  document.getElementById('cred-modal-title').textContent = `${user.name} — 계정 설정`;
+  document.getElementById('cred-login-id').value = user.login_id || '';
+  document.getElementById('cred-password').value = '';
+  document.getElementById('cred-password2').value = '';
+  document.getElementById('cred-msg').textContent = '';
+  document.getElementById('cred-modal').classList.add('open');
+}
+
+function closeCredModal() {
+  document.getElementById('cred-modal').classList.remove('open');
+  credEditingUserId = null;
+}
+
+async function saveCredentials() {
+  const loginId = document.getElementById('cred-login-id').value.trim();
+  const pw      = document.getElementById('cred-password').value;
+  const pw2     = document.getElementById('cred-password2').value;
+  const msg     = document.getElementById('cred-msg');
+
+  if (!loginId) { msg.style.color = '#f87171'; msg.textContent = '아이디를 입력해주세요'; return; }
+  if (pw && pw !== pw2) { msg.style.color = '#f87171'; msg.textContent = '비밀번호가 일치하지 않습니다'; return; }
+  const user = allUsers.find(u => u.id === credEditingUserId);
+  if (!user?.login_id && !pw) { msg.style.color = '#f87171'; msg.textContent = '최초 설정 시 비밀번호를 입력해주세요'; return; }
+
+  const res = await fetch(`/api/users/${credEditingUserId}/credentials`, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({login_id: loginId, password: pw}),
+  });
+  const data = await res.json();
+  if (!res.ok) { msg.style.color = '#f87171'; msg.textContent = data.error || '저장 실패'; return; }
+
+  // 로컬 업데이트 후 테이블 갱신
+  if (user) user.login_id = loginId;
+  msg.style.color = '#4ade80';
+  msg.textContent = '✓ 저장되었습니다';
+  setTimeout(() => { closeCredModal(); renderPermMatrix(); }, 800);
+}
+
 // ─── 초기 로드 (해시 기반 페이지 복원) ───────────────────
 const PAGES = ['dashboard','supply','divergence','snapshot','signals','auditlog','stocks','batch','usermgmt'];
 // visible_menus 저장 시점 이전에 존재하던 페이지 목록
 const PAGES_V1 = ['dashboard','supply','signals','auditlog','stocks','batch','usermgmt'];
+
 function initPage() {
   const hash = location.hash.replace('#','');
   const page = PAGES.includes(hash) ? hash : 'dashboard';
   showPage(page, true);
 }
+
 window.addEventListener('hashchange', () => {
   const hash = location.hash.replace('#','');
   if (PAGES.includes(hash)) showPage(hash, true);
 });
-loadUsers().then(initPage);
+
+async function initApp() {
+  const meRes = await fetch('/api/me');
+  if (!meRes.ok) {
+    window.location.href = '/login';
+    return;
+  }
+  const me = await meRes.json();
+  loggedInUserId = me.id;
+  await loadUsers();
+  initPage();
+}
+
+initApp();
 </script>
 </body>
 </html>

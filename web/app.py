@@ -18,13 +18,16 @@ import subprocess
 import glob
 import signal
 import logging
-from flask import Flask, jsonify, render_template, request
+import secrets
+from werkzeug.security import generate_password_hash, check_password_hash
+from flask import Flask, jsonify, render_template, request, session, redirect
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from config import config
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "kiwoom-analyzer-secret-change-in-prod")
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
@@ -55,6 +58,13 @@ def _ensure_batch_schedules_table():
                 updated_at TIMESTAMP DEFAULT NOW()
             )
         """)
+
+
+def _ensure_users_auth_columns():
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS login_id VARCHAR(50) UNIQUE")
+        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255)")
 
 BATCH_JOBS = {
     "collect_history": {
@@ -117,7 +127,52 @@ def query_one(sql: str, params: tuple = ()) -> dict | None:
 
 @app.route("/")
 def index():
+    if not session.get("user_id"):
+        return redirect("/login")
     return render_template("index.html")
+
+
+@app.route("/login")
+def login_page():
+    if session.get("user_id"):
+        return redirect("/")
+    return render_template("login.html")
+
+
+@app.route("/api/login", methods=["POST"])
+def api_login():
+    data = request.get_json() or {}
+    login_id = (data.get("login_id") or "").strip()
+    password = data.get("password") or ""
+    if not login_id or not password:
+        return jsonify({"error": "아이디와 비밀번호를 입력해주세요"}), 400
+    user = query_one(
+        "SELECT id, name, password_hash FROM users WHERE login_id = %s", (login_id,)
+    )
+    if not user or not user.get("password_hash"):
+        return jsonify({"error": "아이디 또는 비밀번호가 올바르지 않습니다"}), 401
+    if not check_password_hash(user["password_hash"], password):
+        return jsonify({"error": "아이디 또는 비밀번호가 올바르지 않습니다"}), 401
+    session["user_id"] = user["id"]
+    return jsonify({"ok": True, "user_id": user["id"], "name": user["name"]})
+
+
+@app.route("/api/logout", methods=["POST"])
+def api_logout():
+    session.clear()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/me")
+def api_me():
+    uid = session.get("user_id")
+    if not uid:
+        return jsonify({"error": "not logged in"}), 401
+    user = query_one("SELECT id, name FROM users WHERE id = %s", (uid,))
+    if not user:
+        session.clear()
+        return jsonify({"error": "not logged in"}), 401
+    return jsonify(dict(user))
 
 
 # ---------------------------------------------------------------------------
@@ -403,13 +458,14 @@ ALL_MENUS = ["dashboard", "supply", "divergence", "signals", "auditlog", "stocks
 
 @app.route("/api/users")
 def api_users():
-    rows = query("SELECT id, name FROM users ORDER BY id")
+    rows = query("SELECT id, name, login_id FROM users ORDER BY id")
     result = []
     for r in rows:
         prefs = _get_user_prefs(r["id"])
         result.append({
             "id": r["id"],
             "name": r["name"],
+            "login_id": r.get("login_id") or "",
             "visible_menus":       json.loads(prefs.get("visible_menus", json.dumps(ALL_MENUS))),
             "supply_default_stock": prefs.get("supply_default_stock", ""),
             "supply_default_period": int(prefs.get("supply_default_period", "500")),
@@ -430,6 +486,33 @@ def api_create_user():
     return jsonify({"id": row["id"], "name": row["name"],
                     "visible_menus": ALL_MENUS,
                     "supply_default_stock": "", "supply_default_period": 500}), 201
+
+
+@app.route("/api/users/<int:user_id>/credentials", methods=["PUT"])
+def api_set_credentials(user_id: int):
+    data = request.get_json() or {}
+    login_id = (data.get("login_id") or "").strip()
+    password = (data.get("password") or "").strip()
+    if not login_id:
+        return jsonify({"error": "로그인 아이디를 입력해주세요"}), 400
+    try:
+        with get_conn() as conn:
+            cur = conn.cursor()
+            if password:
+                cur.execute(
+                    "UPDATE users SET login_id = %s, password_hash = %s WHERE id = %s",
+                    (login_id, generate_password_hash(password), user_id),
+                )
+            else:
+                cur.execute(
+                    "UPDATE users SET login_id = %s WHERE id = %s",
+                    (login_id, user_id),
+                )
+    except Exception as e:
+        if "unique" in str(e).lower():
+            return jsonify({"error": "이미 사용 중인 아이디입니다"}), 409
+        return jsonify({"error": str(e)}), 500
+    return jsonify({"ok": True})
 
 
 @app.route("/api/users/<int:user_id>", methods=["DELETE"])
@@ -685,6 +768,11 @@ except Exception:
 
 try:
     _ensure_batch_schedules_table()
+except Exception:
+    pass
+
+try:
+    _ensure_users_auth_columns()
 except Exception:
     pass
 

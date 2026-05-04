@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>로그인 — 키움 분석 대시보드</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  background: #0f1117; color: #e2e8f0;
+  display: flex; align-items: center; justify-content: center;
+  min-height: 100vh;
+}
+.login-box {
+  width: 360px;
+  background: #161b27;
+  border: 1px solid #1e2535;
+  border-radius: 16px;
+  padding: 40px 36px 36px;
+}
+.login-logo {
+  font-size: 22px; font-weight: 700; color: #60a5fa;
+  margin-bottom: 6px; letter-spacing: -0.3px;
+}
+.login-logo span { font-size: 12px; color: #475569; font-weight: 400; display: block; margin-top: 3px; }
+.login-title {
+  font-size: 15px; color: #94a3b8; margin-bottom: 28px; margin-top: 18px;
+  padding-bottom: 18px; border-bottom: 1px solid #1e2535;
+}
+.field { margin-bottom: 16px; }
+.field label { display: block; font-size: 12px; color: #64748b; margin-bottom: 6px; }
+.field input {
+  width: 100%; padding: 10px 14px;
+  background: #0f1117; border: 1px solid #2d3748;
+  border-radius: 8px; color: #e2e8f0; font-size: 14px;
+  outline: none; transition: border-color 0.15s;
+}
+.field input:focus { border-color: #3b82f6; }
+.btn-login {
+  width: 100%; padding: 11px;
+  background: #1d4ed8; border: none; border-radius: 8px;
+  color: #fff; font-size: 14px; font-weight: 600;
+  cursor: pointer; margin-top: 8px; transition: background 0.15s;
+}
+.btn-login:hover { background: #2563eb; }
+.btn-login:disabled { background: #1e3a5f; color: #475569; cursor: not-allowed; }
+.error-msg {
+  margin-top: 14px; padding: 10px 14px;
+  background: #2d1b1b; border: 1px solid #7f1d1d;
+  border-radius: 8px; font-size: 13px; color: #fca5a5;
+  display: none;
+}
+</style>
+</head>
+<body>
+<div class="login-box">
+  <div class="login-logo">
+    📊 키움 분석
+    <span>Chart Analysis System</span>
+  </div>
+  <div class="login-title">로그인</div>
+
+  <div class="field">
+    <label>아이디</label>
+    <input type="text" id="login-id" placeholder="로그인 아이디 입력"
+           autocomplete="username" onkeydown="if(event.key==='Enter')doLogin()"/>
+  </div>
+  <div class="field">
+    <label>비밀번호</label>
+    <input type="password" id="login-pw" placeholder="비밀번호 입력"
+           autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"/>
+  </div>
+
+  <button class="btn-login" id="login-btn" onclick="doLogin()">로그인</button>
+  <div class="error-msg" id="login-error"></div>
+</div>
+
+<script>
+async function doLogin() {
+  const loginId = document.getElementById('login-id').value.trim();
+  const password = document.getElementById('login-pw').value;
+  const btn = document.getElementById('login-btn');
+  const err = document.getElementById('login-error');
+
+  err.style.display = 'none';
+  btn.disabled = true;
+  btn.textContent = '로그인 중...';
+
+  try {
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({login_id: loginId, password}),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      err.textContent = data.error || '로그인 실패';
+      err.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = '로그인';
+      return;
+    }
+    window.location.href = '/';
+  } catch(e) {
+    err.textContent = '서버 연결 오류';
+    err.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = '로그인';
+  }
+}
+
+document.getElementById('login-id').focus();
+</script>
+</body>
+</html>
