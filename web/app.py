@@ -366,7 +366,7 @@ def api_stocks():
 # API — 사용자 관리
 # ---------------------------------------------------------------------------
 
-ALL_MENUS = ["dashboard", "supply", "signals", "auditlog", "stocks", "batch", "usermgmt"]
+ALL_MENUS = ["dashboard", "supply", "divergence", "signals", "auditlog", "stocks", "batch", "usermgmt"]
 
 @app.route("/api/users")
 def api_users():

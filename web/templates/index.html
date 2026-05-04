@@ -306,6 +306,9 @@ canvas { max-height: 220px; }
     <div class="nav-item" data-page="supply" onclick="showPage('supply')">
       <span class="icon">💹</span> 수급 현황
     </div>
+    <div class="nav-item" data-page="divergence" onclick="showPage('divergence')">
+      <span class="icon">🔍</span> 수급↑ 가격↔
+    </div>
     <div class="nav-item" data-page="signals" onclick="showPage('signals')">
       <span class="icon">📈</span> 매매 신호
     </div>
@@ -564,33 +567,47 @@ canvas { max-height: 220px; }
       </div>
     </div>
 
-    <!-- 수급-가격 다이버전스 -->
-    <div class="panel" style="margin-top:16px">
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px 12px;border-bottom:1px solid #1e2535">
-        <div>
-          <div style="font-size:14px;font-weight:700;color:#e2e8f0">수급↑ 가격↔ 다이버전스</div>
-          <div style="font-size:12px;color:#64748b;margin-top:2px">외국인·기관 수급은 올라가는데 가격은 오르지 않는 종목</div>
-        </div>
-        <div style="display:flex;align-items:center;gap:10px">
-          <label style="font-size:12px;color:#94a3b8">조회 기간</label>
-          <select id="div-window" style="background:#1e2535;color:#e2e8f0;border:1px solid #2d3748;border-radius:6px;padding:4px 8px;font-size:12px">
-            <option value="10">10일</option>
-            <option value="20" selected>20일</option>
-            <option value="40">40일</option>
-            <option value="60">60일</option>
-          </select>
-          <label style="font-size:12px;color:#94a3b8">가격 상승 허용</label>
-          <select id="div-price-th" style="background:#1e2535;color:#e2e8f0;border:1px solid #2d3748;border-radius:6px;padding:4px 8px;font-size:12px">
-            <option value="0">0% (횡보·하락만)</option>
-            <option value="3" selected>3%</option>
-            <option value="5">5%</option>
-            <option value="10">10%</option>
-          </select>
-          <button class="btn btn-primary" style="font-size:12px;padding:5px 14px" onclick="loadDivergence()">조회</button>
-        </div>
+  </section>
+
+  <!-- ─── 수급-가격 다이버전스 ─── -->
+  <section id="page-divergence" class="page">
+    <div class="page-header">
+      <div class="page-title">수급↑ 가격↔ 다이버전스</div>
+      <div class="page-sub">외국인·기관 수급은 올라가는데 가격은 오르지 않는 종목 — 선행 매집 신호 포착</div>
+    </div>
+
+    <div class="panel">
+      <div class="filter-bar" style="flex-wrap:wrap;gap:10px">
+        <label>조회 기간</label>
+        <select id="div-window" style="background:#1e2535;color:#e2e8f0;border:1px solid #2d3748;border-radius:6px;padding:4px 8px;font-size:13px">
+          <option value="10">10일</option>
+          <option value="20" selected>20일</option>
+          <option value="40">40일</option>
+          <option value="60">60일</option>
+        </select>
+        <div style="width:1px;height:20px;background:#2d3748;margin:0 4px"></div>
+        <label>가격 상승 허용</label>
+        <select id="div-price-th" style="background:#1e2535;color:#e2e8f0;border:1px solid #2d3748;border-radius:6px;padding:4px 8px;font-size:13px">
+          <option value="0">0% (횡보·하락만)</option>
+          <option value="3" selected>3%</option>
+          <option value="5">5%</option>
+          <option value="10">10%</option>
+        </select>
+        <div style="width:1px;height:20px;background:#2d3748;margin:0 4px"></div>
+        <label>작은 수급 무시 기준</label>
+        <select id="div-ignore-ratio" style="background:#1e2535;color:#e2e8f0;border:1px solid #2d3748;border-radius:6px;padding:4px 8px;font-size:13px">
+          <option value="0.05">5%</option>
+          <option value="0.10">10%</option>
+          <option value="0.15" selected>15%</option>
+          <option value="0.25">25%</option>
+          <option value="0.50">50%</option>
+        </select>
+        <button class="btn btn-primary" onclick="loadDivergence()">조회</button>
+        <span id="div-result-count" style="margin-left:auto;font-size:12px;color:#64748b"></span>
       </div>
+
       <div id="div-body" style="padding:16px 20px">
-        <div class="empty" style="padding:24px 0">조회 버튼을 눌러 다이버전스 종목을 탐색하세요</div>
+        <div class="empty">조회 버튼을 눌러 다이버전스 종목을 탐색하세요</div>
       </div>
     </div>
   </section>
@@ -800,8 +817,9 @@ function showPage(name, fromHash) {
   restoreFilters(name);
 
   if (name === 'dashboard') loadDashboard();
-  if (name === 'supply')    loadSupplyStocksAndRestore();
-  if (name === 'signals')   loadSignals();
+  if (name === 'supply')      loadSupplyStocksAndRestore();
+  if (name === 'divergence')  loadDivergence();
+  if (name === 'signals')     loadSignals();
   if (name === 'auditlog')  loadEvents();
   if (name === 'stocks')    loadStocks();
   if (name === 'batch')     loadBatch();
@@ -1319,27 +1337,30 @@ function chartOpts(yLabel, color) {
 
 // ─── 수급-가격 다이버전스 ─────────────────────────────────
 async function loadDivergence() {
-  const body = document.getElementById('div-body');
+  const body    = document.getElementById('div-body');
+  const countEl = document.getElementById('div-result-count');
   const window_ = document.getElementById('div-window').value;
   const priceTh = document.getElementById('div-price-th').value;
-  body.innerHTML = '<div class="empty" style="padding:24px 0">조회 중...</div>';
+  const igRatio = document.getElementById('div-ignore-ratio').value;
+  body.innerHTML = '<div class="empty">조회 중...</div>';
+  if (countEl) countEl.textContent = '';
   try {
-    const res = await fetch(`/api/supply_divergence?window=${window_}&price_th=${priceTh}`);
+    const res = await fetch(`/api/supply_divergence?window=${window_}&price_th=${priceTh}&ignore_ratio=${igRatio}`);
     const rows = await res.json();
     if (!rows.length) {
-      body.innerHTML = '<div class="empty" style="padding:24px 0">조건에 해당하는 종목이 없습니다</div>';
+      body.innerHTML = '<div class="empty">조건에 해당하는 종목이 없습니다</div>';
       return;
     }
+    if (countEl) countEl.textContent = `${rows.length}개 종목`;
     const fmt = v => v == null ? '-' : Number(v).toLocaleString();
-    const pct = v => v == null ? '-' : (v >= 0 ? `<span style="color:#f87171">+${v}%</span>` : `<span style="color:#4ade80">${v}%</span>`);
-    const tag = t => t === '외국인' ? `<span style="color:#60a5fa;font-weight:700">외국인</span>`
-                   : t === '기관'   ? `<span style="color:#34d399;font-weight:700">기관</span>`
-                   : `<span style="color:#a78bfa;font-weight:700">외국인+기관</span>`;
-    let html = `
-      <div style="font-size:12px;color:#64748b;margin-bottom:10px">
-        ${rows.length}개 종목 — 최근 ${window_}일 기준 / 가격 상승 허용 ${priceTh}%
-      </div>
-      <div style="max-height:440px;overflow-y:auto">
+    const pct = v => v == null ? '-'
+      : v > 0  ? `<span style="color:#f87171">+${v}%</span>`
+      : v < 0  ? `<span style="color:#4ade80">${v}%</span>`
+      :          `<span style="color:#94a3b8">0%</span>`;
+    const tag = t => t === '외국인'      ? `<span style="color:#60a5fa;font-weight:700">외국인</span>`
+                   : t === '기관'        ? `<span style="color:#34d399;font-weight:700">기관</span>`
+                   :                      `<span style="color:#a78bfa;font-weight:700">외국인+기관</span>`;
+    let html = `<div style="max-height:560px;overflow-y:auto">
       <table class="data-table">
         <thead style="position:sticky;top:0;z-index:1">
           <tr>
@@ -1349,7 +1370,7 @@ async function loadDivergence() {
             <th class="num" style="color:#60a5fa">외국인 누적</th>
             <th class="num" style="color:#34d399">기관 누적</th>
             <th class="num" style="color:#fbbf24">현재가</th>
-            <th class="num">가격변화</th>
+            <th class="num">가격 변화</th>
             <th class="num">수집일수</th>
           </tr>
         </thead>
@@ -1357,7 +1378,7 @@ async function loadDivergence() {
     for (const r of rows) {
       html += `<tr>
         <td><code style="font-size:11px">${r.stock_code}</code></td>
-        <td>${r.stock_name}</td>
+        <td style="font-weight:600">${r.stock_name}</td>
         <td>${tag(r.rising_type)}</td>
         <td class="num" style="color:${r.for_net_cum > 0 ? '#60a5fa' : '#f87171'}">${fmt(r.for_net_cum)}</td>
         <td class="num" style="color:${r.orgn_net_cum > 0 ? '#34d399' : '#f87171'}">${fmt(r.orgn_net_cum)}</td>
@@ -1369,7 +1390,7 @@ async function loadDivergence() {
     html += `</tbody></table></div>`;
     body.innerHTML = html;
   } catch(e) {
-    body.innerHTML = '<div class="empty" style="padding:24px 0;color:#f87171">조회 실패: ' + e.message + '</div>';
+    body.innerHTML = '<div class="empty" style="color:#f87171">조회 실패: ' + e.message + '</div>';
   }
 }
 
