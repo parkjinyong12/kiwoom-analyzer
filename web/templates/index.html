@@ -1336,6 +1336,103 @@ function chartOpts(yLabel, color) {
 }
 
 // ─── 수급-가격 다이버전스 ─────────────────────────────────
+// 다이버전스 테이블 상태
+let _divRows = [];
+let _divSortKey = 'score';
+let _divSortAsc = false;
+
+// 추세 문자열을 정렬 가능한 숫자로 변환
+const _trendVal = t => ({↑↑:2, ↑:1, '→':0, ↓:-1, '-':-2}[t] ?? 0);
+
+function _renderDivTable() {
+  const fmt = v => v == null ? '-' : Number(v).toLocaleString();
+  const pct = v => v == null ? '-'
+    : v > 0  ? `<span style="color:#f87171">+${v}%</span>`
+    : v < 0  ? `<span style="color:#4ade80">${v}%</span>`
+    :          `<span style="color:#94a3b8">0%</span>`;
+  const tag = t => t === '외국인'  ? `<span style="color:#60a5fa;font-weight:700">외국인</span>`
+                 : t === '기관'    ? `<span style="color:#34d399;font-weight:700">기관</span>`
+                 :                   `<span style="color:#a78bfa;font-weight:700">외국인+기관</span>`;
+  const trendColor = t => t==='↑↑'?'#4ade80':t==='↑'?'#86efac':t==='↓'?'#f87171':'#94a3b8';
+  const conBar = v => {
+    const color = v >= 70 ? '#4ade80' : v >= 50 ? '#fbbf24' : '#f87171';
+    return `<span style="color:${color};font-size:11px">${v}%</span>`;
+  };
+
+  // 정렬
+  const key = _divSortKey;
+  const asc = _divSortAsc;
+  const sorted = [..._divRows].sort((a, b) => {
+    let va = key === 'for_trend' || key === 'orgn_trend' ? _trendVal(a[key]) : (a[key] ?? -Infinity);
+    let vb = key === 'for_trend' || key === 'orgn_trend' ? _trendVal(b[key]) : (b[key] ?? -Infinity);
+    if (typeof va === 'string') va = va.toLowerCase();
+    if (typeof vb === 'string') vb = vb.toLowerCase();
+    return asc ? (va > vb ? 1 : va < vb ? -1 : 0) : (va < vb ? 1 : va > vb ? -1 : 0);
+  });
+
+  // 헤더 정의: [label, key, color]
+  const cols = [
+    ['종목코드',   'stock_code',        null],
+    ['종목명',     'stock_name',        null],
+    ['주체',       'rising_type',       null],
+    ['외국인 누적','for_net_cum',       '#60a5fa'],
+    ['외국인 추세','for_trend',         '#60a5fa'],
+    ['꾸준함',     'for_consistency',   '#60a5fa'],
+    ['기관 누적',  'orgn_net_cum',      '#34d399'],
+    ['기관 추세',  'orgn_trend',        '#34d399'],
+    ['꾸준함',     'orgn_consistency',  '#34d399'],
+    ['현재가',     'latest_price',      '#fbbf24'],
+    ['가격변화',   'price_chg_pct',     null],
+    ['점수',       'score',             '#a78bfa'],
+  ];
+
+  const arrow = k => k !== _divSortKey ? '' : (_divSortAsc ? ' ▲' : ' ▼');
+  const thStyle = (k, color) => {
+    const active = k === _divSortKey ? 'background:#1a2744;' : '';
+    const c = color ? `color:${color};` : '';
+    return `style="cursor:pointer;user-select:none;${c}${active}"`;
+  };
+
+  let html = `<div style="max-height:560px;overflow-y:auto">
+    <table class="data-table">
+      <thead style="position:sticky;top:0;z-index:1"><tr>`;
+  for (const [label, k, color] of cols) {
+    html += `<th ${thStyle(k, color)} onclick="divSort('${k}')">${label}${arrow(k)}</th>`;
+  }
+  html += `</tr></thead><tbody>`;
+
+  for (const r of sorted) {
+    html += `<tr>
+      <td><code style="font-size:11px">${r.stock_code}</code></td>
+      <td style="font-weight:600">${r.stock_name}</td>
+      <td>${tag(r.rising_type)}</td>
+      <td class="num" style="color:${r.for_net_cum > 0 ? '#60a5fa' : '#f87171'}">${fmt(r.for_net_cum)}</td>
+      <td class="num" style="color:${trendColor(r.for_trend)};font-size:15px">${r.for_trend}</td>
+      <td class="num">${conBar(r.for_consistency)}</td>
+      <td class="num" style="color:${r.orgn_net_cum > 0 ? '#34d399' : '#f87171'}">${fmt(r.orgn_net_cum)}</td>
+      <td class="num" style="color:${trendColor(r.orgn_trend)};font-size:15px">${r.orgn_trend}</td>
+      <td class="num">${conBar(r.orgn_consistency)}</td>
+      <td class="num" style="color:#fbbf24">${fmt(r.latest_price)}</td>
+      <td class="num">${pct(r.price_chg_pct)}</td>
+      <td class="num" style="color:#a78bfa">${r.score}</td>
+    </tr>`;
+  }
+  html += `</tbody></table></div>`;
+  document.getElementById('div-body').innerHTML = html;
+}
+
+function divSort(key) {
+  if (_divSortKey === key) {
+    _divSortAsc = !_divSortAsc;
+  } else {
+    _divSortKey = key;
+    // 숫자형 컬럼은 기본 내림차순, 문자열은 오름차순
+    const strCols = new Set(['stock_code', 'stock_name', 'rising_type', 'for_trend', 'orgn_trend']);
+    _divSortAsc = strCols.has(key);
+  }
+  _renderDivTable();
+}
+
 async function loadDivergence() {
   const body    = document.getElementById('div-body');
   const countEl = document.getElementById('div-result-count');
@@ -1344,6 +1441,7 @@ async function loadDivergence() {
   const igRatio = document.getElementById('div-ignore-ratio').value;
   body.innerHTML = '<div class="empty">조회 중...</div>';
   if (countEl) countEl.textContent = '';
+  _divRows = [];
   try {
     const res = await fetch(`/api/supply_divergence?window=${window_}&price_th=${priceTh}&ignore_ratio=${igRatio}`);
     const rows = await res.json();
@@ -1352,57 +1450,10 @@ async function loadDivergence() {
       return;
     }
     if (countEl) countEl.textContent = `${rows.length}개 종목`;
-
-    const fmt = v => v == null ? '-' : Number(v).toLocaleString();
-    const pct = v => v == null ? '-'
-      : v > 0  ? `<span style="color:#f87171">+${v}%</span>`
-      : v < 0  ? `<span style="color:#4ade80">${v}%</span>`
-      :          `<span style="color:#94a3b8">0%</span>`;
-    const tag = t => t === '외국인'  ? `<span style="color:#60a5fa;font-weight:700">외국인</span>`
-                   : t === '기관'    ? `<span style="color:#34d399;font-weight:700">기관</span>`
-                   :                   `<span style="color:#a78bfa;font-weight:700">외국인+기관</span>`;
-    const trendColor = t => t === '↑↑' ? '#4ade80' : t === '↑' ? '#86efac'
-                          : t === '↓'  ? '#f87171' : '#94a3b8';
-    const conBar = v => {
-      const color = v >= 70 ? '#4ade80' : v >= 50 ? '#fbbf24' : '#f87171';
-      return `<span style="color:${color};font-size:11px">${v}%</span>`;
-    };
-
-    let html = `<div style="max-height:560px;overflow-y:auto">
-      <table class="data-table">
-        <thead style="position:sticky;top:0;z-index:1">
-          <tr>
-            <th>종목코드</th><th>종목명</th><th>주체</th>
-            <th class="num" style="color:#60a5fa">외국인 누적</th>
-            <th class="num" style="color:#60a5fa">외국인 추세</th>
-            <th class="num" style="color:#60a5fa">꾸준함</th>
-            <th class="num" style="color:#34d399">기관 누적</th>
-            <th class="num" style="color:#34d399">기관 추세</th>
-            <th class="num" style="color:#34d399">꾸준함</th>
-            <th class="num" style="color:#fbbf24">현재가</th>
-            <th class="num">가격변화</th>
-            <th class="num" style="color:#a78bfa">점수</th>
-          </tr>
-        </thead>
-        <tbody>`;
-    for (const r of rows) {
-      html += `<tr>
-        <td><code style="font-size:11px">${r.stock_code}</code></td>
-        <td style="font-weight:600">${r.stock_name}</td>
-        <td>${tag(r.rising_type)}</td>
-        <td class="num" style="color:${r.for_net_cum > 0 ? '#60a5fa' : '#f87171'}">${fmt(r.for_net_cum)}</td>
-        <td class="num" style="color:${trendColor(r.for_trend)};font-size:15px">${r.for_trend}</td>
-        <td class="num">${conBar(r.for_consistency)}</td>
-        <td class="num" style="color:${r.orgn_net_cum > 0 ? '#34d399' : '#f87171'}">${fmt(r.orgn_net_cum)}</td>
-        <td class="num" style="color:${trendColor(r.orgn_trend)};font-size:15px">${r.orgn_trend}</td>
-        <td class="num">${conBar(r.orgn_consistency)}</td>
-        <td class="num" style="color:#fbbf24">${fmt(r.latest_price)}</td>
-        <td class="num">${pct(r.price_chg_pct)}</td>
-        <td class="num" style="color:#a78bfa">${r.score}</td>
-      </tr>`;
-    }
-    html += `</tbody></table></div>`;
-    body.innerHTML = html;
+    _divRows = rows;
+    _divSortKey = 'score';
+    _divSortAsc = false;
+    _renderDivTable();
   } catch(e) {
     body.innerHTML = '<div class="empty" style="color:#f87171">조회 실패: ' + e.message + '</div>';
   }
