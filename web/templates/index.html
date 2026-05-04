@@ -1342,7 +1342,7 @@ let _divSortKey = 'score';
 let _divSortAsc = false;
 
 // 추세 문자열을 정렬 가능한 숫자로 변환
-const _trendVal = t => ({↑↑:2, ↑:1, '→':0, ↓:-1, '-':-2}[t] ?? 0);
+const _trendVal = t => ({'↑↑':2, '↑':1, '→':0, '↓':-1, '-':-2}[t] ?? 0);
 
 function _renderDivTable() {
   const fmt = v => v == null ? '-' : Number(v).toLocaleString();
