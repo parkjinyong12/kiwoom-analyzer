@@ -1402,15 +1402,18 @@ function _renderDivTable() {
   html += `</tr></thead><tbody>`;
 
   for (const r of sorted) {
-    html += `<tr>
+    const anyBroken = r.for_broken || r.orgn_broken;
+    const rowBg = anyBroken ? 'background:rgba(248,113,113,0.06);' : '';
+    const brokenTip = broken => broken ? ' title="최근 3일 꺾임"' : '';
+    html += `<tr style="${rowBg}">
       <td><code style="font-size:11px">${r.stock_code}</code></td>
       <td style="font-weight:600">${r.stock_name}</td>
       <td>${tag(r.rising_type)}</td>
       <td class="num" style="color:${r.for_net_cum > 0 ? '#60a5fa' : '#f87171'}">${fmt(r.for_net_cum)}</td>
-      <td class="num" style="color:${trendColor(r.for_trend)};font-size:15px">${r.for_trend}</td>
+      <td class="num" style="color:${trendColor(r.for_trend)};font-size:15px"${brokenTip(r.for_broken)}>${r.for_trend}${r.for_broken ? '<span style="font-size:10px;color:#f87171;margin-left:2px">꺾임</span>' : ''}</td>
       <td class="num">${conBar(r.for_consistency)}</td>
       <td class="num" style="color:${r.orgn_net_cum > 0 ? '#34d399' : '#f87171'}">${fmt(r.orgn_net_cum)}</td>
-      <td class="num" style="color:${trendColor(r.orgn_trend)};font-size:15px">${r.orgn_trend}</td>
+      <td class="num" style="color:${trendColor(r.orgn_trend)};font-size:15px"${brokenTip(r.orgn_broken)}>${r.orgn_trend}${r.orgn_broken ? '<span style="font-size:10px;color:#f87171;margin-left:2px">꺾임</span>' : ''}</td>
       <td class="num">${conBar(r.orgn_consistency)}</td>
       <td class="num" style="color:#fbbf24">${fmt(r.latest_price)}</td>
       <td class="num">${pct(r.price_chg_pct)}</td>

@@ -530,10 +530,11 @@ class AuditDB:
         """
         수급 상승 + 가격 비상승 종목 탐지 (수급-가격 다이버전스).
 
-        정렬 기준 — 종합 점수 = 가중합 × 꾸준함 × 추세 보너스
+        정렬 기준 — 종합 점수 = 가중합 × 꾸준함 × 추세 보너스 × 최근꺾임 페널티
         - 가중합: 최신일수록 rn/total 선형 가중치 적용
-        - 꾸준함: 양수 일수 비율 (0~1)
-        - 추세 보너스: 후반 절반 평균 > 전반 절반 평균이면 ×1.3
+        - 꾸준함: 양수 일수 비율
+        - 추세 보너스: 후반 절반 > 전반 절반 이면 ×1.3
+        - 최근 꺾임 페널티: 최근 3일 평균 < 0 이면 ×0.4
         """
         fetch_days = int(window_days * 1.6)
         with self._connect() as conn:
@@ -558,7 +559,7 @@ class AuditDB:
                     SELECT
                         stock_code,
                         COUNT(*) AS day_cnt,
-                        -- 선형 가중합 (최신일 가중치 높음)
+                        -- 선형 가중합
                         SUM(for_net  * rn::float / total) AS for_weighted,
                         SUM(orgn_net * rn::float / total) AS orgn_weighted,
                         -- 단순 누적합 (표시용)
@@ -569,6 +570,9 @@ class AuditDB:
                         AVG(CASE WHEN rn::float / total <= 0.5 THEN for_net END) AS for_old_avg,
                         AVG(CASE WHEN rn::float / total > 0.5 THEN orgn_net  END) AS orgn_recent_avg,
                         AVG(CASE WHEN rn::float / total <= 0.5 THEN orgn_net END) AS orgn_old_avg,
+                        -- 최근 3일 평균 (꺾임 감지)
+                        AVG(CASE WHEN rn > total - 3 THEN for_net  END) AS for_last3_avg,
+                        AVG(CASE WHEN rn > total - 3 THEN orgn_net END) AS orgn_last3_avg,
                         -- 꾸준함: 양수 일수 비율
                         AVG(CASE WHEN for_net  > 0 THEN 1.0 ELSE 0.0 END) AS for_consistency,
                         AVG(CASE WHEN orgn_net > 0 THEN 1.0 ELSE 0.0 END) AS orgn_consistency,
@@ -585,16 +589,12 @@ class AuditDB:
                     a.stock_code,
                     s.stock_name,
                     a.day_cnt,
-                    a.for_weighted,
-                    a.orgn_weighted,
-                    a.for_net_cum,
-                    a.orgn_net_cum,
-                    a.for_recent_avg,
-                    a.for_old_avg,
-                    a.orgn_recent_avg,
-                    a.orgn_old_avg,
-                    a.for_consistency,
-                    a.orgn_consistency,
+                    a.for_weighted,   a.orgn_weighted,
+                    a.for_net_cum,    a.orgn_net_cum,
+                    a.for_recent_avg, a.for_old_avg,
+                    a.orgn_recent_avg,a.orgn_old_avg,
+                    a.for_last3_avg,  a.orgn_last3_avg,
+                    a.for_consistency,a.orgn_consistency,
                     a.latest_price,
                     CASE
                         WHEN a.oldest_price > 0 AND a.latest_price > 0
@@ -610,21 +610,27 @@ class AuditDB:
             )
             rows = [dict(r) for r in cur.fetchall()]
 
-        def _trend_label(recent, old) -> str:
+        def _trend_label(recent, old, last3) -> str:
+            # 최근 3일 꺾임이 있으면 추세 방향보다 우선
+            if last3 is not None and last3 < 0:
+                return "↓"
             if recent is None or old is None:
                 return "→"
             if old == 0:
-                return "↑↑" if recent > 0 else ("↓↓" if recent < 0 else "→")
+                return "↑↑" if recent > 0 else ("↓" if recent < 0 else "→")
             ratio = recent / abs(old)
-            if ratio > 1.3:   return "↑↑"
-            if ratio > 0.0:   return "↑"
-            if ratio > -0.3:  return "→"
+            if ratio > 1.3:  return "↑↑"
+            if ratio > 0.0:  return "↑"
+            if ratio > -0.3: return "→"
             return "↓"
 
-        def _item_score(weighted, consistency, recent_avg, old_avg) -> float:
+        def _item_score(weighted, consistency, recent_avg, old_avg, last3_avg) -> float:
             if weighted <= 0:
                 return 0.0
             trend_mult = 1.3 if (recent_avg or 0) > (old_avg or 0) else 1.0
+            # 최근 3일이 음수이면 꺾임 페널티 — 추세가 유지돼 보여도 하향 조정
+            if last3_avg is not None and last3_avg < 0:
+                trend_mult *= 0.4
             return weighted * (consistency or 0) * trend_mult
 
         results = []
@@ -652,38 +658,42 @@ class AuditDB:
             if not supply_rising:
                 continue
 
-            for_ra   = row["for_recent_avg"]
-            for_oa   = row["for_old_avg"]
-            orgn_ra  = row["orgn_recent_avg"]
-            orgn_oa  = row["orgn_old_avg"]
-            for_con  = float(row["for_consistency"]  or 0)
-            orgn_con = float(row["orgn_consistency"] or 0)
+            for_ra    = row["for_recent_avg"]
+            for_oa    = row["for_old_avg"]
+            for_l3    = row["for_last3_avg"]
+            orgn_ra   = row["orgn_recent_avg"]
+            orgn_oa   = row["orgn_old_avg"]
+            orgn_l3   = row["orgn_last3_avg"]
+            for_con   = float(row["for_consistency"]  or 0)
+            orgn_con  = float(row["orgn_consistency"] or 0)
 
             rising_parts = []
             if for_valid  and fw > 0: rising_parts.append("외국인")
             if orgn_valid and ow > 0: rising_parts.append("기관")
 
             score = (
-                (_item_score(fw, for_con, for_ra, for_oa)   if for_valid  else 0)
-                + (_item_score(ow, orgn_con, orgn_ra, orgn_oa) if orgn_valid else 0)
+                (_item_score(fw, for_con,  for_ra,  for_oa,  for_l3)  if for_valid  else 0)
+                + (_item_score(ow, orgn_con, orgn_ra, orgn_oa, orgn_l3) if orgn_valid else 0)
             )
 
             results.append({
-                "stock_code":      row["stock_code"],
-                "stock_name":      row["stock_name"] or row["stock_code"],
-                "rising_type":     "+".join(rising_parts),
-                "for_net_cum":     int(row["for_net_cum"]  or 0),
-                "orgn_net_cum":    int(row["orgn_net_cum"] or 0),
-                "for_weighted":    round(fw, 1),
-                "orgn_weighted":   round(ow, 1),
-                "for_consistency": round(for_con * 100),   # % 표시용
-                "orgn_consistency":round(orgn_con * 100),
-                "for_trend":       _trend_label(for_ra,  for_oa)  if for_valid  else "-",
-                "orgn_trend":      _trend_label(orgn_ra, orgn_oa) if orgn_valid else "-",
-                "latest_price":    row["latest_price"],
-                "price_chg_pct":   float(price_chg),
-                "day_cnt":         row["day_cnt"],
-                "score":           round(score, 2),
+                "stock_code":       row["stock_code"],
+                "stock_name":       row["stock_name"] or row["stock_code"],
+                "rising_type":      "+".join(rising_parts),
+                "for_net_cum":      int(row["for_net_cum"]  or 0),
+                "orgn_net_cum":     int(row["orgn_net_cum"] or 0),
+                "for_weighted":     round(fw, 1),
+                "orgn_weighted":    round(ow, 1),
+                "for_consistency":  round(for_con  * 100),
+                "orgn_consistency": round(orgn_con * 100),
+                "for_trend":        _trend_label(for_ra,  for_oa,  for_l3)  if for_valid  else "-",
+                "orgn_trend":       _trend_label(orgn_ra, orgn_oa, orgn_l3) if orgn_valid else "-",
+                "for_broken":       for_l3  is not None and for_l3  < 0,
+                "orgn_broken":      orgn_l3 is not None and orgn_l3 < 0,
+                "latest_price":     row["latest_price"],
+                "price_chg_pct":    float(price_chg),
+                "day_cnt":          row["day_cnt"],
+                "score":            round(score, 2),
             })
 
         results.sort(key=lambda x: x["score"], reverse=True)
