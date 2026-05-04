@@ -530,108 +530,163 @@ class AuditDB:
         """
         수급 상승 + 가격 비상승 종목 탐지 (수급-가격 다이버전스).
 
-        - window_days일 누적 외국인/기관 순매수 계산
-        - 두 수급 절대값 비율 < ignore_ratio 이면 작은 쪽 무시
-        - 유효 수급 중 하나라도 양수 AND 가격 변화율 <= price_flat_pct% → 다이버전스
+        정렬 기준 — 종합 점수 = 가중합 × 꾸준함 × 추세 보너스
+        - 가중합: 최신일수록 rn/total 선형 가중치 적용
+        - 꾸준함: 양수 일수 비율 (0~1)
+        - 추세 보너스: 후반 절반 평균 > 전반 절반 평균이면 ×1.3
         """
-        # 캘린더 기준으로 약 window_days 영업일을 커버하도록 넉넉히 조회
         fetch_days = int(window_days * 1.6)
         with self._connect() as conn:
             cur = conn.cursor()
             cur.execute(
                 """
-                WITH window_data AS (
-                    SELECT
-                        stock_code,
-                        SUM(COALESCE(for_net_qty, 0))  AS for_net_cum,
-                        SUM(COALESCE(orgn_net_qty, 0)) AS orgn_net_cum,
-                        COUNT(*)                        AS day_cnt,
-                        (ARRAY_AGG(close_price ORDER BY date DESC)
-                            FILTER (WHERE close_price IS NOT NULL AND close_price > 0))[1]
-                            AS latest_price,
-                        (ARRAY_AGG(close_price ORDER BY date ASC)
-                            FILTER (WHERE close_price IS NOT NULL AND close_price > 0))[1]
-                            AS oldest_price
+                WITH raw AS (
+                    SELECT stock_code, date,
+                           COALESCE(for_net_qty,  0) AS for_net,
+                           COALESCE(orgn_net_qty, 0) AS orgn_net,
+                           close_price
                     FROM supply_demand
                     WHERE date >= CURRENT_DATE - %(fetch_days)s * INTERVAL '1 day'
+                ),
+                numbered AS (
+                    SELECT *,
+                        ROW_NUMBER() OVER (PARTITION BY stock_code ORDER BY date ASC) AS rn,
+                        COUNT(*)     OVER (PARTITION BY stock_code)                   AS total
+                    FROM raw
+                ),
+                agg AS (
+                    SELECT
+                        stock_code,
+                        COUNT(*) AS day_cnt,
+                        -- 선형 가중합 (최신일 가중치 높음)
+                        SUM(for_net  * rn::float / total) AS for_weighted,
+                        SUM(orgn_net * rn::float / total) AS orgn_weighted,
+                        -- 단순 누적합 (표시용)
+                        SUM(for_net)  AS for_net_cum,
+                        SUM(orgn_net) AS orgn_net_cum,
+                        -- 추세: 후반/전반 절반 평균
+                        AVG(CASE WHEN rn::float / total > 0.5 THEN for_net  END) AS for_recent_avg,
+                        AVG(CASE WHEN rn::float / total <= 0.5 THEN for_net END) AS for_old_avg,
+                        AVG(CASE WHEN rn::float / total > 0.5 THEN orgn_net  END) AS orgn_recent_avg,
+                        AVG(CASE WHEN rn::float / total <= 0.5 THEN orgn_net END) AS orgn_old_avg,
+                        -- 꾸준함: 양수 일수 비율
+                        AVG(CASE WHEN for_net  > 0 THEN 1.0 ELSE 0.0 END) AS for_consistency,
+                        AVG(CASE WHEN orgn_net > 0 THEN 1.0 ELSE 0.0 END) AS orgn_consistency,
+                        -- 종가
+                        (ARRAY_AGG(close_price ORDER BY date DESC)
+                            FILTER (WHERE close_price IS NOT NULL AND close_price > 0))[1] AS latest_price,
+                        (ARRAY_AGG(close_price ORDER BY date ASC)
+                            FILTER (WHERE close_price IS NOT NULL AND close_price > 0))[1] AS oldest_price
+                    FROM numbered
                     GROUP BY stock_code
                     HAVING COUNT(*) >= %(min_days)s
                 )
                 SELECT
-                    w.stock_code,
+                    a.stock_code,
                     s.stock_name,
-                    w.for_net_cum,
-                    w.orgn_net_cum,
-                    w.latest_price,
-                    w.oldest_price,
-                    w.day_cnt,
+                    a.day_cnt,
+                    a.for_weighted,
+                    a.orgn_weighted,
+                    a.for_net_cum,
+                    a.orgn_net_cum,
+                    a.for_recent_avg,
+                    a.for_old_avg,
+                    a.orgn_recent_avg,
+                    a.orgn_old_avg,
+                    a.for_consistency,
+                    a.orgn_consistency,
+                    a.latest_price,
                     CASE
-                        WHEN w.oldest_price > 0 AND w.latest_price > 0
+                        WHEN a.oldest_price > 0 AND a.latest_price > 0
                         THEN ROUND(
-                            (w.latest_price - w.oldest_price)::numeric
-                            / w.oldest_price * 100, 2)
+                            (a.latest_price - a.oldest_price)::numeric
+                            / a.oldest_price * 100, 2)
                         ELSE NULL
                     END AS price_chg_pct
-                FROM window_data w
-                LEFT JOIN stocks s ON s.stock_code = w.stock_code
-                ORDER BY (w.for_net_cum + w.orgn_net_cum) DESC
+                FROM agg a
+                LEFT JOIN stocks s ON s.stock_code = a.stock_code
                 """,
                 {"fetch_days": fetch_days, "min_days": min_data_days},
             )
             rows = [dict(r) for r in cur.fetchall()]
 
+        def _trend_label(recent, old) -> str:
+            if recent is None or old is None:
+                return "→"
+            if old == 0:
+                return "↑↑" if recent > 0 else ("↓↓" if recent < 0 else "→")
+            ratio = recent / abs(old)
+            if ratio > 1.3:   return "↑↑"
+            if ratio > 0.0:   return "↑"
+            if ratio > -0.3:  return "→"
+            return "↓"
+
+        def _item_score(weighted, consistency, recent_avg, old_avg) -> float:
+            if weighted <= 0:
+                return 0.0
+            trend_mult = 1.3 if (recent_avg or 0) > (old_avg or 0) else 1.0
+            return weighted * (consistency or 0) * trend_mult
+
         results = []
         for row in rows:
-            for_net  = int(row["for_net_cum"]  or 0)
-            orgn_net = int(row["orgn_net_cum"] or 0)
             price_chg = row["price_chg_pct"]
             if price_chg is None:
-                continue
-
-            # ── 작은 쪽 수급 무시 판단 ──────────────────────────
-            abs_for  = abs(for_net)
-            abs_orgn = abs(orgn_net)
-            for_valid = orgn_valid = True
-            if abs_for > 0 and abs_orgn > 0:
-                if min(abs_for, abs_orgn) / max(abs_for, abs_orgn) < ignore_ratio:
-                    if abs_for < abs_orgn:
-                        for_valid = False   # 외국인이 작은 쪽 → 무시
-                    else:
-                        orgn_valid = False  # 기관이 작은 쪽 → 무시
-
-            supply_rising = (for_valid and for_net > 0) or (orgn_valid and orgn_net > 0)
-            if not supply_rising:
                 continue
             if float(price_chg) > price_flat_pct:
                 continue
 
+            fw  = float(row["for_weighted"]  or 0)
+            ow  = float(row["orgn_weighted"] or 0)
+
+            # ── 작은 쪽 수급 무시 (가중합 절대값 기준) ──────────
+            abs_fw, abs_ow = abs(fw), abs(ow)
+            for_valid = orgn_valid = True
+            if abs_fw > 0 and abs_ow > 0:
+                if min(abs_fw, abs_ow) / max(abs_fw, abs_ow) < ignore_ratio:
+                    if abs_fw < abs_ow:
+                        for_valid = False
+                    else:
+                        orgn_valid = False
+
+            supply_rising = (for_valid and fw > 0) or (orgn_valid and ow > 0)
+            if not supply_rising:
+                continue
+
+            for_ra   = row["for_recent_avg"]
+            for_oa   = row["for_old_avg"]
+            orgn_ra  = row["orgn_recent_avg"]
+            orgn_oa  = row["orgn_old_avg"]
+            for_con  = float(row["for_consistency"]  or 0)
+            orgn_con = float(row["orgn_consistency"] or 0)
+
             rising_parts = []
-            if for_valid and for_net > 0:
-                rising_parts.append("외국인")
-            if orgn_valid and orgn_net > 0:
-                rising_parts.append("기관")
+            if for_valid  and fw > 0: rising_parts.append("외국인")
+            if orgn_valid and ow > 0: rising_parts.append("기관")
+
+            score = (
+                (_item_score(fw, for_con, for_ra, for_oa)   if for_valid  else 0)
+                + (_item_score(ow, orgn_con, orgn_ra, orgn_oa) if orgn_valid else 0)
+            )
 
             results.append({
-                "stock_code":   row["stock_code"],
-                "stock_name":   row["stock_name"] or row["stock_code"],
-                "for_net_cum":  for_net,
-                "orgn_net_cum": orgn_net,
-                "latest_price": row["latest_price"],
-                "price_chg_pct": float(price_chg),
-                "day_cnt":      row["day_cnt"],
-                "rising_type":  "+".join(rising_parts),
-                "for_valid":    for_valid,
-                "orgn_valid":   orgn_valid,
+                "stock_code":      row["stock_code"],
+                "stock_name":      row["stock_name"] or row["stock_code"],
+                "rising_type":     "+".join(rising_parts),
+                "for_net_cum":     int(row["for_net_cum"]  or 0),
+                "orgn_net_cum":    int(row["orgn_net_cum"] or 0),
+                "for_weighted":    round(fw, 1),
+                "orgn_weighted":   round(ow, 1),
+                "for_consistency": round(for_con * 100),   # % 표시용
+                "orgn_consistency":round(orgn_con * 100),
+                "for_trend":       _trend_label(for_ra,  for_oa)  if for_valid  else "-",
+                "orgn_trend":      _trend_label(orgn_ra, orgn_oa) if orgn_valid else "-",
+                "latest_price":    row["latest_price"],
+                "price_chg_pct":   float(price_chg),
+                "day_cnt":         row["day_cnt"],
+                "score":           round(score, 2),
             })
 
-        # 유효 수급 합계 기준 내림차순 정렬
-        results.sort(
-            key=lambda x: (
-                (x["for_net_cum"] if x["for_valid"] else 0)
-                + (x["orgn_net_cum"] if x["orgn_valid"] else 0)
-            ),
-            reverse=True,
-        )
+        results.sort(key=lambda x: x["score"], reverse=True)
         return results
 
 
