@@ -1376,11 +1376,13 @@ function chartOpts(yLabel, color) {
 }
 
 // ─── 기간별 변화 스냅샷 ──────────────────────────────────
-let _snapData = [];
-let _snapTab  = 'price';  // 'price' | 'for' | 'orgn'
+let _snapData    = [];
+let _snapTab     = 'price';
+let _snapOpenSet = new Set();   // 펼쳐진 종목코드
 
 function snapSetTab(tab) {
   _snapTab = tab;
+  _snapOpenSet.clear();
   ['price','for','orgn'].forEach(t => {
     document.getElementById(`snap-tab-${t}`)
       .classList.toggle('snap-tab-active', t === tab);
@@ -1388,37 +1390,49 @@ function snapSetTab(tab) {
   if (_snapData.length) _renderSnapTable();
 }
 
+function snapToggle(code) {
+  if (_snapOpenSet.has(code)) _snapOpenSet.delete(code);
+  else _snapOpenSet.add(code);
+  _renderSnapTable();
+}
+
 function _renderSnapTable() {
   const ps = document.getElementById('snap-periods').value
     .split(',').map(Number).filter(Boolean).sort((a,b)=>a-b);
 
-  const tab = _snapTab;
-  const tabColor   = tab === 'price' ? '#fbbf24' : tab === 'for' ? '#60a5fa' : '#34d399';
-  const tabLabel   = tab === 'price' ? '가격 변화율' : tab === 'for' ? '외국인 누적 순매수' : '기관 누적 순매수';
+  const tab      = _snapTab;
+  const isPrice  = tab === 'price';
+  const tabColor = isPrice ? '#fbbf24' : tab === 'for' ? '#60a5fa' : '#34d399';
+  const fmt      = v => v == null ? '-' : Number(v).toLocaleString();
+  const colCount = 4 + ps.length;  // 종목코드+종목명+현재가+최신일 + 기간들
 
-  const fmt = v => v == null ? '-' : Number(v).toLocaleString();
+  // 가격 셀
+  const priceCell = c => {
+    if (!c || c.price_chg_pct == null) return `<td class="num" style="color:#475569">-</td>`;
+    const v = c.price_chg_pct;
+    const color = v > 0 ? '#f87171' : v < 0 ? '#4ade80' : '#64748b';
+    return `<td class="num" style="color:${color};font-weight:600">${v > 0 ? '+' : ''}${v}%</td>`;
+  };
 
-  // 셀 값 포맷 — 탭별로 다른 표현
-  const cell = (c) => {
+  // 수급 셀 (외국인 or 기관)
+  const supCell = (c, field, color) => {
     if (!c) return `<td class="num" style="color:#2d3748">-</td>`;
-    if (tab === 'price') {
-      const v = c.price_chg_pct;
-      if (v == null) return `<td class="num" style="color:#475569">-</td>`;
-      const color = v > 0 ? '#f87171' : v < 0 ? '#4ade80' : '#64748b';
-      const sign  = v > 0 ? '+' : '';
-      return `<td class="num" style="color:${color};font-weight:600">${sign}${v}%</td>`;
-    } else {
-      const v = tab === 'for' ? c.for_net_cum : c.orgn_net_cum;
-      const color = v > 0 ? tabColor : v < 0 ? '#f87171' : '#64748b';
-      const sign  = v > 0 ? '+' : '';
-      return `<td class="num" style="color:${color}">${sign}${fmt(v)}</td>`;
-    }
+    const v = c[field];
+    const col = v > 0 ? color : v < 0 ? '#f87171' : '#64748b';
+    return `<td class="num" style="color:${col}">${v > 0 ? '+' : ''}${fmt(v)}</td>`;
+  };
+
+  // 현재 탭의 기본 셀
+  const mainCell = c => {
+    if (!c) return `<td class="num" style="color:#2d3748">-</td>`;
+    if (isPrice) return priceCell(c);
+    return supCell(c, tab === 'for' ? 'for_net_cum' : 'orgn_net_cum', tabColor);
   };
 
   let html = `<table class="data-table" style="min-width:max-content">
     <thead style="position:sticky;top:0;z-index:1"><tr>
       <th style="min-width:80px">종목코드</th>
-      <th style="min-width:110px">종목명</th>
+      <th style="min-width:110px;${isPrice ? 'cursor:pointer' : ''}">종목명${isPrice ? ' <span style="font-size:10px;color:#475569">클릭 펼치기</span>' : ''}</th>
       <th class="num" style="min-width:80px;color:#fbbf24">현재가</th>
       <th style="min-width:90px;color:#64748b;font-size:11px">최신일</th>`;
   for (const p of ps) {
@@ -1427,15 +1441,39 @@ function _renderSnapTable() {
   html += `</tr></thead><tbody>`;
 
   for (const r of _snapData) {
+    const isOpen = _snapOpenSet.has(r.stock_code);
+    const clickAttr = isPrice
+      ? `style="cursor:pointer;user-select:none" onclick="snapToggle('${r.stock_code}')"`
+      : '';
+    const arrow = isPrice ? (isOpen ? ' ▲' : ' ▼') : '';
+
+    // 메인 행
     html += `<tr>
       <td><code style="font-size:11px">${r.stock_code}</code></td>
-      <td style="font-weight:600">${r.stock_name}</td>
+      <td style="font-weight:600" ${clickAttr}>${r.stock_name}${arrow}</td>
       <td class="num" style="color:#fbbf24">${fmt(r.latest_price)}</td>
       <td class="num" style="color:#64748b;font-size:11px">${r.latest_date}</td>`;
-    for (const p of ps) {
-      html += cell(r.comparisons[String(p)]);
-    }
+    for (const p of ps) html += mainCell(r.comparisons[String(p)]);
     html += `</tr>`;
+
+    // 아코디언 서브행 (가격 탭 + 펼쳐진 상태)
+    if (isPrice && isOpen) {
+      // 외국인 서브행
+      html += `<tr style="background:#0d1525">
+        <td colspan="2" style="padding-left:24px;color:#60a5fa;font-size:12px">🌐 외국인 누적</td>
+        <td class="num" style="color:#475569;font-size:11px">-</td>
+        <td class="num" style="color:#475569;font-size:11px">-</td>`;
+      for (const p of ps) html += supCell(r.comparisons[String(p)], 'for_net_cum', '#60a5fa');
+      html += `</tr>`;
+
+      // 기관 서브행
+      html += `<tr style="background:#0d1525">
+        <td colspan="2" style="padding-left:24px;color:#34d399;font-size:12px">🏢 기관 누적</td>
+        <td class="num" style="color:#475569;font-size:11px">-</td>
+        <td class="num" style="color:#475569;font-size:11px">-</td>`;
+      for (const p of ps) html += supCell(r.comparisons[String(p)], 'orgn_net_cum', '#34d399');
+      html += `</tr>`;
+    }
   }
   html += `</tbody></table>`;
   document.getElementById('snap-body').innerHTML = html;
