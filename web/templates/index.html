@@ -213,6 +213,9 @@ canvas { max-height: 220px; }
 }
 .period-btn:hover { background: #1e2535; color: #cbd5e1; }
 .period-btn.active { background: #1d3a5f; color: #60a5fa; border-color: #3b82f6; }
+.snap-tab { background:none; border:none; border-bottom:2px solid transparent; color:#64748b; font-size:13px; padding:8px 18px; cursor:pointer; margin-bottom:-1px; transition:color .15s; }
+.snap-tab:hover { color:#e2e8f0; }
+.snap-tab-active { color:#60a5fa !important; border-bottom-color:#60a5fa !important; font-weight:600; }
 
 /* ── 로딩 스피너 ───────────────────────────────────── */
 .loading {
@@ -619,7 +622,7 @@ canvas { max-height: 220px; }
   <section id="page-snapshot" class="page">
     <div class="page-header">
       <div class="page-title">기간별 변화</div>
-      <div class="page-sub">종목별 최신일 기준 N일 전 대비 가격·수급 변화 비교</div>
+      <div class="page-sub">종목별 최신일 기준 N일 전 대비 변화 비교</div>
     </div>
     <div class="panel">
       <div class="filter-bar" style="flex-wrap:wrap;gap:10px">
@@ -632,8 +635,16 @@ canvas { max-height: 220px; }
           <input type="checkbox" id="snap-watched" checked style="accent-color:#60a5fa"> 감시 종목만
         </label>
         <button class="btn btn-primary" onclick="loadSnapshot()">조회</button>
-        <span id="snap-count" style="margin-left:auto;font-size:12px;color:#64748b"></span>
       </div>
+
+      <!-- 지표 탭 -->
+      <div style="display:flex;gap:0;border-bottom:1px solid #1e2535;padding:0 20px;margin-top:4px">
+        <button id="snap-tab-price" class="snap-tab snap-tab-active" onclick="snapSetTab('price')">💰 가격</button>
+        <button id="snap-tab-for"   class="snap-tab"                 onclick="snapSetTab('for')">🌐 외국인 수급</button>
+        <button id="snap-tab-orgn"  class="snap-tab"                 onclick="snapSetTab('orgn')">🏢 기관 수급</button>
+        <span id="snap-count" style="margin-left:auto;align-self:center;font-size:12px;color:#64748b;padding-bottom:8px"></span>
+      </div>
+
       <div id="snap-body" style="padding:16px 20px;overflow-x:auto">
         <div class="empty">조회 버튼을 눌러 기간별 변화를 확인하세요</div>
       </div>
@@ -1365,14 +1376,79 @@ function chartOpts(yLabel, color) {
 }
 
 // ─── 기간별 변화 스냅샷 ──────────────────────────────────
-async function loadSnapshot() {
-  const body    = document.getElementById('snap-body');
-  const countEl = document.getElementById('snap-count');
-  const periods  = document.getElementById('snap-periods').value.trim() || '1,3,5,10,20';
-  const watchedOnly = document.getElementById('snap-watched').checked;
-  body.innerHTML = '<div class="empty">조회 중...</div>';
-  if (countEl) countEl.textContent = '';
+let _snapData = [];
+let _snapTab  = 'price';  // 'price' | 'for' | 'orgn'
 
+function snapSetTab(tab) {
+  _snapTab = tab;
+  ['price','for','orgn'].forEach(t => {
+    document.getElementById(`snap-tab-${t}`)
+      .classList.toggle('snap-tab-active', t === tab);
+  });
+  if (_snapData.length) _renderSnapTable();
+}
+
+function _renderSnapTable() {
+  const ps = document.getElementById('snap-periods').value
+    .split(',').map(Number).filter(Boolean).sort((a,b)=>a-b);
+
+  const tab = _snapTab;
+  const tabColor   = tab === 'price' ? '#fbbf24' : tab === 'for' ? '#60a5fa' : '#34d399';
+  const tabLabel   = tab === 'price' ? '가격 변화율' : tab === 'for' ? '외국인 누적 순매수' : '기관 누적 순매수';
+
+  const fmt = v => v == null ? '-' : Number(v).toLocaleString();
+
+  // 셀 값 포맷 — 탭별로 다른 표현
+  const cell = (c) => {
+    if (!c) return `<td class="num" style="color:#2d3748">-</td>`;
+    if (tab === 'price') {
+      const v = c.price_chg_pct;
+      if (v == null) return `<td class="num" style="color:#475569">-</td>`;
+      const color = v > 0 ? '#f87171' : v < 0 ? '#4ade80' : '#64748b';
+      const sign  = v > 0 ? '+' : '';
+      return `<td class="num" style="color:${color};font-weight:600">${sign}${v}%</td>`;
+    } else {
+      const v = tab === 'for' ? c.for_net_cum : c.orgn_net_cum;
+      const color = v > 0 ? tabColor : v < 0 ? '#f87171' : '#64748b';
+      const sign  = v > 0 ? '+' : '';
+      return `<td class="num" style="color:${color}">${sign}${fmt(v)}</td>`;
+    }
+  };
+
+  let html = `<table class="data-table" style="min-width:max-content">
+    <thead style="position:sticky;top:0;z-index:1"><tr>
+      <th style="min-width:80px">종목코드</th>
+      <th style="min-width:110px">종목명</th>
+      <th class="num" style="min-width:80px;color:#fbbf24">현재가</th>
+      <th style="min-width:90px;color:#64748b;font-size:11px">최신일</th>`;
+  for (const p of ps) {
+    html += `<th class="num" style="min-width:90px;color:${tabColor}">${p}일 전</th>`;
+  }
+  html += `</tr></thead><tbody>`;
+
+  for (const r of _snapData) {
+    html += `<tr>
+      <td><code style="font-size:11px">${r.stock_code}</code></td>
+      <td style="font-weight:600">${r.stock_name}</td>
+      <td class="num" style="color:#fbbf24">${fmt(r.latest_price)}</td>
+      <td class="num" style="color:#64748b;font-size:11px">${r.latest_date}</td>`;
+    for (const p of ps) {
+      html += cell(r.comparisons[String(p)]);
+    }
+    html += `</tr>`;
+  }
+  html += `</tbody></table>`;
+  document.getElementById('snap-body').innerHTML = html;
+}
+
+async function loadSnapshot() {
+  const body       = document.getElementById('snap-body');
+  const countEl    = document.getElementById('snap-count');
+  const periods    = document.getElementById('snap-periods').value.trim() || '1,3,5,10,20';
+  const watchedOnly = document.getElementById('snap-watched').checked;
+  body.innerHTML   = '<div class="empty">조회 중...</div>';
+  if (countEl) countEl.textContent = '';
+  _snapData = [];
   try {
     const res  = await fetch(`/api/snapshot?periods=${periods}&watched_only=${watchedOnly}`);
     const data = await res.json();
@@ -1380,66 +1456,9 @@ async function loadSnapshot() {
       body.innerHTML = '<div class="empty">데이터가 없습니다</div>';
       return;
     }
-
-    const ps = periods.split(',').map(Number).filter(Boolean).sort((a,b)=>a-b);
+    _snapData = data;
     if (countEl) countEl.textContent = `${data.length}개 종목`;
-
-    const fmt   = v => v == null ? '-' : Number(v).toLocaleString();
-    const arrow = v => v == null ? '<span style="color:#475569">-</span>'
-      : v > 0  ? `<span style="color:#f87171">▲</span>`
-      : v < 0  ? `<span style="color:#4ade80">▼</span>`
-      :          `<span style="color:#64748b">─</span>`;
-    const pctFmt = v => v == null ? '-'
-      : v > 0  ? `<span style="color:#f87171">+${v}%</span>`
-      : v < 0  ? `<span style="color:#4ade80">${v}%</span>`
-      :          `<span style="color:#64748b">0%</span>`;
-    const supFmt = (v, posColor) => v == null ? '-'
-      : v > 0  ? `<span style="color:${posColor}">+${fmt(v)}</span>`
-      : v < 0  ? `<span style="color:#f87171">${fmt(v)}</span>`
-      :          `<span style="color:#64748b">0</span>`;
-
-    // ── 헤더 ────────────────────────────────────────────
-    let html = `<table class="data-table" style="min-width:max-content">
-      <thead style="position:sticky;top:0;z-index:1">
-        <tr>
-          <th rowspan="2" style="min-width:80px">종목코드</th>
-          <th rowspan="2" style="min-width:100px">종목명</th>
-          <th rowspan="2" style="min-width:70px;color:#fbbf24">현재가</th>
-          <th rowspan="2" style="min-width:90px;color:#64748b">최신일</th>`;
-    for (const p of ps) {
-      html += `<th colspan="3" style="text-align:center;border-left:1px solid #2d3748;color:#94a3b8">${p}일 전 비교</th>`;
-    }
-    html += `</tr><tr>`;
-    for (const p of ps) {
-      html += `
-        <th class="num" style="border-left:1px solid #2d3748;color:#fbbf24;min-width:75px">가격</th>
-        <th class="num" style="color:#60a5fa;min-width:90px">외국인</th>
-        <th class="num" style="color:#34d399;min-width:90px">기관</th>`;
-    }
-    html += `</tr></thead><tbody>`;
-
-    // ── 행 ──────────────────────────────────────────────
-    for (const r of data) {
-      html += `<tr>
-        <td><code style="font-size:11px">${r.stock_code}</code></td>
-        <td style="font-weight:600">${r.stock_name}</td>
-        <td class="num" style="color:#fbbf24">${fmt(r.latest_price)}</td>
-        <td class="num" style="color:#64748b;font-size:11px">${r.latest_date}</td>`;
-      for (const p of ps) {
-        const c = r.comparisons[String(p)];
-        if (!c) {
-          html += `<td class="num" style="border-left:1px solid #1e2535;color:#2d3748" colspan="3">-</td>`;
-          continue;
-        }
-        html += `
-          <td class="num" style="border-left:1px solid #1e2535">${arrow(c.price_chg_pct)} ${pctFmt(c.price_chg_pct)}</td>
-          <td class="num">${arrow(c.for_net_cum)} ${supFmt(c.for_net_cum,'#60a5fa')}</td>
-          <td class="num">${arrow(c.orgn_net_cum)} ${supFmt(c.orgn_net_cum,'#34d399')}</td>`;
-      }
-      html += `</tr>`;
-    }
-    html += `</tbody></table>`;
-    body.innerHTML = html;
+    _renderSnapTable();
   } catch(e) {
     body.innerHTML = `<div class="empty" style="color:#f87171">조회 실패: ${e.message}</div>`;
   }
