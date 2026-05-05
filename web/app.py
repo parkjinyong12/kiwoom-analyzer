@@ -65,6 +65,7 @@ def _ensure_users_auth_columns():
         cur = conn.cursor()
         cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS login_id VARCHAR(50) UNIQUE")
         cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255)")
+        cur.execute("ALTER TABLE supply_demand ADD COLUMN IF NOT EXISTS close_price BIGINT")
 
 BATCH_JOBS = {
     "collect_history": {
@@ -119,6 +120,23 @@ def query(sql: str, params: tuple = ()) -> list[dict]:
 def query_one(sql: str, params: tuple = ()) -> dict | None:
     rows = query(sql, params)
     return rows[0] if rows else None
+
+
+# ---------------------------------------------------------------------------
+# 에러 핸들러 — API 호출 시 HTML 대신 JSON 반환
+# ---------------------------------------------------------------------------
+
+@app.errorhandler(500)
+def handle_500(e):
+    logging.exception("Internal server error")
+    return jsonify({"error": "서버 내부 오류", "detail": str(e)}), 500
+
+
+@app.errorhandler(404)
+def handle_404(e):
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "not found"}), 404
+    return str(e), 404
 
 
 # ---------------------------------------------------------------------------

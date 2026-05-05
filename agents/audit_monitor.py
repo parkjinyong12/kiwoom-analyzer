@@ -151,6 +151,9 @@ class AuditDB:
             # 기존 테이블에 새 컬럼 추가 (없으면)
             for col in ("fnnc_invt", "insrnc", "invtrt", "bank", "penfnd_etc", "samo_fund"):
                 cur.execute(f"ALTER TABLE supply_demand ADD COLUMN IF NOT EXISTS {col} BIGINT")
+            cur.execute("ALTER TABLE supply_demand ADD COLUMN IF NOT EXISTS close_price BIGINT")
+            cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS login_id VARCHAR(50) UNIQUE")
+            cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255)")
 
     # ------------------------------------------------------------------
     # 쓰기
