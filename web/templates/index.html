@@ -1937,19 +1937,34 @@ async function batchStop(id) {
   setTimeout(loadBatch, 500);
 }
 
+let _logPollTimer = null;
+let _logCurrentId = null;
+
+async function _fetchAndRenderLog(id) {
+  const res = await fetch(`/api/batch/${id}/logs`);
+  if (!res.ok) return;
+  const lines = await res.json();
+  const body = document.getElementById('batch-log-body');
+  const atBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 40;
+  body.textContent = lines.join('\n') || '로그 없음';
+  if (atBottom) body.scrollTop = body.scrollHeight;
+}
+
 async function batchShowLog(id, name) {
+  if (_logPollTimer) { clearInterval(_logPollTimer); _logPollTimer = null; }
+  _logCurrentId = id;
   document.getElementById('batch-log-title').textContent = `${name} — 로그 (최근 100줄)`;
   document.getElementById('batch-log-body').textContent = '로딩 중...';
   document.getElementById('batch-log-panel').style.display = 'block';
   document.getElementById('batch-log-panel').scrollIntoView({behavior:'smooth', block:'nearest'});
-  const res = await fetch(`/api/batch/${id}/logs`);
-  const lines = await res.json();
-  const body = document.getElementById('batch-log-body');
-  body.textContent = lines.join('\n') || '로그 없음';
-  body.scrollTop = body.scrollHeight;
+  await _fetchAndRenderLog(id);
+  document.getElementById('batch-log-body').scrollTop = document.getElementById('batch-log-body').scrollHeight;
+  _logPollTimer = setInterval(() => _fetchAndRenderLog(id), 3000);
 }
 
 function closeBatchLog() {
+  if (_logPollTimer) { clearInterval(_logPollTimer); _logPollTimer = null; }
+  _logCurrentId = null;
   document.getElementById('batch-log-panel').style.display = 'none';
 }
 
