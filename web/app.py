@@ -812,6 +812,7 @@ try:
 except Exception:
     pass
 
+
 try:
     _init_scheduler()
 except Exception as e:
