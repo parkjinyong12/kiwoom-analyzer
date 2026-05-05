@@ -17,6 +17,7 @@ KST = ZoneInfo("Asia/Seoul")
 import psycopg2
 import psycopg2.extras
 import json
+import re
 import subprocess
 import glob
 import signal
@@ -102,12 +103,33 @@ BATCH_JOBS = {
 
 
 def _find_pid(match: str) -> int | None:
+    pattern = re.compile(match)
+    # Linux (container): /proc 스캔
     try:
-        r = subprocess.run(["pgrep", "-f", match], capture_output=True, text=True)
-        pids = [int(p) for p in r.stdout.strip().split() if p]
-        return pids[0] if pids else None
-    except Exception:
+        for entry in os.listdir("/proc"):
+            if not entry.isdigit():
+                continue
+            try:
+                with open(f"/proc/{entry}/cmdline", "rb") as f:
+                    cmdline = f.read().replace(b"\x00", b" ").decode("utf-8", errors="replace")
+                if pattern.search(cmdline):
+                    return int(entry)
+            except Exception:
+                continue
         return None
+    except FileNotFoundError:
+        pass
+    # macOS 폴백
+    try:
+        r = subprocess.run(["ps", "aux"], capture_output=True, text=True)
+        for line in r.stdout.splitlines()[1:]:
+            if pattern.search(line):
+                parts = line.split()
+                if len(parts) > 1:
+                    return int(parts[1])
+    except Exception:
+        pass
+    return None
 
 
 def _latest_log(prefix: str) -> str | None:
@@ -624,7 +646,9 @@ def api_batch_start(job_id: str):
     settings = _get_app_settings()
     min_cap = settings.get("min_market_cap", str(5_000_000_000_000))
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = os.path.join(BASE_DIR, "logs", f"{j['log_prefix']}_{ts}.log")
+    logs_dir = os.path.join(BASE_DIR, "logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    log_file = os.path.join(logs_dir, f"{j['log_prefix']}_{ts}.log")
     subprocess.Popen(
         f"PYTHONUNBUFFERED=1 MIN_MARKET_CAP={min_cap} nohup {j['cmd']} > {log_file} 2>&1",
         shell=True, cwd=BASE_DIR,
@@ -747,7 +771,9 @@ def _run_scheduled_job(job_id: str):
     settings = _get_app_settings()
     min_cap = settings.get("min_market_cap", str(5_000_000_000_000))
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = os.path.join(BASE_DIR, "logs", f"{j['log_prefix']}_{ts}.log")
+    logs_dir = os.path.join(BASE_DIR, "logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    log_file = os.path.join(logs_dir, f"{j['log_prefix']}_{ts}.log")
     logging.info("[scheduler] %s 자동 실행 시작 → %s", job_id, log_file)
     subprocess.Popen(
         f"PYTHONUNBUFFERED=1 MIN_MARKET_CAP={min_cap} nohup {j['cmd']} > {log_file} 2>&1",
