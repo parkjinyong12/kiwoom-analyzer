@@ -10,6 +10,9 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+
+KST = ZoneInfo("Asia/Seoul")
 
 import psycopg2
 import psycopg2.extras
@@ -212,7 +215,7 @@ def api_me():
 
 @app.route("/api/dashboard")
 def api_dashboard():
-    today_kst = datetime.now(timezone.utc).astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_kst = datetime.now(KST).replace(hour=0, minute=0, second=0, microsecond=0)
 
     watched = query_one("SELECT COUNT(*) AS cnt FROM stocks WHERE watched = TRUE")
     signals_today = query_one(
@@ -245,8 +248,8 @@ def api_dashboard():
     )
     for r in recent_signals:
         r["ts"] = r["ts"].strftime("%m/%d %H:%M") if r["ts"] else ""
-        r["price"] = f"{int(r['price']):,}" if r["price"] else "-"
-        r["confidence_pct"] = f"{r['confidence'] * 100:.0f}%" if r["confidence"] else "-"
+        r["price"] = f"{int(r['price']):,}" if r["price"] is not None else "-"
+        r["confidence_pct"] = f"{r['confidence'] * 100:.0f}%" if r["confidence"] is not None else "-"
 
     signal_stats = query(
         """

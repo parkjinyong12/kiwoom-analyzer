@@ -478,6 +478,9 @@ canvas { max-height: 220px; }
         <div class="panel-header">30일 신호 분포</div>
         <div class="chart-area" style="padding:24px">
           <canvas id="signal-pie"></canvas>
+          <div id="signal-pie-empty" class="empty" style="display:none">
+            <div class="empty-icon">📊</div>신호 데이터 없음
+          </div>
         </div>
       </div>
     </div>
@@ -914,6 +917,7 @@ function showPage(name, fromHash) {
 async function loadDashboard() {
   try {
     const res = await fetch('/api/dashboard');
+    if (!res.ok) { console.error('loadDashboard failed', res.status); return; }
     const d = await res.json();
 
     document.getElementById('d-watched').textContent  = d.watched_count.toLocaleString();
@@ -954,8 +958,7 @@ async function loadDashboard() {
 }
 
 function drawSignalPie(stats) {
-  const ctx = document.getElementById('signal-pie').getContext('2d');
-  if (signalPieChart) signalPieChart.destroy();
+  if (signalPieChart) { signalPieChart.destroy(); signalPieChart = null; }
 
   const labels = Object.keys(stats).map(k => signalLabel(k));
   const data   = Object.values(stats);
@@ -963,11 +966,17 @@ function drawSignalPie(stats) {
     k === 'BUY' ? '#4ade80' : k === 'SELL' ? '#f87171' : '#60a5fa'
   );
 
+  const pieEl = document.getElementById('signal-pie');
+  const emptyEl = document.getElementById('signal-pie-empty');
   if (data.length === 0) {
-    document.getElementById('signal-pie').parentElement.innerHTML =
-      '<div class="empty"><div class="empty-icon">📊</div>신호 데이터 없음</div>';
+    if (pieEl) pieEl.style.display = 'none';
+    if (emptyEl) emptyEl.style.display = 'block';
     return;
   }
+  if (pieEl) pieEl.style.display = '';
+  if (emptyEl) emptyEl.style.display = 'none';
+
+  const ctx = pieEl.getContext('2d');
 
   signalPieChart = new Chart(ctx, {
     type: 'doughnut',
