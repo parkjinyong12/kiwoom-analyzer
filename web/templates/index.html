@@ -288,9 +288,108 @@ canvas { max-height: 220px; }
 .ac-name { color: #e2e8f0; }
 .ac-hl { color: #fbbf24; font-weight: 700; }
 .ac-empty { padding: 14px; color: #64748b; font-size: 13px; text-align: center; }
+
+/* ══ 모바일 공통 (항상 정의, media 안에서 show/hide) ══════ */
+#mobile-topbar {
+  display: none;
+  height: 52px; background: #161b27;
+  border-bottom: 1px solid #1e2535;
+  align-items: center; padding: 0 16px; gap: 12px;
+  flex-shrink: 0; position: sticky; top: 0; z-index: 300;
+}
+#mobile-hamburger {
+  background: none; border: none; color: #94a3b8;
+  font-size: 22px; cursor: pointer; padding: 4px 8px; line-height: 1;
+}
+#mobile-topbar-title { flex: 1; font-size: 15px; font-weight: 700; color: #e2e8f0; }
+#mobile-overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,0.6); z-index: 499;
+}
+#mobile-overlay.open { display: block; }
+#mobile-bottom-nav { display: none; }
+.m-tab {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 2px;
+  cursor: pointer; color: #64748b; font-size: 10px;
+  border: none; background: none;
+  -webkit-tap-highlight-color: transparent; transition: color 0.15s;
+}
+.m-tab .m-icon { font-size: 20px; line-height: 1.3; }
+.m-tab.active { color: #60a5fa; }
+
+/* ══ 모바일 반응형 (≤768px) ══════════════════════════════ */
+@media (max-width: 768px) {
+  body { flex-direction: column; height: 100dvh; overflow: hidden; }
+
+  /* 사이드바 → 드로어 */
+  #sidebar {
+    display: none;
+    position: fixed; top: 0; left: 0; bottom: 0;
+    z-index: 500; width: 260px; overflow-y: auto;
+    box-shadow: 4px 0 24px rgba(0,0,0,0.6);
+  }
+  #sidebar.mobile-open { display: flex; }
+  #mobile-topbar { display: flex; }
+  #mobile-bottom-nav {
+    display: flex;
+    position: fixed; bottom: 0; left: 0; right: 0;
+    height: 58px; background: #161b27;
+    border-top: 1px solid #1e2535; z-index: 400;
+  }
+
+  /* 메인 */
+  #main { flex: 1; overflow-y: auto; padding-bottom: 64px; }
+  .page { padding: 14px 12px; }
+  .page-header { margin-bottom: 14px; }
+  .page-title { font-size: 18px; }
+  .page-sub { font-size: 12px; }
+
+  /* 카드 → 2열 */
+  .cards { grid-template-columns: repeat(2, 1fr) !important; gap: 10px; margin-bottom: 14px; }
+  .card { padding: 14px 12px; }
+  .card-value { font-size: 22px; }
+  .card-note { font-size: 10px; }
+
+  /* 대시보드 레이아웃 */
+  .dash-main-grid { display: block !important; }
+  .dash-main-grid > div:first-child { margin-bottom: 14px; }
+
+  /* 수급 2열 차트 → 1열 */
+  .chart-grid-2col { display: block !important; }
+  .chart-col-r { padding-right: 0 !important; border-right: none !important; margin-bottom: 20px; }
+  .chart-col-l { padding-left: 0 !important; }
+
+  /* 테이블 가로 스크롤 */
+  .panel-body { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .data-table { min-width: 480px; }
+
+  /* 배치 카드 */
+  .batch-card { flex-direction: column; align-items: flex-start; gap: 10px; padding: 14px; }
+  .batch-card-log { max-width: 100%; }
+  .batch-actions { flex-direction: row; }
+
+  /* 필터바 */
+  .filter-bar { flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
+  .filter-bar select, .filter-bar input { font-size: 13px; max-width: 100%; }
+
+  /* 모달 전폭 */
+  .modal { width: calc(100vw - 24px) !important; max-height: 85dvh; overflow-y: auto; }
+
+  /* 기간 버튼 가로 스크롤 */
+  .period-btns { overflow-x: auto; -webkit-overflow-scrolling: touch; flex-wrap: nowrap; padding-bottom: 2px; }
+}
 </style>
 </head>
 <body>
+
+<!-- ===== 모바일 상단 바 ===== -->
+<div id="mobile-topbar">
+  <button id="mobile-hamburger" onclick="toggleMobileDrawer()">☰</button>
+  <span id="mobile-topbar-title">키움 분석</span>
+  <div id="mobile-topbar-user" style="font-size:12px;color:#64748b"></div>
+</div>
+<div id="mobile-overlay" onclick="closeMobileDrawer()"></div>
 
 <!-- ===== 사이드바 ===== -->
 <nav id="sidebar">
@@ -463,7 +562,7 @@ canvas { max-height: 220px; }
         <div class="card-note">FAIL 이벤트</div></div>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 340px;gap:20px">
+    <div class="dash-main-grid" style="display:grid;grid-template-columns:1fr 340px;gap:20px">
       <div class="panel">
         <div class="panel-header">최근 매매 신호</div>
         <div class="panel-body">
@@ -560,9 +659,9 @@ canvas { max-height: 220px; }
         </div>
 
         <!-- 2×2 차트 그리드 -->
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;padding:16px 20px 0">
+        <div class="chart-grid-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:0;padding:16px 20px 0">
           <!-- 외국인 누적 -->
-          <div style="padding-right:16px;border-right:1px solid #1e2535">
+          <div class="chart-col-r" style="padding-right:16px;border-right:1px solid #1e2535">
             <div style="font-size:12px;color:#60a5fa;font-weight:600;margin-bottom:10px">
               외국인 누적 순매수
               <span id="supply-for-cumul-last" style="font-size:11px;color:#94a3b8;margin-left:8px"></span>
@@ -570,7 +669,7 @@ canvas { max-height: 220px; }
             <canvas id="supply-for-cumul-chart" style="max-height:150px"></canvas>
           </div>
           <!-- 기관 누적 -->
-          <div style="padding-left:16px">
+          <div class="chart-col-l" style="padding-left:16px">
             <div style="font-size:12px;color:#34d399;font-weight:600;margin-bottom:10px">
               기관 누적 순매수
               <span id="supply-orgn-cumul-last" style="font-size:11px;color:#94a3b8;margin-left:8px"></span>
@@ -580,12 +679,12 @@ canvas { max-height: 220px; }
         </div>
 
         <!-- 일별 바 차트 2개 -->
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;padding:12px 20px 0">
-          <div style="padding-right:16px;border-right:1px solid #1e2535">
+        <div class="chart-grid-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:0;padding:12px 20px 0">
+          <div class="chart-col-r" style="padding-right:16px;border-right:1px solid #1e2535">
             <div style="font-size:12px;color:#60a5fa;font-weight:600;margin-bottom:10px">외국인 일별 순매수</div>
             <canvas id="supply-for-chart" style="max-height:110px"></canvas>
           </div>
-          <div style="padding-left:16px">
+          <div class="chart-col-l" style="padding-left:16px">
             <div style="font-size:12px;color:#34d399;font-weight:600;margin-bottom:10px">기관 일별 순매수</div>
             <canvas id="supply-orgn-chart" style="max-height:110px"></canvas>
           </div>
@@ -882,6 +981,25 @@ canvas { max-height: 220px; }
 
 </main>
 
+<!-- ===== 모바일 하단 탭바 ===== -->
+<nav id="mobile-bottom-nav">
+  <button class="m-tab active" data-page="dashboard" onclick="showPage('dashboard')">
+    <span class="m-icon">🏠</span>대시보드
+  </button>
+  <button class="m-tab" data-page="supply" onclick="showPage('supply')">
+    <span class="m-icon">💹</span>수급
+  </button>
+  <button class="m-tab" data-page="signals" onclick="showPage('signals')">
+    <span class="m-icon">📈</span>신호
+  </button>
+  <button class="m-tab" data-page="batch" onclick="showPage('batch')">
+    <span class="m-icon">⚙️</span>배치
+  </button>
+  <button class="m-tab" onclick="toggleMobileDrawer()">
+    <span class="m-icon">☰</span>메뉴
+  </button>
+</nav>
+
 <script>
 // ─── 전역 상태 ────────────────────────────────────────
 let allSignals         = [];
@@ -897,6 +1015,21 @@ let supplyChartFor       = null;
 let supplyChartOrgn      = null;
 let signalPieChart       = null;
 
+// ─── 모바일 드로어 ───────────────────────────────────
+const PAGE_TITLES = {
+  dashboard:'대시보드', supply:'수급 현황', divergence:'수급↑ 가격↔',
+  snapshot:'기간별 변화', signals:'매매 신호', auditlog:'감사 로그',
+  stocks:'감시 종목', batch:'배치 관리', usermgmt:'사용자 관리',
+};
+function toggleMobileDrawer() {
+  const open = document.getElementById('sidebar').classList.toggle('mobile-open');
+  document.getElementById('mobile-overlay').classList.toggle('open', open);
+}
+function closeMobileDrawer() {
+  document.getElementById('sidebar').classList.remove('mobile-open');
+  document.getElementById('mobile-overlay').classList.remove('open');
+}
+
 // ─── 페이지 전환 ─────────────────────────────────────
 function showPage(name, fromHash) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -905,8 +1038,14 @@ function showPage(name, fromHash) {
   const navEl = document.querySelector(`.nav-item[data-page="${name}"]`);
   if (navEl) navEl.classList.add('active');
 
-  if (!fromHash) location.hash = name;
+  // 하단 탭바 활성화
+  document.querySelectorAll('.m-tab[data-page]').forEach(t =>
+    t.classList.toggle('active', t.dataset.page === name));
+  const titleEl = document.getElementById('mobile-topbar-title');
+  if (titleEl) titleEl.textContent = PAGE_TITLES[name] || '키움 분석';
 
+  closeMobileDrawer();
+  if (!fromHash) location.hash = name;
   restoreFilters(name);
 
   if (name === 'dashboard') loadDashboard();
@@ -2263,6 +2402,8 @@ function applyUser(user) {
   document.getElementById('user-avatar').textContent = user.name[0].toUpperCase();
   const isMe = (user.id === loggedInUserId);
   document.getElementById('user-name-label').textContent = isMe ? user.name : `${user.name} (보기 중)`;
+  const mtu = document.getElementById('mobile-topbar-user');
+  if (mtu) mtu.textContent = user.name;
   const badge = document.getElementById('view-as-badge');
   if (badge) badge.style.display = isMe ? 'none' : '';
 
