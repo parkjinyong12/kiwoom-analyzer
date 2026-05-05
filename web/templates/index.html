@@ -2213,7 +2213,9 @@ let loggedInUserId = null;
 
 async function loadUsers() {
   const res = await fetch('/api/users');
-  allUsers = await res.json();
+  if (!res.ok) { console.error('loadUsers failed', res.status); return; }
+  const data = await res.json();
+  allUsers = Array.isArray(data) ? data : [];
   currentUser = allUsers.find(u => u.id === loggedInUserId) || allUsers[0];
   if (currentUser) applyUser(currentUser);
 }

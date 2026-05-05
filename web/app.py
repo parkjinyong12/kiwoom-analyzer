@@ -67,6 +67,19 @@ def _ensure_users_auth_columns():
         cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255)")
         cur.execute("ALTER TABLE supply_demand ADD COLUMN IF NOT EXISTS close_price BIGINT")
 
+
+def _ensure_user_preferences_table():
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS user_preferences (
+                user_id  INTEGER NOT NULL,
+                key      VARCHAR(100) NOT NULL,
+                value    TEXT NOT NULL,
+                PRIMARY KEY (user_id, key)
+            )
+        """)
+
 BATCH_JOBS = {
     "collect_history": {
         "name": "수급 히스토리 수집",
@@ -791,6 +804,11 @@ except Exception:
 
 try:
     _ensure_users_auth_columns()
+except Exception:
+    pass
+
+try:
+    _ensure_user_preferences_table()
 except Exception:
     pass
 
