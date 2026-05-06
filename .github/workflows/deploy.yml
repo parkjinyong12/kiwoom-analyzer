@@ -21,21 +21,19 @@ jobs:
       - name: Notify Slack (success)
         if: success()
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
           MSG=$(echo "$COMMIT_MSG" | head -1)
-          curl -s -X POST "$SLACK_WEBHOOK_URL" \
+          curl -s -X POST '${{ secrets.SLACK_WEBHOOK_URL }}' \
             -H "Content-Type: application/json" \
             -d "{\"text\": \"✅ *kiwoom-analyzer* 배포 완료\n커밋: \`${MSG}\`\"}"
 
       - name: Notify Slack (failure)
         if: failure()
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
           MSG=$(echo "$COMMIT_MSG" | head -1)
-          curl -s -X POST "$SLACK_WEBHOOK_URL" \
+          curl -s -X POST '${{ secrets.SLACK_WEBHOOK_URL }}' \
             -H "Content-Type: application/json" \
             -d "{\"text\": \"❌ *kiwoom-analyzer* 배포 실패\n커밋: \`${MSG}\`\"}"
