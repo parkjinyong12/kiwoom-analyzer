@@ -61,6 +61,20 @@ class RiskCheckResult:
 
 
 @dataclass
+class AccountHolding:
+    """계좌 보유종목 단건."""
+    stock_code: str
+    stock_name: str
+    hold_qty: int           # 보유수량
+    buy_avg_price: float    # 매입평균가 (pur_pric)
+    pur_amount: float       # 매입금액 합계 (pur_amt, API 원본값)
+    current_price: float    # 현재가
+    eval_amount: float      # 평가금액
+    pnl_amount: float       # 손익금액
+    pnl_rate: float         # 손익률(%)
+
+
+@dataclass
 class SupplyDemandFinding:
     """수급 트렌드 분석 결과."""
     stock_code: str

@@ -424,6 +424,9 @@ canvas { max-height: 220px; }
     <div class="nav-item" data-page="signals" onclick="showPage('signals')">
       <span class="icon">📈</span> 매매 신호
     </div>
+    <div class="nav-item" data-page="report" onclick="showPage('report')">
+      <span class="icon">📧</span> 보유종목 리포트
+    </div>
 
     <div class="nav-section">시스템</div>
     <div class="nav-item" data-page="auditlog" onclick="showPage('auditlog')">
@@ -955,6 +958,121 @@ canvas { max-height: 220px; }
     </div>
   </section>
 
+  <!-- ─── 보유종목 리포트 ─── -->
+  <section id="page-report" class="page">
+    <div class="page-header">
+      <div class="page-title">보유종목 리포트</div>
+      <div class="page-sub">보유종목 가격·수급 변동 일일 리포트 미리보기 및 이메일 발송 관리</div>
+    </div>
+
+    <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
+
+      <!-- ── 미리보기 패널 (좌측, 넓게) ── -->
+      <div style="flex:1;min-width:0">
+        <div class="panel">
+          <div class="panel-header">
+            <span>리포트 미리보기</span>
+            <div style="display:flex;gap:8px;align-items:center">
+              <span id="report-preview-ts" style="font-size:11px;color:#64748b"></span>
+              <button class="btn btn-primary" style="font-size:12px" onclick="reportGenPreview()">
+                🔄 미리보기 생성
+              </button>
+            </div>
+          </div>
+          <div id="report-preview-wrap" style="padding:16px;min-height:300px">
+            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:260px;gap:12px;color:#475569">
+              <div style="font-size:40px">📧</div>
+              <div style="font-size:14px">미리보기 생성 버튼을 눌러 리포트를 확인하세요</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── 관리 패널 (우측, 좁게) ── -->
+      <div style="width:320px;min-width:280px;display:flex;flex-direction:column;gap:16px">
+
+        <!-- 즉시 발송 -->
+        <div class="panel">
+          <div class="panel-header">즉시 발송</div>
+          <div style="padding:16px;display:flex;flex-direction:column;gap:10px">
+            <p style="font-size:12px;color:#64748b;margin:0">현재 보유종목 리포트를 등록된 수신자에게 바로 발송합니다.</p>
+            <button class="btn btn-primary" style="width:100%" onclick="reportSendNow()">
+              📤 지금 발송
+            </button>
+            <span id="report-send-msg" style="font-size:12px;display:none"></span>
+          </div>
+        </div>
+
+        <!-- 수신자 관리 -->
+        <div class="panel">
+          <div class="panel-header">수신자 관리</div>
+          <div style="padding:16px;display:flex;flex-direction:column;gap:10px">
+            <div style="display:flex;gap:6px">
+              <input type="email" id="report-email-input" placeholder="이메일 주소"
+                     style="flex:1;padding:7px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:12px"
+                     onkeydown="if(event.key==='Enter')reportAddEmail()"/>
+              <button class="btn btn-primary" style="font-size:12px;padding:7px 12px" onclick="reportAddEmail()">추가</button>
+            </div>
+            <div id="report-email-list" style="display:flex;flex-direction:column;gap:6px">
+              <div class="loading"><span class="spinner"></span>로딩 중...</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SMTP 상태 -->
+        <div class="panel">
+          <div class="panel-header">SMTP 설정 상태</div>
+          <div style="padding:16px">
+            <div id="report-smtp-status" style="font-size:12px;color:#64748b">확인 중...</div>
+            <p style="font-size:11px;color:#475569;margin:10px 0 0">Gmail 앱 비밀번호를 서버 .env에 설정하세요.<br>
+            <code style="background:#0a0e17;padding:2px 5px;border-radius:3px;font-size:10px">SMTP_USER=gmail@gmail.com<br>SMTP_PASSWORD=앱비밀번호</code></p>
+          </div>
+        </div>
+
+        <!-- 스케줄 -->
+        <div class="panel">
+          <div class="panel-header">자동 발송 스케줄</div>
+          <div style="padding:16px;display:flex;flex-direction:column;gap:10px">
+            <div style="display:flex;align-items:center;gap:10px">
+              <label style="font-size:12px;color:#94a3b8;white-space:nowrap">매일 발송</label>
+              <input type="checkbox" id="report-sched-enabled" onchange="reportSaveSchedule()" style="width:16px;height:16px;cursor:pointer">
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <label style="font-size:12px;color:#94a3b8;white-space:nowrap">시간</label>
+              <input type="number" id="report-sched-hour" min="0" max="23" value="8"
+                     style="width:55px;padding:6px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:12px"
+                     onchange="reportSaveSchedule()">
+              <span style="color:#64748b;font-size:12px">시</span>
+              <input type="number" id="report-sched-min" min="0" max="59" value="0"
+                     style="width:55px;padding:6px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:12px"
+                     onchange="reportSaveSchedule()">
+              <span style="color:#64748b;font-size:12px">분</span>
+            </div>
+            <select id="report-sched-days"
+                    style="padding:7px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:12px"
+                    onchange="reportSaveSchedule()">
+              <option value="weekdays">평일만 (월~금)</option>
+              <option value="daily">매일 (월~일)</option>
+            </select>
+            <span id="report-sched-msg" style="font-size:11px;color:#4ade80;display:none">✓ 저장됨</span>
+          </div>
+        </div>
+
+        <!-- 발송 이력 -->
+        <div class="panel">
+          <div class="panel-header">
+            <span>발송 이력</span>
+            <button class="btn btn-ghost" style="font-size:11px;padding:3px 8px" onclick="loadReportHistory()">새로고침</button>
+          </div>
+          <div id="report-history-list" style="padding:0 16px 16px">
+            <div class="loading"><span class="spinner"></span>로딩 중...</div>
+          </div>
+        </div>
+
+      </div><!-- /관리 패널 -->
+    </div>
+  </section>
+
   <!-- ─── 사용자 관리 ─── -->
   <section id="page-usermgmt" class="page">
     <div class="page-header">
@@ -1018,8 +1136,8 @@ let signalPieChart       = null;
 // ─── 모바일 드로어 ───────────────────────────────────
 const PAGE_TITLES = {
   dashboard:'대시보드', supply:'수급 현황', divergence:'수급↑ 가격↔',
-  snapshot:'기간별 변화', signals:'매매 신호', auditlog:'감사 로그',
-  stocks:'감시 종목', batch:'배치 관리', usermgmt:'사용자 관리',
+  snapshot:'기간별 변화', signals:'매매 신호', report:'보유종목 리포트',
+  auditlog:'감사 로그', stocks:'감시 종목', batch:'배치 관리', usermgmt:'사용자 관리',
 };
 function toggleMobileDrawer() {
   const open = document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -1056,6 +1174,7 @@ function showPage(name, fromHash) {
   if (name === 'auditlog')  loadEvents();
   if (name === 'stocks')    loadStocks();
   if (name === 'batch')     loadBatch();
+  if (name === 'report')    loadReportPage();
   if (name === 'usermgmt')  loadUserMgmt();
 }
 
@@ -2055,7 +2174,17 @@ function renderBatchList(jobs) {
         <div class="batch-status-label" style="color:${statusColor}">${running ? '실행중' : '중지'}</div>
       </div>
       <div class="batch-card-info">
-        <div class="batch-card-name">${j.name}</div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <div class="batch-card-name">${j.name}</div>
+          ${(() => {
+            const s = _scheduleData[j.id];
+            if (!s) return '';
+            if (!s.enabled) return '<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:#1e2535;color:#475569">스케줄 꺼짐</span>';
+            const hh = String(s.hour??0).padStart(2,'0'), mm = String(s.minute??0).padStart(2,'0');
+            const dl = s.days==='weekdays'?'평일':s.days==='weekends'?'주말':'매일';
+            return `<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:#1d3a5f;color:#60a5fa">⏰ ${dl} ${hh}:${mm}</span>`;
+          })()}
+        </div>
         <div class="batch-card-desc">${j.desc}</div>
         <div class="batch-card-log">${j.last_line ? `최근: ${j.last_line}` : '로그 없음'}</div>
         ${j.log_file ? `<div style="font-size:10px;color:#334155;margin-top:3px">${j.log_file}</div>` : ''}
@@ -2137,6 +2266,7 @@ function renderScheduleList() {
   const BATCH_LABELS = {
     collect_history: '수급 히스토리 수집',
     backfill_close:  '종가 백필',
+    holdings_report: '보유종목 리포트 발송',
   };
 
   const html = Object.entries(_scheduleData).map(([jid, s]) => {
@@ -2181,10 +2311,26 @@ function renderScheduleList() {
 
       <button class="btn btn-primary" style="font-size:12px" onclick="saveSchedule('${jid}')">저장</button>
       <span id="sch-msg-${jid}" style="font-size:12px;color:#4ade80;display:none">✓ 저장됨</span>
+
+      ${jid === 'holdings_report' ? `
+      <div style="width:100%;border-top:1px solid #1e2535;margin-top:14px;padding-top:14px">
+        <div style="font-size:12px;color:#94a3b8;font-weight:600;margin-bottom:10px">📧 발송 수신자</div>
+        <div style="display:flex;gap:6px;margin-bottom:10px">
+          <input type="email" id="batch-email-input" placeholder="이메일 주소 입력"
+                 style="flex:1;max-width:260px;padding:6px 10px;border-radius:6px;border:1px solid #2d3748;background:#0f1117;color:#e2e8f0;font-size:12px"
+                 onkeydown="if(event.key==='Enter')batchEmailAdd()"/>
+          <button class="btn btn-primary" style="font-size:12px;padding:6px 12px" onclick="batchEmailAdd()">추가</button>
+        </div>
+        <div id="batch-email-list" style="display:flex;flex-direction:column;gap:6px;max-width:420px">
+          <div style="font-size:12px;color:#475569">로딩 중...</div>
+        </div>
+      </div>` : ''}
     </div>`;
   }).join('');
 
   document.getElementById('schedule-list').innerHTML = html || '<div class="empty">등록된 배치가 없습니다</div>';
+  // holdings_report 이메일 목록 로드
+  batchEmailLoad();
 }
 
 async function saveSchedule(jid) {
@@ -2219,6 +2365,220 @@ async function saveCollectSettings() {
     setTimeout(() => { msg.style.display = 'none'; }, 2000);
   } else {
     alert('저장 실패');
+  }
+}
+
+// ─── 배치 화면 이메일 수신자 관리 ───────────────────────
+async function batchEmailLoad() {
+  const el = document.getElementById('batch-email-list');
+  if (!el) return;
+  try {
+    const d = await fetch('/api/report/config').then(r => r.json());
+    const emails = d.emails || [];
+    if (!emails.length) {
+      el.innerHTML = '<div style="font-size:12px;color:#475569">등록된 수신자 없음</div>';
+      return;
+    }
+    el.innerHTML = emails.map(e => `
+      <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #1e2535">
+        <span style="flex:1;font-size:12px;color:${e.active?'#e2e8f0':'#475569'};
+                     text-decoration:${e.active?'none':'line-through'}">${e.email}</span>
+        <button onclick="batchEmailToggle(${e.id})"
+                style="font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid #2d3748;
+                       background:transparent;color:#94a3b8;cursor:pointer">${e.active?'끄기':'켜기'}</button>
+        <button onclick="batchEmailDelete(${e.id})"
+                style="font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid #2d3748;
+                       background:transparent;color:#f87171;cursor:pointer">삭제</button>
+      </div>`).join('');
+  } catch(e) {
+    el.innerHTML = '<div style="font-size:12px;color:#f87171">로드 실패</div>';
+  }
+}
+
+async function batchEmailAdd() {
+  const input = document.getElementById('batch-email-input');
+  const email = (input?.value || '').trim();
+  if (!email) return;
+  const res = await fetch('/api/report/config/email', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({email}),
+  });
+  const d = await res.json();
+  if (d.ok) { input.value = ''; batchEmailLoad(); }
+  else alert(d.error || '추가 실패');
+}
+
+async function batchEmailToggle(id) {
+  await fetch(`/api/report/config/email/${id}/toggle`, {method:'POST'});
+  batchEmailLoad();
+}
+
+async function batchEmailDelete(id) {
+  if (!confirm('수신자를 삭제하시겠습니까?')) return;
+  await fetch(`/api/report/config/email/${id}`, {method:'DELETE'});
+  batchEmailLoad();
+}
+
+// ─── 보유종목 리포트 페이지 ──────────────────────────────
+async function loadReportPage() {
+  await Promise.all([loadReportConfig(), loadReportHistory()]);
+}
+
+async function loadReportConfig() {
+  try {
+    const d = await fetch('/api/report/config').then(r => r.json());
+
+    // SMTP 상태
+    const smtpEl = document.getElementById('report-smtp-status');
+    if (d.smtp_configured) {
+      smtpEl.innerHTML = `<span style="color:#4ade80">✓ 설정됨</span> — ${d.smtp_user}`;
+    } else {
+      smtpEl.innerHTML = '<span style="color:#f87171">✗ 미설정</span> — .env에 SMTP_USER/SMTP_PASSWORD 필요';
+    }
+
+    // 수신자 목록
+    renderReportEmailList(d.emails || []);
+
+    // 스케줄
+    const s = d.schedule || {};
+    document.getElementById('report-sched-enabled').checked = !!s.enabled;
+    document.getElementById('report-sched-hour').value = s.hour ?? 8;
+    document.getElementById('report-sched-min').value  = s.minute ?? 0;
+    document.getElementById('report-sched-days').value = s.days || 'weekdays';
+  } catch(e) {
+    console.error('loadReportConfig', e);
+  }
+}
+
+function renderReportEmailList(emails) {
+  const el = document.getElementById('report-email-list');
+  if (!emails.length) {
+    el.innerHTML = '<div style="font-size:12px;color:#475569;text-align:center;padding:8px">등록된 수신자 없음</div>';
+    return;
+  }
+  el.innerHTML = emails.map(e => `
+    <div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid #1e2535">
+      <span style="flex:1;font-size:12px;color:${e.active ? '#e2e8f0' : '#475569'};
+                   text-decoration:${e.active ? 'none' : 'line-through'}">${e.email}</span>
+      <button onclick="reportToggleEmail(${e.id})"
+              style="font-size:10px;padding:2px 6px;border-radius:4px;border:1px solid #2d3748;
+                     background:transparent;color:#94a3b8;cursor:pointer"
+              title="${e.active ? '비활성화' : '활성화'}">${e.active ? '끄기' : '켜기'}</button>
+      <button onclick="reportDeleteEmail(${e.id})"
+              style="font-size:10px;padding:2px 6px;border-radius:4px;border:1px solid #2d3748;
+                     background:transparent;color:#f87171;cursor:pointer">삭제</button>
+    </div>`).join('');
+}
+
+async function reportAddEmail() {
+  const input = document.getElementById('report-email-input');
+  const email = input.value.trim();
+  if (!email) return;
+  const res = await fetch('/api/report/config/email', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({email}),
+  });
+  const d = await res.json();
+  if (d.ok) { input.value = ''; loadReportConfig(); }
+  else alert(d.error || '추가 실패');
+}
+
+async function reportToggleEmail(id) {
+  await fetch(`/api/report/config/email/${id}/toggle`, {method: 'POST'});
+  loadReportConfig();
+}
+
+async function reportDeleteEmail(id) {
+  if (!confirm('수신자를 삭제하시겠습니까?')) return;
+  await fetch(`/api/report/config/email/${id}`, {method: 'DELETE'});
+  loadReportConfig();
+}
+
+let _reportSchedTimer = null;
+function reportSaveSchedule() {
+  clearTimeout(_reportSchedTimer);
+  _reportSchedTimer = setTimeout(async () => {
+    const body = {
+      enabled: document.getElementById('report-sched-enabled').checked,
+      hour:    parseInt(document.getElementById('report-sched-hour').value),
+      minute:  parseInt(document.getElementById('report-sched-min').value),
+      days:    document.getElementById('report-sched-days').value,
+    };
+    const res = await fetch('/api/schedule/holdings_report', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    if (res.ok) {
+      const msg = document.getElementById('report-sched-msg');
+      msg.style.display = '';
+      setTimeout(() => { msg.style.display = 'none'; }, 2000);
+    }
+  }, 600);
+}
+
+async function reportGenPreview() {
+  const wrap = document.getElementById('report-preview-wrap');
+  wrap.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:260px;gap:10px;color:#64748b"><span class="spinner"></span> 리포트 생성 중... (약 30초 소요)</div>';
+  try {
+    const res = await fetch('/api/report/preview');
+    const d = await res.json();
+    if (!d.ok) throw new Error(d.error || '생성 실패');
+    wrap.innerHTML = `<iframe srcdoc="${d.html.replace(/"/g,'&quot;').replace(/'/g,'&#39;')}"
+      style="width:100%;border:none;border-radius:8px;background:#fff"
+      onload="this.style.height=this.contentDocument.body.scrollHeight+40+'px'"></iframe>`;
+    document.getElementById('report-preview-ts').textContent =
+      '생성: ' + new Date().toLocaleTimeString('ko-KR');
+  } catch(e) {
+    wrap.innerHTML = `<div style="padding:20px;color:#f87171;font-size:13px">오류: ${e.message}</div>`;
+  }
+}
+
+async function reportSendNow() {
+  const msg = document.getElementById('report-send-msg');
+  msg.style.display = '';
+  msg.style.color = '#94a3b8';
+  msg.textContent = '발송 중...';
+  try {
+    const res = await fetch('/api/report/send', {method: 'POST'});
+    const d = await res.json();
+    if (d.ok) {
+      msg.style.color = '#4ade80';
+      msg.textContent = '✓ 발송 완료';
+      loadReportHistory();
+    } else {
+      msg.style.color = '#f87171';
+      msg.textContent = '✗ ' + (d.error || '발송 실패');
+    }
+  } catch(e) {
+    msg.style.color = '#f87171';
+    msg.textContent = '✗ 네트워크 오류';
+  }
+  setTimeout(() => { msg.style.display = 'none'; }, 4000);
+}
+
+async function loadReportHistory() {
+  const el = document.getElementById('report-history-list');
+  try {
+    const rows = await fetch('/api/report/history').then(r => r.json());
+    if (!rows.length) {
+      el.innerHTML = '<div style="font-size:12px;color:#475569;padding:8px 0">발송 이력 없음</div>';
+      return;
+    }
+    el.innerHTML = rows.map(r => `
+      <div style="padding:8px 0;border-bottom:1px solid #1e2535;font-size:11px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="color:#94a3b8">${r.ts}</span>
+          <span style="color:${r.status === 'ok' ? '#4ade80' : '#f87171'};font-weight:600">
+            ${r.status === 'ok' ? '✓ 성공' : '✗ 실패'}
+          </span>
+        </div>
+        <div style="color:#64748b;margin-top:3px">${r.recipients || '-'} · ${r.stock_count || 0}종목</div>
+        ${r.error_msg ? `<div style="color:#f87171;margin-top:2px">${r.error_msg}</div>` : ''}
+      </div>`).join('');
+  } catch(e) {
+    el.innerHTML = '<div style="font-size:12px;color:#f87171">로드 실패</div>';
   }
 }
 
@@ -2370,6 +2730,7 @@ const MENU_META = {
   divergence: { label: '수급↑ 가격↔',   icon: '🔍', section: '분석' },
   snapshot:   { label: '기간별 변화',     icon: '📊', section: '분석' },
   signals:    { label: '매매 신호',       icon: '📈', section: '분석' },
+  report:     { label: '보유종목 리포트', icon: '📧', section: '분석' },
   auditlog:   { label: '감사 로그',       icon: '📋', section: '시스템' },
   stocks:     { label: '감시 종목',       icon: '🔭', section: '시스템' },
   batch:      { label: '배치 관리',       icon: '⚙️', section: '관리' },
@@ -2653,7 +3014,7 @@ async function saveCredentials() {
 }
 
 // ─── 초기 로드 (해시 기반 페이지 복원) ───────────────────
-const PAGES = ['dashboard','supply','divergence','snapshot','signals','auditlog','stocks','batch','usermgmt'];
+const PAGES = ['dashboard','supply','divergence','snapshot','signals','report','auditlog','stocks','batch','usermgmt'];
 // visible_menus 저장 시점 이전에 존재하던 페이지 목록
 const PAGES_V1 = ['dashboard','supply','signals','auditlog','stocks','batch','usermgmt'];
 

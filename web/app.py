@@ -84,6 +84,29 @@ def _ensure_user_preferences_table():
             )
         """)
 
+
+def _ensure_report_tables():
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS report_email_config (
+                id SERIAL PRIMARY KEY,
+                email VARCHAR(255) NOT NULL UNIQUE,
+                active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS report_send_log (
+                id SERIAL PRIMARY KEY,
+                sent_at TIMESTAMP DEFAULT NOW(),
+                recipients TEXT,
+                stock_count INT,
+                status VARCHAR(20),
+                error_msg TEXT
+            )
+        """)
+
 BATCH_JOBS = {
     "collect_history": {
         "name": "수급 히스토리 수집",
@@ -98,6 +121,13 @@ BATCH_JOBS = {
         "match": "backfill_close_price",
         "cmd": "python -u scripts/backfill_close_price.py",
         "log_prefix": "backfill",
+    },
+    "holdings_report": {
+        "name": "보유종목 리포트",
+        "desc": "보유종목 가격·수급 변동 리포트 생성 및 이메일 발송",
+        "match": "scripts/holdings_report",
+        "cmd": "python -u scripts/holdings_report.py --send",
+        "log_prefix": "holdings_report",
     },
 }
 
@@ -507,10 +537,109 @@ def api_stocks():
 
 
 # ---------------------------------------------------------------------------
+# API — 보유종목 리포트
+# ---------------------------------------------------------------------------
+
+@app.route("/api/report/preview")
+def api_report_preview():
+    """리포트 HTML 미리보기 생성 (이메일 발송 없음)."""
+    import sys, os
+    sys.path.insert(0, BASE_DIR)
+    try:
+        from scripts.holdings_report import main as gen_report
+        html = gen_report(send=False)
+        return jsonify({"ok": True, "html": html})
+    except Exception as e:
+        logging.exception("리포트 미리보기 실패")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/report/send", methods=["POST"])
+def api_report_send():
+    """리포트 즉시 발송."""
+    import sys
+    sys.path.insert(0, BASE_DIR)
+    try:
+        from scripts.holdings_report import main as gen_report
+        gen_report(send=True)
+        return jsonify({"ok": True})
+    except Exception as e:
+        logging.exception("리포트 발송 실패")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/report/config")
+def api_report_config_get():
+    """이메일 발송 설정 조회."""
+    emails = query("SELECT id, email, active FROM report_email_config ORDER BY id")
+    schedule = query_one("SELECT enabled, hour, minute, days FROM batch_schedules WHERE job_id = 'holdings_report'")
+    smtp_user = os.environ.get("SMTP_USER", "")
+    return jsonify({
+        "emails": [{"id": r["id"], "email": r["email"], "active": r["active"]} for r in emails],
+        "smtp_configured": bool(smtp_user),
+        "smtp_user": smtp_user,
+        "schedule": dict(schedule) if schedule else {"enabled": False, "hour": 8, "minute": 0, "days": "weekdays"},
+    })
+
+
+@app.route("/api/report/config/email", methods=["POST"])
+def api_report_email_add():
+    """수신자 이메일 추가."""
+    data = request.get_json() or {}
+    email = (data.get("email") or "").strip().lower()
+    if not email or "@" not in email:
+        return jsonify({"error": "유효하지 않은 이메일"}), 400
+    try:
+        with get_conn() as conn:
+            conn.cursor().execute(
+                "INSERT INTO report_email_config (email) VALUES (%s) ON CONFLICT (email) DO UPDATE SET active = TRUE",
+                (email,)
+            )
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/report/config/email/<int:eid>", methods=["DELETE"])
+def api_report_email_delete(eid: int):
+    """수신자 이메일 삭제."""
+    with get_conn() as conn:
+        conn.cursor().execute("DELETE FROM report_email_config WHERE id = %s", (eid,))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/report/config/email/<int:eid>/toggle", methods=["POST"])
+def api_report_email_toggle(eid: int):
+    """수신자 활성/비활성 토글."""
+    with get_conn() as conn:
+        conn.cursor().execute(
+            "UPDATE report_email_config SET active = NOT active WHERE id = %s", (eid,)
+        )
+    return jsonify({"ok": True})
+
+
+@app.route("/api/report/history")
+def api_report_history():
+    """발송 이력 조회."""
+    rows = query(
+        """
+        SELECT sent_at AT TIME ZONE 'Asia/Seoul' AS ts,
+               recipients, stock_count, status, error_msg
+        FROM report_send_log
+        ORDER BY sent_at DESC
+        LIMIT 30
+        """
+    )
+    for r in rows:
+        r["ts"] = r["ts"].strftime("%Y-%m-%d %H:%M") if r["ts"] else ""
+    return jsonify(rows)
+
+
+# ---------------------------------------------------------------------------
 # API — 사용자 관리
 # ---------------------------------------------------------------------------
 
-ALL_MENUS = ["dashboard", "supply", "divergence", "signals", "auditlog", "stocks", "batch", "usermgmt"]
+ALL_MENUS = ["dashboard", "supply", "divergence", "signals", "report", "auditlog", "stocks", "batch", "usermgmt"]
 
 @app.route("/api/users")
 def api_users():
@@ -838,6 +967,11 @@ except Exception:
 
 try:
     _ensure_user_preferences_table()
+except Exception:
+    pass
+
+try:
+    _ensure_report_tables()
 except Exception:
     pass
 

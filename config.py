@@ -21,6 +21,10 @@ class KiwoomConfig:
     app_secret: str = field(default_factory=lambda: os.environ.get("KIWOOM_APP_SECRET", ""))
     base_url: str = "https://api.kiwoom.com"
 
+    # 계좌 정보
+    acnt_no: str = field(default_factory=lambda: os.environ.get("KIWOOM_ACNT_NO", ""))
+    acnt_pwd: str = field(default_factory=lambda: os.environ.get("KIWOOM_ACNT_PWD", ""))
+
     # 요청 제한
     tr_delay_seconds: float = 1.0       # 요청 간격 (초)
     tr_per_minute_limit: int = 60       # 분당 최대 요청 수
@@ -44,10 +48,19 @@ class RiskConfig:
 
 
 @dataclass
+class SmtpConfig:
+    user: str = field(default_factory=lambda: os.environ.get("SMTP_USER", ""))
+    password: str = field(default_factory=lambda: os.environ.get("SMTP_PASSWORD", ""))
+    host: str = "smtp.gmail.com"
+    port: int = 587
+
+
+@dataclass
 class AppConfig:
     kiwoom: KiwoomConfig = field(default_factory=KiwoomConfig)
     slack: SlackConfig = field(default_factory=SlackConfig)
     risk: RiskConfig = field(default_factory=RiskConfig)
+    smtp: SmtpConfig = field(default_factory=SmtpConfig)
 
     # 감시 종목 리스트
     watchlist: list[str] = field(default_factory=lambda: [

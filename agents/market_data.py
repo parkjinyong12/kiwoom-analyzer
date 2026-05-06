@@ -24,7 +24,7 @@ import pandas as pd
 import requests
 
 from config import config
-from models import OHLCVBar
+from models import AccountHolding, OHLCVBar
 
 logger = logging.getLogger(__name__)
 
@@ -456,6 +456,96 @@ class MarketDataAgent:
             }
         except Exception:
             return None
+
+    # ------------------------------------------------------------------
+    # 계좌 보유종목 (ka10085)
+    # ------------------------------------------------------------------
+
+    def get_account_holdings(self) -> list[AccountHolding]:
+        """계좌 보유종목 전체 조회 (ka10085).
+
+        .env에 KIWOOM_ACNT_NO, KIWOOM_ACNT_PWD 필요.
+        페이지네이션 자동 처리.
+        """
+        cfg = config.kiwoom
+        if not cfg.acnt_no or not cfg.acnt_pwd:
+            raise ValueError("KIWOOM_ACNT_NO / KIWOOM_ACNT_PWD 환경변수가 설정되지 않았습니다.")
+
+        url = f"{self._base_url}/api/dostk/acnt"
+        results: list[AccountHolding] = []
+        cont_yn = ""
+        next_key = ""
+
+        while True:
+            self._limiter.wait()
+            headers = {
+                "authorization": f"Bearer {self._token_mgr.get_token()}",
+                "api-id": "ka10085",
+                "Content-Type": "application/json;charset=UTF-8",
+            }
+            if cont_yn == "Y":
+                headers["cont-yn"] = cont_yn
+                headers["next-key"] = next_key
+
+            body = {
+                "acnt_no": cfg.acnt_no,
+                "acnt_pwd": cfg.acnt_pwd,
+                "qry_tp": "1",
+                "stex_tp": "KRX",  # KRX=한국거래소
+            }
+            resp = requests.post(url, headers=headers, json=body, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+
+            if data.get("return_code", -1) != 0:
+                raise RuntimeError(f"계좌잔고 조회 오류: {data.get('return_msg')}")
+
+            # 응답 키: acnt_prft_rt, 수량 필드: rmnd_qty(실시간) / setl_remn(결제잔고)
+            rows = data.get("acnt_prft_rt", [])
+            for row in rows:
+                try:
+                    # crd_tp=99 는 신용 집계용 더미 행 — 실제 포지션 아님
+                    if row.get("crd_tp") == "99":
+                        continue
+                    rmnd_qty  = int(row.get("rmnd_qty",  "0").replace(",", "") or "0")
+                    setl_remn = int(row.get("setl_remn", "0").replace(",", "") or "0")
+                    qty = rmnd_qty if rmnd_qty > 0 else setl_remn
+                    if qty == 0:
+                        continue
+                    cur_prc  = self._to_float(row.get("cur_prc",  "0"))
+                    pur_pric = self._to_float(row.get("pur_pric", "0"))
+                    pur_amt  = self._to_float(row.get("pur_amt",  "0"))
+                    eval_amt = cur_prc * qty
+                    # pur_amt=0 이면 API가 매입단가 미제공 → 손익 산출 불가
+                    pnl_amt = eval_amt - pur_amt if pur_amt > 0 else float("nan")
+                    pnl_rt  = (pnl_amt / pur_amt * 100) if pur_amt > 0 else float("nan")
+                    results.append(AccountHolding(
+                        stock_code=row.get("stk_cd", "").strip(),
+                        stock_name=row.get("stk_nm", "").strip().lstrip("*"),
+                        hold_qty=qty,
+                        buy_avg_price=pur_pric,
+                        pur_amount=pur_amt,
+                        current_price=cur_prc,
+                        eval_amount=eval_amt,
+                        pnl_amount=pnl_amt,
+                        pnl_rate=pnl_rt,
+                    ))
+                except Exception as e:
+                    logger.warning("보유종목 파싱 오류: %s / row=%s", e, row)
+
+            cont_yn = resp.headers.get("cont-yn", "")
+            next_key = resp.headers.get("next-key", "")
+            if cont_yn != "Y":
+                break
+
+        logger.info("계좌 보유종목 조회 완료: %d개", len(results))
+        return results
+
+    def _to_float(self, val: str) -> float:
+        try:
+            return float(val.replace(",", "").replace("+", "").lstrip("-") or "0")
+        except ValueError:
+            return 0.0
 
     def _signed_int(self, val: str) -> int:
         """'+123', '-456', '789' 형태 문자열을 int로 변환."""
