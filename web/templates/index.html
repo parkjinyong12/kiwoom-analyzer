@@ -468,6 +468,9 @@ canvas { max-height: 220px; }
         <div class="nav-item" data-page="theme-rebalance" onclick="showPage('theme-rebalance')">
           <span class="icon">🏷️</span> 테마 리밸런싱
         </div>
+        <div class="nav-item" data-page="qualitative" onclick="showPage('qualitative')">
+          <span class="icon">📝</span> 정성 점수
+        </div>
       </div>
     </div>
 
@@ -1317,7 +1320,7 @@ canvas { max-height: 220px; }
                  style="width:110px;background:none;border:none;color:#64748b;font-size:13px;text-align:right;outline:none;font-variant-numeric:tabular-nums;cursor:default"
                  onfocus="this.value=this.value.replace(/,/g,'')"
                  onblur="ehSaveCash()"
-                 onkeydown="if(event.key==='Enter'){this.blur();}"/>
+                 onkeydown="if(event.key==='Enter'&&!event.isComposing){this.blur();}"/>
           <span style="font-size:12px;color:#64748b">원</span>
         </div>
         <button class="btn btn-primary" onclick="ehOpenModal()">+ 종목 추가</button>
@@ -1543,12 +1546,13 @@ canvas { max-height: 220px; }
               <th style="text-align:right">평가금액</th>
               <th style="text-align:right">실제비율</th>
               <th style="text-align:right">목표비율</th>
+              <th style="text-align:center">개별기준<br><span style="font-size:10px;font-weight:normal;color:#64748b">과다% / 부족%</span></th>
               <th style="text-align:right">편차</th>
               <th style="text-align:center">신호</th>
             </tr>
           </thead>
           <tbody id="trb-theme-tbody">
-            <tr><td colspan="7" class="loading">로딩 중...</td></tr>
+            <tr><td colspan="8" class="loading">로딩 중...</td></tr>
           </tbody>
         </table>
       </div>
@@ -1578,6 +1582,171 @@ canvas { max-height: 220px; }
       </div>
     </div>
   </section>
+
+  <!-- ===== 정성 점수 페이지 ===== -->
+  <section id="page-qualitative" class="page">
+    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
+      <div>
+        <div class="page-title">정성 점수</div>
+        <div class="page-sub">정성적 지표별 점수 추이 및 액션 이력 관리 (1=양호 · 10=위험)</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost" style="font-size:12px" onclick="loadQualitative()">새로고침</button>
+        <button class="btn btn-primary" onclick="qaOpenItemModal()">+ 항목 추가</button>
+      </div>
+    </div>
+
+    <!-- 요약 카드 -->
+    <div class="cards" style="grid-template-columns:repeat(4,1fr)">
+      <div class="card">
+        <div class="card-label">전체 항목</div>
+        <div class="card-value blue" id="qa-total-cnt" style="font-size:22px">-</div>
+        <div class="card-note" id="qa-category-note">-</div>
+      </div>
+      <div class="card">
+        <div class="card-label">최근 7일 업데이트</div>
+        <div class="card-value green" id="qa-recent-cnt" style="font-size:22px">-</div>
+        <div class="card-note">최근 업데이트 항목</div>
+      </div>
+      <div class="card">
+        <div class="card-label">주의 항목 (≥7)</div>
+        <div class="card-value orange" id="qa-warn-cnt" style="font-size:22px">-</div>
+        <div class="card-note" id="qa-warn-note">점수 7점 이상</div>
+      </div>
+      <div class="card">
+        <div class="card-label">미평가 항목</div>
+        <div class="card-value" id="qa-no-score-cnt" style="font-size:22px;color:#64748b">-</div>
+        <div class="card-note">점수 미입력</div>
+      </div>
+    </div>
+
+    <!-- 항목 목록 -->
+    <div class="panel" style="margin-bottom:12px">
+      <div class="panel-header">
+        <span>항목 목록</span>
+        <span style="font-size:11px;color:#64748b">항목 클릭 → 점수 입력 및 추이 확인</span>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>항목명</th>
+              <th>카테고리</th>
+              <th style="text-align:center">최신 점수</th>
+              <th style="text-align:center">변화</th>
+              <th style="text-align:center">최근 입력일</th>
+              <th style="text-align:left">최근 코멘트</th>
+              <th style="text-align:center">관리</th>
+            </tr>
+          </thead>
+          <tbody id="qa-items-tbody">
+            <tr><td colspan="7" class="loading">로딩 중...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 상세 패널 (항목 선택 시 표시) -->
+    <div id="qa-detail-panel" style="display:none">
+      <div class="panel" style="margin-bottom:12px">
+        <div class="panel-header">
+          <span id="qa-detail-title" style="font-weight:600;color:#e2e8f0">-</span>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span id="qa-detail-category" style="font-size:11px;color:#60a5fa;background:#1e2d45;padding:2px 8px;border-radius:10px"></span>
+            <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="qaCloseDetail()">✕ 닫기</button>
+          </div>
+        </div>
+
+        <!-- 점수 입력 폼 -->
+        <div style="padding:16px;border-bottom:1px solid #1e2535;background:#0c1020">
+          <div style="font-size:12px;color:#64748b;margin-bottom:10px;font-weight:500">새 점수 입력</div>
+          <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+            <div>
+              <div style="font-size:11px;color:#64748b;margin-bottom:4px">날짜</div>
+              <input type="date" id="qa-score-date"
+                     style="padding:6px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
+            </div>
+            <div>
+              <div style="font-size:11px;color:#64748b;margin-bottom:4px">점수 (1~10)</div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <input type="range" id="qa-score-slider" min="1" max="10" step="0.5" value="5"
+                       oninput="document.getElementById('qa-score-num').value=this.value;qaUpdateScoreColor()"
+                       style="width:120px;accent-color:#3b82f6"/>
+                <input type="number" id="qa-score-num" min="1" max="10" step="0.5" value="5"
+                       oninput="document.getElementById('qa-score-slider').value=this.value;qaUpdateScoreColor()"
+                       style="width:65px;padding:6px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:14px;font-weight:700;text-align:center;outline:none"/>
+                <span id="qa-score-badge" style="padding:4px 10px;border-radius:6px;font-size:12px;font-weight:600;background:#1e2d45;color:#4ade80">양호</span>
+              </div>
+            </div>
+            <div style="flex:1;min-width:220px">
+              <div style="font-size:11px;color:#64748b;margin-bottom:4px">코멘트 / 취한 액션</div>
+              <input type="text" id="qa-score-comment" placeholder="관찰 내용 또는 대응 액션 입력..."
+                     style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"
+                     onkeydown="if(event.key==='Enter')qaSaveScore()"/>
+            </div>
+            <button class="btn btn-primary" onclick="qaSaveScore()" style="padding:7px 20px;white-space:nowrap">점수 저장</button>
+          </div>
+        </div>
+
+        <!-- 차트 -->
+        <div style="padding:16px;border-bottom:1px solid #1e2535">
+          <canvas id="qa-chart" height="80"></canvas>
+        </div>
+      </div>
+
+      <!-- 이력 테이블 -->
+      <div class="panel">
+        <div class="panel-header">
+          <span>점수 이력</span>
+          <span id="qa-history-cnt" style="font-size:12px;color:#64748b"></span>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th style="text-align:center">날짜</th>
+                <th style="text-align:center">점수</th>
+                <th style="text-align:center">변화</th>
+                <th>코멘트 / 액션</th>
+                <th style="text-align:center">삭제</th>
+              </tr>
+            </thead>
+            <tbody id="qa-history-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 정성 항목 추가/수정 모달 -->
+  <div class="modal-overlay" id="qa-item-modal">
+    <div class="modal" style="width:400px">
+      <h3 id="qa-item-modal-title">항목 추가</h3>
+      <input type="hidden" id="qa-item-edit-id"/>
+      <div style="display:grid;gap:12px">
+        <div>
+          <div style="font-size:12px;color:#64748b;margin-bottom:4px">항목명 <span style="color:#f87171">*</span></div>
+          <input type="text" id="qa-item-name" placeholder="예: 공급자 우위 약화" maxlength="100"
+                 style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
+        </div>
+        <div>
+          <div style="font-size:12px;color:#64748b;margin-bottom:4px">카테고리</div>
+          <input type="text" id="qa-item-category" placeholder="예: 수요, 공급, 가격, 경쟁" maxlength="50"
+                 style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
+        </div>
+        <div>
+          <div style="font-size:12px;color:#64748b;margin-bottom:4px">설명 (선택)</div>
+          <textarea id="qa-item-desc" rows="2" placeholder="항목 설명 또는 측정 기준"
+                 style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none;resize:vertical"></textarea>
+        </div>
+        <div id="qa-item-err" style="color:#f87171;font-size:12px;display:none"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="qaCloseItemModal()">취소</button>
+        <button class="btn btn-primary" onclick="qaSaveItem()">저장</button>
+      </div>
+    </div>
+  </div>
 
   <!-- 보유종목 추가/수정 모달 -->
   <div class="modal-overlay" id="eh-modal">
@@ -1696,7 +1865,7 @@ const NAV_GROUP_MAP = {
   dashboard:'navg-analysis', supply:'navg-analysis', divergence:'navg-analysis',
   snapshot:'navg-analysis',  signals:'navg-analysis', report:'navg-analysis',
   'ext-holdings':'navg-analysis', 'price-mgmt':'navg-analysis',
-  rebalance:'navg-analysis',     'theme-rebalance':'navg-analysis',
+  rebalance:'navg-analysis',     'theme-rebalance':'navg-analysis', qualitative:'navg-analysis',
   auditlog:'navg-system',    stocks:'navg-system',
   batch:'navg-admin',        'common-codes':'navg-admin', usermgmt:'navg-admin',
 };
@@ -1743,6 +1912,7 @@ function showPage(name, fromHash) {
   if (name === 'price-mgmt')    loadPriceMgmt();
   if (name === 'rebalance')        loadRebalance();
   if (name === 'theme-rebalance')  loadThemeRebalance();
+  if (name === 'qualitative')      loadQualitative();
   if (name === 'common-codes')     loadCommonCodes();
 }
 
@@ -4255,7 +4425,7 @@ function rbRender() {
              color:#e2e8f0;font-size:13px;text-align:right;outline:none;padding:2px 4px"
       onfocus="this.style.borderColor='#3b82f6'"
       onblur="rbSaveTarget('${r.stock_code}',this)"
-      onkeydown="if(event.key==='Enter')this.blur()"/>
+      onkeydown="if(event.key==='Enter'&&!event.isComposing)this.blur()"/>
     <span style="font-size:11px;color:#64748b">%</span>`;
 
     return `<tr>
@@ -4347,7 +4517,9 @@ function trbUpdateSummary() {
 
   const alertCnt = themes.filter(t => {
     if (!t.target_ratio || t.deviation_rel === null) return false;
-    return t.deviation_rel > trbAlertUp || t.deviation_rel < -trbAlertDown;
+    const up   = t.theme_alert_up   ?? trbAlertUp;
+    const down = t.theme_alert_down ?? trbAlertDown;
+    return t.deviation_rel > up || t.deviation_rel < -down;
   }).length;
   const unsetCnt = (trbData.stocks || []).filter(s => !s.themes.length).length;
 
@@ -4362,7 +4534,7 @@ function trbRenderThemes() {
   const tbody  = document.getElementById('trb-theme-tbody');
   const themes = trbData?.themes || [];
   if (!themes.length) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:32px;color:#475569">테마 없음. 아래에서 종목에 테마를 설정해주세요.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:32px;color:#475569">테마 없음. 아래에서 종목에 테마를 설정해주세요.</td></tr>';
     return;
   }
 
@@ -4375,10 +4547,14 @@ function trbRenderThemes() {
         <td class="num" style="color:#64748b">${t.eval_amt.toLocaleString()}원</td>
         <td class="num" style="color:#64748b">${t.current_ratio.toFixed(2)}%</td>
         <td class="num" style="color:#64748b">-</td>
+        <td class="center" style="color:#64748b">-</td>
         <td class="num" style="color:#64748b">-</td>
         <td class="center" style="color:#64748b;font-size:11px">테마 설정 필요</td>
       </tr>`;
     }
+
+    const effectiveUp   = t.theme_alert_up   ?? trbAlertUp;
+    const effectiveDown = t.theme_alert_down ?? trbAlertDown;
 
     const relDev = t.deviation_rel;
     const absDev = t.deviation_pp;
@@ -4386,15 +4562,15 @@ function trbRenderThemes() {
     if (t.target_ratio > 0 && relDev !== null) {
       const sign = relDev >= 0 ? '+' : '';
       devStr = `${sign}${relDev.toFixed(1)}%<br><span style="font-size:10px;color:#64748b">${absDev >= 0 ? '+' : ''}${absDev.toFixed(2)}pp</span>`;
-      devColor = relDev > trbAlertUp ? '#f87171' : relDev < -trbAlertDown ? '#60a5fa' :
-                 Math.abs(relDev) > trbAlertUp * 0.6 ? '#f59e0b' : '#94a3b8';
+      devColor = relDev > effectiveUp ? '#f87171' : relDev < -effectiveDown ? '#60a5fa' :
+                 Math.abs(relDev) > effectiveUp * 0.6 ? '#f59e0b' : '#94a3b8';
     }
 
     let signal = '', sigColor = '#64748b', sigBg = '';
     if (t.target_ratio > 0 && relDev !== null) {
-      if      (relDev > trbAlertUp)         { signal='차익실현 검토'; sigColor='#f87171'; sigBg='background:rgba(248,113,113,0.1);'; }
-      else if (relDev < -trbAlertDown)      { signal='추가매수 검토'; sigColor='#60a5fa'; sigBg='background:rgba(96,165,250,0.1);'; }
-      else                                   { signal='정상 범위';   sigColor='#4ade80'; }
+      if      (relDev > effectiveUp)   { signal='차익실현 검토'; sigColor='#f87171'; sigBg='background:rgba(248,113,113,0.1);'; }
+      else if (relDev < -effectiveDown){ signal='추가매수 검토'; sigColor='#60a5fa'; sigBg='background:rgba(96,165,250,0.1);'; }
+      else                             { signal='정상 범위';   sigColor='#4ade80'; }
     } else if (!t.target_ratio) {
       signal = '목표 미설정'; sigColor = '#64748b';
     }
@@ -4404,19 +4580,39 @@ function trbRenderThemes() {
 
     const targetInput = `<input type="number" value="${t.target_ratio || ''}" placeholder="0"
       min="0" max="100" step="0.1"
-      style="width:58px;background:none;border:none;border-bottom:1px solid #1e2535;
+      style="width:55px;background:none;border:none;border-bottom:1px solid #1e2535;
              color:#e2e8f0;font-size:13px;text-align:right;outline:none;padding:2px 4px"
       onfocus="this.style.borderColor='#3b82f6'"
       onblur="trbSaveThemeTarget('${themeEsc}',this)"
-      onkeydown="if(event.key==='Enter')this.blur()"/>
+      onkeydown="if(event.key==='Enter'&&!event.isComposing)this.blur()"/>
     <span style="font-size:11px;color:#64748b">%</span>`;
+
+    const inputStyle = `width:40px;background:none;border:none;border-bottom:1px solid #1e2535;
+             font-size:12px;text-align:right;outline:none;padding:2px 3px`;
+    const alertInputs = `<div style="display:flex;align-items:center;gap:3px;justify-content:center">
+      <input type="number" value="${t.theme_alert_up ?? ''}" placeholder="${trbAlertUp}"
+        min="1" max="500" step="1"
+        style="${inputStyle};color:#f87171"
+        onfocus="this.style.borderColor='#3b82f6'"
+        onblur="trbSaveThemeAlert('${themeEsc}','up',this)"
+        onkeydown="if(event.key==='Enter'&&!event.isComposing)this.blur()"/>
+      <span style="color:#475569">/</span>
+      <input type="number" value="${t.theme_alert_down ?? ''}" placeholder="${trbAlertDown}"
+        min="1" max="500" step="1"
+        style="${inputStyle};color:#60a5fa"
+        onfocus="this.style.borderColor='#3b82f6'"
+        onblur="trbSaveThemeAlert('${themeEsc}','down',this)"
+        onkeydown="if(event.key==='Enter'&&!event.isComposing)this.blur()"/>
+      <span style="font-size:10px;color:#64748b">%</span>
+    </div>`;
 
     return `<tr>
       <td style="font-weight:600;color:#e2e8f0">${t.theme}</td>
-      <td style="font-size:11px;color:#94a3b8;max-width:200px;white-space:normal">${stockList}</td>
+      <td style="font-size:11px;color:#94a3b8;max-width:180px;white-space:normal">${stockList}</td>
       <td class="num">${t.eval_amt.toLocaleString()}원</td>
-      <td class="num;font-weight:500">${t.current_ratio.toFixed(2)}%</td>
+      <td class="num" style="font-weight:500">${t.current_ratio.toFixed(2)}%</td>
       <td class="num">${targetInput}</td>
+      <td class="center">${alertInputs}</td>
       <td class="num" style="color:${devColor}">${devStr}</td>
       <td class="center" style="${sigBg}padding:6px"><span style="color:${sigColor};font-size:12px;font-weight:500">${signal}</span></td>
     </tr>`;
@@ -4452,7 +4648,7 @@ function trbRenderStocks() {
                    background:#0f1117;color:#e2e8f0;font-size:12px;outline:none"
             onfocus="this.style.borderColor='#3b82f6'"
             onblur="trbSaveStockTheme('${codeEsc}',this)"
-            onkeydown="if(event.key==='Enter')this.blur()"/>
+            onkeydown="if(event.key==='Enter'&&!event.isComposing)this.blur()"/>
         </div>
       </td>
     </tr>`;
@@ -4504,6 +4700,361 @@ async function trbSaveThresholds() {
       body: JSON.stringify({ key:'rebalance_alert_down', value:String(trbAlertDown) }) }),
   ]);
   await loadThemeRebalance();
+}
+
+async function trbSaveThemeAlert(theme, direction, inputEl) {
+  inputEl.style.borderColor = '#1e2535';
+  const val = parseFloat(inputEl.value) || null;  // null = 전역 기준 사용
+  // Build payload keeping the other direction's current value from trbData
+  const themeObj = (trbData?.themes || []).find(t => t.theme === theme) || {};
+  const payload = {
+    theme,
+    alert_up:   direction === 'up'   ? val : (themeObj.theme_alert_up   ?? null),
+    alert_down: direction === 'down' ? val : (themeObj.theme_alert_down ?? null),
+  };
+  await fetch('/api/theme_rebalance/theme_alert', {
+    method: 'PUT', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(payload),
+  });
+  await loadThemeRebalance();
+}
+
+// ─── 정성 점수 ───────────────────────────────────────
+let qaItems      = [];
+let qaDetailId   = null;
+let qaDetailName = '';
+let qaChartInst  = null;
+
+const QA_SCORE_COLOR = s => s >= 7 ? '#f87171' : s >= 4 ? '#f59e0b' : '#4ade80';
+const QA_SCORE_LABEL = s => s >= 7 ? '위험' : s >= 4 ? '주의' : '양호';
+
+function qaUpdateScoreColor() {
+  const s   = parseFloat(document.getElementById('qa-score-num').value) || 5;
+  const el  = document.getElementById('qa-score-badge');
+  el.textContent   = QA_SCORE_LABEL(s);
+  el.style.color   = QA_SCORE_COLOR(s);
+  el.style.background = s >= 7 ? 'rgba(248,113,113,0.15)' : s >= 4 ? 'rgba(245,158,11,0.15)' : 'rgba(74,222,128,0.15)';
+}
+
+async function loadQualitative() {
+  const res = await fetch('/api/qualitative/items');
+  qaItems = await res.json();
+  qaRenderSummary();
+  qaRenderItems();
+}
+
+function qaRenderSummary() {
+  const total   = qaItems.length;
+  const cats    = [...new Set(qaItems.map(i => i.category).filter(Boolean))];
+  const recent  = qaItems.filter(i => {
+    if (!i.latest_date) return false;
+    const d = new Date(i.latest_date);
+    return (Date.now() - d) < 7 * 86400000;
+  }).length;
+  const warn    = qaItems.filter(i => i.latest_score >= 7).length;
+  const noScore = qaItems.filter(i => i.latest_score === null).length;
+
+  document.getElementById('qa-total-cnt').textContent    = total;
+  document.getElementById('qa-category-note').textContent = cats.length ? `카테고리 ${cats.length}개` : '카테고리 없음';
+  document.getElementById('qa-recent-cnt').textContent   = recent;
+  const warnEl = document.getElementById('qa-warn-cnt');
+  warnEl.textContent = warn;
+  warnEl.style.color = warn > 0 ? '#f59e0b' : '#4ade80';
+  document.getElementById('qa-warn-note').textContent = warn > 0 ? '즉시 검토 필요' : '이상 없음';
+  document.getElementById('qa-no-score-cnt').textContent = noScore;
+}
+
+function qaRenderItems() {
+  const tbody = document.getElementById('qa-items-tbody');
+  if (!qaItems.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:32px;color:#475569">항목이 없습니다. 항목을 추가해주세요.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = qaItems.map(item => {
+    const score = item.latest_score;
+    const scoreBadge = score !== null
+      ? `<span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:14px;font-weight:700;
+            color:${QA_SCORE_COLOR(score)};background:${score>=7?'rgba(248,113,113,0.15)':score>=4?'rgba(245,158,11,0.15)':'rgba(74,222,128,0.15)'}">${score.toFixed(1)}</span>`
+      : '<span style="color:#475569;font-size:12px">미입력</span>';
+
+    const delta = item.delta;
+    let deltaStr = '-';
+    if (delta !== null) {
+      const sign = delta > 0 ? '+' : '';
+      const color = delta > 0 ? '#f87171' : delta < 0 ? '#4ade80' : '#64748b';
+      const arrow = delta > 0 ? '▲' : delta < 0 ? '▼' : '─';
+      deltaStr = `<span style="color:${color};font-size:12px;font-weight:600">${arrow} ${sign}${delta.toFixed(1)}</span>`;
+    }
+
+    const catBadge = item.category
+      ? `<span style="background:#1e2d45;color:#60a5fa;font-size:11px;padding:2px 8px;border-radius:10px">${item.category}</span>`
+      : '';
+
+    const isSelected = item.id === qaDetailId;
+    const rowBg = isSelected ? 'background:#0d1528;' : '';
+    const comment = (item.latest_comment || '').replace(/</g,'&lt;');
+    const truncated = comment.length > 40 ? comment.slice(0, 40) + '…' : comment;
+
+    return `<tr style="cursor:pointer;${rowBg}" onclick="qaShowDetail(${item.id},'${(item.name||'').replace(/'/g,"\\'")}','${(item.category||'').replace(/'/g,"\\'")}')">
+      <td style="font-weight:600;color:#e2e8f0">${item.name}</td>
+      <td>${catBadge}</td>
+      <td class="center">${scoreBadge}</td>
+      <td class="center">${deltaStr}</td>
+      <td class="center" style="font-size:12px;color:#64748b">${item.latest_date || '-'}</td>
+      <td style="font-size:12px;color:#94a3b8;max-width:200px">${truncated || ''}</td>
+      <td class="center" style="white-space:nowrap" onclick="event.stopPropagation()">
+        <button class="btn btn-ghost" style="font-size:11px;padding:3px 8px;margin-right:4px"
+                onclick="qaOpenItemModal(${item.id})">수정</button>
+        <button class="btn btn-danger" style="font-size:11px;padding:3px 8px"
+                onclick="qaDeleteItem(${item.id},'${(item.name||'').replace(/'/g,"\\'")}')">삭제</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function qaShowDetail(itemId, name, category) {
+  qaDetailId   = itemId;
+  qaDetailName = name;
+  const panel = document.getElementById('qa-detail-panel');
+  panel.style.display = 'block';
+  document.getElementById('qa-detail-title').textContent = name;
+  const catEl = document.getElementById('qa-detail-category');
+  catEl.textContent  = category || '';
+  catEl.style.display = category ? '' : 'none';
+
+  // 날짜 기본값 = 오늘
+  const today = new Date().toISOString().slice(0, 10);
+  document.getElementById('qa-score-date').value = today;
+  document.getElementById('qa-score-num').value  = 5;
+  document.getElementById('qa-score-slider').value = 5;
+  document.getElementById('qa-score-comment').value = '';
+  qaUpdateScoreColor();
+
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  qaRenderItems(); // 선택 행 하이라이트
+
+  const res   = await fetch(`/api/qualitative/items/${itemId}/scores`);
+  const scores = await res.json();
+  qaRenderChart(scores, name);
+  qaRenderHistory(scores);
+}
+
+function qaCloseDetail() {
+  qaDetailId = null;
+  document.getElementById('qa-detail-panel').style.display = 'none';
+  qaRenderItems();
+}
+
+function qaRenderChart(scores, name) {
+  const ctx = document.getElementById('qa-chart').getContext('2d');
+  if (qaChartInst) qaChartInst.destroy();
+  if (!scores.length) {
+    qaChartInst = null;
+    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    return;
+  }
+
+  const labels  = scores.map(s => s.scored_at);
+  const data    = scores.map(s => s.score);
+  const ptColors = data.map(v => QA_SCORE_COLOR(v));
+
+  // 경고 기준선 dataset
+  const warnLine = Array(data.length).fill(7);
+  const cautionLine = Array(data.length).fill(4);
+
+  qaChartInst = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: name,
+          data,
+          borderColor: '#3b82f6',
+          backgroundColor: 'rgba(59,130,246,0.08)',
+          pointBackgroundColor: ptColors,
+          pointRadius: 5,
+          pointHoverRadius: 7,
+          tension: 0.25,
+          fill: true,
+          order: 1,
+        },
+        {
+          label: '위험 기준 (7)',
+          data: warnLine,
+          borderColor: 'rgba(248,113,113,0.4)',
+          borderDash: [5,4],
+          pointRadius: 0,
+          fill: false,
+          order: 2,
+        },
+        {
+          label: '주의 기준 (4)',
+          data: cautionLine,
+          borderColor: 'rgba(245,158,11,0.35)',
+          borderDash: [4,4],
+          pointRadius: 0,
+          fill: false,
+          order: 3,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        y: {
+          min: 0, max: 10,
+          ticks: { color: '#94a3b8', stepSize: 1 },
+          grid: { color: '#1e2535' },
+        },
+        x: {
+          ticks: { color: '#94a3b8', maxRotation: 30 },
+          grid: { color: '#1e2535' },
+        },
+      },
+      plugins: {
+        legend: { labels: { color: '#94a3b8', font: { size: 11 } } },
+        tooltip: {
+          callbacks: {
+            afterLabel: ctx => {
+              if (ctx.datasetIndex !== 0) return '';
+              const s = scores[ctx.dataIndex];
+              return s?.comment ? `액션: ${s.comment}` : '';
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
+function qaRenderHistory(scores) {
+  const tbody = document.getElementById('qa-history-tbody');
+  document.getElementById('qa-history-cnt').textContent = `총 ${scores.length}건`;
+  if (!scores.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:24px;color:#475569">점수 이력 없음</td></tr>';
+    return;
+  }
+  // 최신순 정렬
+  const sorted = [...scores].reverse();
+  tbody.innerHTML = sorted.map(s => {
+    const color = QA_SCORE_COLOR(s.score);
+    const delta = s.delta;
+    let deltaStr = '-';
+    if (delta !== null) {
+      const sign  = delta > 0 ? '+' : '';
+      const dcol  = delta > 0 ? '#f87171' : delta < 0 ? '#4ade80' : '#64748b';
+      const arrow = delta > 0 ? '▲' : delta < 0 ? '▼' : '─';
+      deltaStr = `<span style="color:${dcol};font-weight:600">${arrow} ${sign}${delta.toFixed(1)}</span>`;
+    }
+    const comment = (s.comment || '').replace(/</g,'&lt;');
+    return `<tr>
+      <td class="center" style="font-size:12px;color:#94a3b8;white-space:nowrap">${s.scored_at}</td>
+      <td class="center">
+        <span style="font-size:15px;font-weight:700;color:${color}">${s.score.toFixed(1)}</span>
+        <span style="font-size:10px;margin-left:4px;color:${color}">${QA_SCORE_LABEL(s.score)}</span>
+      </td>
+      <td class="center">${deltaStr}</td>
+      <td style="font-size:13px;color:#cbd5e1">${comment || '<span style="color:#475569">-</span>'}</td>
+      <td class="center">
+        <button class="btn btn-danger" style="font-size:11px;padding:2px 8px"
+                onclick="qaDeleteScore(${s.id})">삭제</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function qaSaveScore() {
+  if (!qaDetailId) return;
+  const score     = parseFloat(document.getElementById('qa-score-num').value);
+  const scored_at = document.getElementById('qa-score-date').value;
+  const comment   = document.getElementById('qa-score-comment').value.trim();
+  if (!score || score < 1 || score > 10) {
+    document.getElementById('qa-score-num').style.borderColor = '#f87171';
+    setTimeout(() => document.getElementById('qa-score-num').style.borderColor = '#1e2535', 1500);
+    return;
+  }
+  await fetch('/api/qualitative/scores', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ item_id: qaDetailId, score, scored_at, comment }),
+  });
+  document.getElementById('qa-score-comment').value = '';
+  document.getElementById('qa-score-num').value    = 5;
+  document.getElementById('qa-score-slider').value = 5;
+  qaUpdateScoreColor();
+  // 새로고침
+  await loadQualitative();
+  const res    = await fetch(`/api/qualitative/items/${qaDetailId}/scores`);
+  const scores = await res.json();
+  qaRenderChart(scores, qaDetailName);
+  qaRenderHistory(scores);
+}
+
+async function qaDeleteScore(scoreId) {
+  if (!confirm('이 점수 기록을 삭제하시겠습니까?')) return;
+  await fetch(`/api/qualitative/scores/${scoreId}`, { method: 'DELETE' });
+  await loadQualitative();
+  if (qaDetailId) {
+    const res    = await fetch(`/api/qualitative/items/${qaDetailId}/scores`);
+    const scores = await res.json();
+    qaRenderChart(scores, qaDetailName);
+    qaRenderHistory(scores);
+  }
+}
+
+function qaOpenItemModal(id) {
+  document.getElementById('qa-item-modal').classList.add('open');
+  document.getElementById('qa-item-err').style.display = 'none';
+  if (id) {
+    const item = qaItems.find(i => i.id === id);
+    if (!item) return;
+    document.getElementById('qa-item-modal-title').textContent = '항목 수정';
+    document.getElementById('qa-item-edit-id').value  = id;
+    document.getElementById('qa-item-name').value     = item.name || '';
+    document.getElementById('qa-item-category').value = item.category || '';
+    document.getElementById('qa-item-desc').value     = item.description || '';
+  } else {
+    document.getElementById('qa-item-modal-title').textContent = '항목 추가';
+    document.getElementById('qa-item-edit-id').value  = '';
+    document.getElementById('qa-item-name').value     = '';
+    document.getElementById('qa-item-category').value = '';
+    document.getElementById('qa-item-desc').value     = '';
+  }
+  setTimeout(() => document.getElementById('qa-item-name').focus(), 50);
+}
+
+function qaCloseItemModal() {
+  document.getElementById('qa-item-modal').classList.remove('open');
+}
+
+async function qaSaveItem() {
+  const editId   = document.getElementById('qa-item-edit-id').value;
+  const name     = document.getElementById('qa-item-name').value.trim();
+  const category = document.getElementById('qa-item-category').value.trim();
+  const desc     = document.getElementById('qa-item-desc').value.trim();
+  const errEl    = document.getElementById('qa-item-err');
+  if (!name) { errEl.textContent = '항목명을 입력해주세요'; errEl.style.display = 'block'; return; }
+  const url    = editId ? `/api/qualitative/items/${editId}` : '/api/qualitative/items';
+  const method = editId ? 'PUT' : 'POST';
+  const res    = await fetch(url, {
+    method, headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, category, description: desc }),
+  });
+  if (!res.ok) {
+    const d = await res.json();
+    errEl.textContent = d.error || '저장 실패'; errEl.style.display = 'block'; return;
+  }
+  qaCloseItemModal();
+  await loadQualitative();
+}
+
+async function qaDeleteItem(id, name) {
+  if (!confirm(`"${name}" 항목을 삭제하시겠습니까?\n(점수 이력도 모두 삭제됩니다)`)) return;
+  await fetch(`/api/qualitative/items/${id}`, { method: 'DELETE' });
+  if (qaDetailId === id) qaCloseDetail();
+  await loadQualitative();
 }
 
 // ─── 공통코드 관리 ────────────────────────────────────
@@ -4614,7 +5165,7 @@ async function ccDelete(id, name) {
 }
 
 // ─── 초기 로드 (해시 기반 페이지 복원) ───────────────────
-const PAGES = ['dashboard','supply','divergence','snapshot','signals','report','ext-holdings','price-mgmt','rebalance','theme-rebalance','auditlog','stocks','batch','common-codes','usermgmt'];
+const PAGES = ['dashboard','supply','divergence','snapshot','signals','report','ext-holdings','price-mgmt','rebalance','theme-rebalance','qualitative','auditlog','stocks','batch','common-codes','usermgmt'];
 // visible_menus 저장 시점 이전에 존재하던 페이지 목록
 const PAGES_V1 = ['dashboard','supply','signals','auditlog','stocks','batch','usermgmt'];
 

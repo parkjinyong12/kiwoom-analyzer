@@ -140,6 +140,32 @@ _DEFAULT_BROKERAGES = [
 ]
 
 
+def _ensure_qualitative_tables():
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS qualitative_items (
+                id          SERIAL       PRIMARY KEY,
+                name        VARCHAR(100) NOT NULL,
+                category    VARCHAR(50)  DEFAULT '',
+                description TEXT         DEFAULT '',
+                sort_order  SMALLINT     DEFAULT 0,
+                active      BOOLEAN      DEFAULT TRUE,
+                created_at  TIMESTAMP    DEFAULT NOW()
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS qualitative_scores (
+                id         SERIAL       PRIMARY KEY,
+                item_id    INTEGER      NOT NULL REFERENCES qualitative_items(id) ON DELETE CASCADE,
+                score      DECIMAL(5,1) NOT NULL,
+                scored_at  DATE         NOT NULL DEFAULT CURRENT_DATE,
+                comment    TEXT         DEFAULT '',
+                created_at TIMESTAMP    DEFAULT NOW()
+            )
+        """)
+
+
 def _ensure_theme_tables():
     with get_conn() as conn:
         cur = conn.cursor()
@@ -153,9 +179,13 @@ def _ensure_theme_tables():
             CREATE TABLE IF NOT EXISTS theme_targets (
                 theme        VARCHAR(50)   PRIMARY KEY,
                 target_ratio DECIMAL(6, 2) NOT NULL DEFAULT 0,
+                alert_up     DECIMAL(6, 2),
+                alert_down   DECIMAL(6, 2),
                 updated_at   TIMESTAMP     DEFAULT NOW()
             )
         """)
+        cur.execute("ALTER TABLE theme_targets ADD COLUMN IF NOT EXISTS alert_up   DECIMAL(6, 2)")
+        cur.execute("ALTER TABLE theme_targets ADD COLUMN IF NOT EXISTS alert_down DECIMAL(6, 2)")
 
 
 def _ensure_rebalance_targets_table():
@@ -1160,14 +1190,19 @@ def api_theme_rebalance():
                 "stock_name": s["stock_name"],
             })
 
-    target_rows = query("SELECT theme, target_ratio FROM theme_targets")
-    targets = {r["theme"]: float(r["target_ratio"]) for r in target_rows}
+    target_rows = query("SELECT theme, target_ratio, alert_up, alert_down FROM theme_targets")
+    targets = {r["theme"]: {
+        "target_ratio": float(r["target_ratio"]),
+        "alert_up":   float(r["alert_up"])   if r["alert_up"]   is not None else None,
+        "alert_down": float(r["alert_down"]) if r["alert_down"] is not None else None,
+    } for r in target_rows}
 
     theme_result = []
     for tname, data in sorted(theme_data.items(), key=lambda x: -x[1]["eval_amt"]):
         eval_amt     = data["eval_amt"]
         cur_ratio    = round(eval_amt / portfolio_total * 100, 2) if portfolio_total > 0 else 0
-        tgt_ratio    = targets.get(tname, 0)
+        tdata        = targets.get(tname, {})
+        tgt_ratio    = tdata.get("target_ratio", 0)
         is_untagged  = tname == "__untagged__"
         dev_pp       = round(cur_ratio - tgt_ratio, 2) if not is_untagged else None
         dev_rel      = round(dev_pp / tgt_ratio * 100, 1) if (dev_pp is not None and tgt_ratio > 0) else None
@@ -1181,6 +1216,8 @@ def api_theme_rebalance():
             "target_ratio":  tgt_ratio,
             "deviation_pp":  dev_pp,
             "deviation_rel": dev_rel,
+            "theme_alert_up":   tdata.get("alert_up"),
+            "theme_alert_down": tdata.get("alert_down"),
         })
 
     return jsonify({
@@ -1231,11 +1268,174 @@ def api_theme_rebalance_theme_target():
     return jsonify({"ok": True})
 
 
+@app.route("/api/theme_rebalance/theme_alert", methods=["PUT"])
+def api_theme_rebalance_theme_alert():
+    """테마별 과다/부족 기준 개별 설정 (NULL = 전역 기준 사용)."""
+    data = request.get_json() or {}
+    theme = (data.get("theme") or "").strip()
+    if not theme:
+        return jsonify({"error": "테마명 필수"}), 400
+    def to_float_or_none(v):
+        try:
+            f = float(v)
+            return f if f > 0 else None
+        except (TypeError, ValueError):
+            return None
+    alert_up   = to_float_or_none(data.get("alert_up"))
+    alert_down = to_float_or_none(data.get("alert_down"))
+    with get_conn() as conn:
+        conn.cursor().execute("""
+            INSERT INTO theme_targets (theme, target_ratio, alert_up, alert_down, updated_at)
+            VALUES (%s, 0, %s, %s, NOW())
+            ON CONFLICT (theme) DO UPDATE
+            SET alert_up = EXCLUDED.alert_up, alert_down = EXCLUDED.alert_down, updated_at = NOW()
+        """, (theme, alert_up, alert_down))
+    return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------------------
+# API — 정성 점수 관리
+# ---------------------------------------------------------------------------
+
+@app.route("/api/qualitative/items")
+def api_qualitative_items():
+    rows = query("""
+        WITH ranked AS (
+            SELECT item_id, score, scored_at, comment,
+                   ROW_NUMBER() OVER (PARTITION BY item_id ORDER BY scored_at DESC, created_at DESC) AS rn
+            FROM qualitative_scores
+        )
+        SELECT
+            qi.id, qi.name, qi.category, qi.description, qi.sort_order,
+            r1.score      AS latest_score,
+            r1.scored_at  AS latest_date,
+            r1.comment    AS latest_comment,
+            r2.score      AS prev_score
+        FROM qualitative_items qi
+        LEFT JOIN ranked r1 ON r1.item_id = qi.id AND r1.rn = 1
+        LEFT JOIN ranked r2 ON r2.item_id = qi.id AND r2.rn = 2
+        WHERE qi.active = TRUE
+        ORDER BY qi.sort_order, qi.name
+    """)
+    for r in rows:
+        r["latest_score"] = float(r["latest_score"]) if r["latest_score"] is not None else None
+        r["prev_score"]   = float(r["prev_score"])   if r["prev_score"]   is not None else None
+        r["latest_date"]  = r["latest_date"].strftime("%Y-%m-%d") if r["latest_date"] else None
+        if r["latest_score"] is not None and r["prev_score"] is not None:
+            r["delta"] = round(r["latest_score"] - r["prev_score"], 1)
+        else:
+            r["delta"] = None
+    return jsonify(rows)
+
+
+@app.route("/api/qualitative/items", methods=["POST"])
+def api_qualitative_items_create():
+    data = request.get_json() or {}
+    name     = (data.get("name") or "").strip()
+    category = (data.get("category") or "").strip()
+    desc     = (data.get("description") or "").strip()
+    if not name:
+        return jsonify({"error": "항목명 필수"}), 400
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO qualitative_items (name, category, description)
+            VALUES (%s, %s, %s) RETURNING id
+        """, (name, category, desc))
+        row = cur.fetchone()
+    return jsonify({"ok": True, "id": row["id"]}), 201
+
+
+@app.route("/api/qualitative/items/<int:item_id>", methods=["PUT"])
+def api_qualitative_items_update(item_id: int):
+    data = request.get_json() or {}
+    name     = (data.get("name") or "").strip()
+    category = (data.get("category") or "").strip()
+    desc     = (data.get("description") or "").strip()
+    if not name:
+        return jsonify({"error": "항목명 필수"}), 400
+    with get_conn() as conn:
+        conn.cursor().execute("""
+            UPDATE qualitative_items SET name=%s, category=%s, description=%s WHERE id=%s
+        """, (name, category, desc, item_id))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/qualitative/items/<int:item_id>", methods=["DELETE"])
+def api_qualitative_items_delete(item_id: int):
+    with get_conn() as conn:
+        conn.cursor().execute(
+            "UPDATE qualitative_items SET active=FALSE WHERE id=%s", (item_id,)
+        )
+    return jsonify({"ok": True})
+
+
+@app.route("/api/qualitative/items/<int:item_id>/scores")
+def api_qualitative_item_scores(item_id: int):
+    rows = query("""
+        SELECT id, score, scored_at, comment,
+               LAG(score) OVER (ORDER BY scored_at, created_at) AS prev_score
+        FROM qualitative_scores
+        WHERE item_id = %s
+        ORDER BY scored_at, created_at
+    """, (item_id,))
+    result = []
+    for r in rows:
+        score      = float(r["score"])
+        prev_score = float(r["prev_score"]) if r["prev_score"] is not None else None
+        result.append({
+            "id":         r["id"],
+            "score":      score,
+            "scored_at":  r["scored_at"].strftime("%Y-%m-%d"),
+            "comment":    r["comment"] or "",
+            "delta":      round(score - prev_score, 1) if prev_score is not None else None,
+        })
+    return jsonify(result)
+
+
+@app.route("/api/qualitative/scores", methods=["POST"])
+def api_qualitative_scores_create():
+    data = request.get_json() or {}
+    item_id   = data.get("item_id")
+    score_raw = data.get("score")
+    scored_at = (data.get("scored_at") or "").strip()
+    comment   = (data.get("comment") or "").strip()
+    if not item_id:
+        return jsonify({"error": "항목 ID 필수"}), 400
+    try:
+        score = float(score_raw)
+        if not (1 <= score <= 10):
+            raise ValueError
+    except (ValueError, TypeError):
+        return jsonify({"error": "점수는 1~10 사이여야 합니다"}), 400
+    from datetime import date as date_cls
+    try:
+        from datetime import datetime
+        dt = datetime.strptime(scored_at, "%Y-%m-%d").date() if scored_at else date_cls.today()
+    except ValueError:
+        dt = date_cls.today()
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO qualitative_scores (item_id, score, scored_at, comment)
+            VALUES (%s, %s, %s, %s) RETURNING id
+        """, (item_id, score, dt, comment))
+        row = cur.fetchone()
+    return jsonify({"ok": True, "id": row["id"]}), 201
+
+
+@app.route("/api/qualitative/scores/<int:score_id>", methods=["DELETE"])
+def api_qualitative_scores_delete(score_id: int):
+    with get_conn() as conn:
+        conn.cursor().execute("DELETE FROM qualitative_scores WHERE id=%s", (score_id,))
+    return jsonify({"ok": True})
+
+
 # ---------------------------------------------------------------------------
 # API — 사용자 관리
 # ---------------------------------------------------------------------------
 
-ALL_MENUS = ["dashboard", "supply", "divergence", "signals", "report", "ext-holdings", "price-mgmt", "rebalance", "theme-rebalance", "auditlog", "stocks", "batch", "common-codes", "usermgmt"]
+ALL_MENUS = ["dashboard", "supply", "divergence", "signals", "report", "ext-holdings", "price-mgmt", "rebalance", "theme-rebalance", "qualitative", "auditlog", "stocks", "batch", "common-codes", "usermgmt"]
 
 @app.route("/api/users")
 def api_users():
@@ -1588,6 +1788,11 @@ except Exception:
 
 try:
     _ensure_theme_tables()
+except Exception:
+    pass
+
+try:
+    _ensure_qualitative_tables()
 except Exception:
     pass
 
