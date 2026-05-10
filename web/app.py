@@ -764,14 +764,34 @@ def api_common_codes_delete(cid: int):
 @app.route("/api/manual_holdings")
 def api_manual_holdings_list():
     rows = query("""
-        SELECT id, brokerage, stock_code, stock_name, quantity, avg_price, memo,
-               created_at AT TIME ZONE 'Asia/Seoul' AS created_at
-        FROM manual_holdings
-        ORDER BY brokerage, stock_name, stock_code
+        WITH latest_close AS (
+            SELECT DISTINCT ON (stock_code)
+                stock_code,
+                close_price,
+                date AS price_date
+            FROM supply_demand
+            WHERE close_price IS NOT NULL AND close_price > 0
+            ORDER BY stock_code, date DESC
+        )
+        SELECT
+            mh.id, mh.brokerage, mh.stock_code, mh.stock_name,
+            mh.quantity, mh.avg_price, mh.memo,
+            mh.created_at AT TIME ZONE 'Asia/Seoul' AS created_at,
+            COALESCE(
+                lc.close_price,
+                CASE WHEN st.last_price ~ '^[0-9]+$' THEN st.last_price::BIGINT ELSE NULL END
+            ) AS current_price,
+            lc.price_date
+        FROM manual_holdings mh
+        LEFT JOIN latest_close lc ON lc.stock_code = mh.stock_code
+        LEFT JOIN stocks st ON st.stock_code = mh.stock_code
+        ORDER BY mh.brokerage, mh.stock_name, mh.stock_code
     """)
     for r in rows:
-        r["avg_price"] = float(r["avg_price"]) if r["avg_price"] is not None else 0.0
-        r["created_at"] = r["created_at"].strftime("%Y-%m-%d") if r["created_at"] else ""
+        r["avg_price"]     = float(r["avg_price"])     if r["avg_price"]     is not None else 0.0
+        r["current_price"] = int(r["current_price"])   if r["current_price"] is not None else None
+        r["price_date"]    = r["price_date"].strftime("%Y-%m-%d") if r["price_date"] else None
+        r["created_at"]    = r["created_at"].strftime("%Y-%m-%d") if r["created_at"] else ""
     return jsonify(rows)
 
 

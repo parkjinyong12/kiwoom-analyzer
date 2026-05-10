@@ -1235,18 +1235,25 @@ canvas { max-height: 220px; }
     </div>
 
     <!-- 요약 카드 -->
-    <div class="cards" style="grid-template-columns:repeat(3,1fr)">
+    <div class="cards" style="grid-template-columns:repeat(4,1fr)">
       <div class="card">
         <div class="card-label">총 종목 수</div>
         <div class="card-value blue" id="eh-cnt">-</div>
+        <div class="card-note" id="eh-brokers-note">-</div>
       </div>
       <div class="card">
         <div class="card-label">총 투자금액</div>
-        <div class="card-value green" id="eh-total">-</div>
+        <div class="card-value green" id="eh-total" style="font-size:20px">-</div>
       </div>
       <div class="card">
-        <div class="card-label">보유 증권사 수</div>
-        <div class="card-value orange" id="eh-brokers">-</div>
+        <div class="card-label">현재 평가금액</div>
+        <div class="card-value orange" id="eh-eval" style="font-size:20px">-</div>
+        <div class="card-note" id="eh-eval-note" style="color:#475569">-</div>
+      </div>
+      <div class="card">
+        <div class="card-label">평가손익</div>
+        <div class="card-value" id="eh-pnl" style="font-size:20px">-</div>
+        <div class="card-note" id="eh-pnl-rate">-</div>
       </div>
     </div>
 
@@ -1254,7 +1261,7 @@ canvas { max-height: 220px; }
       <div class="panel-header">
         <span>보유종목 목록</span>
         <input type="text" id="eh-search" placeholder="종목명·코드 검색"
-               oninput="ehRender()"
+               oninput="ehUpdateSummary();ehRender()"
                style="padding:6px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:12px;width:180px;outline:none"/>
       </div>
       <!-- 증권사 필터 -->
@@ -1273,7 +1280,10 @@ canvas { max-height: 220px; }
               <th>종목명</th>
               <th style="text-align:right">보유수량</th>
               <th style="text-align:right">매수평균가</th>
-              <th style="text-align:right">총 매입금액</th>
+              <th style="text-align:right">매입금액</th>
+              <th style="text-align:right">현재가</th>
+              <th style="text-align:right">평가금액</th>
+              <th style="text-align:right">손익</th>
               <th>메모</th>
               <th style="text-align:center">관리</th>
             </tr>
@@ -3357,16 +3367,43 @@ function ehFilteredData() {
   return rows;
 }
 
+function fmtWon(n) {
+  if (n === null || n === undefined) return '-';
+  return Math.round(n).toLocaleString() + '원';
+}
+
 function ehUpdateSummary() {
-  const all = ehData;
-  const cnt = all.length;
-  const total = all.reduce((s, r) => s + r.quantity * r.avg_price, 0);
-  const brokers = new Set(all.map(r => r.brokerage).filter(Boolean)).size;
+  const rows = ehFilteredData();
+  const cnt    = rows.length;
+  const total  = rows.reduce((s, r) => s + r.quantity * r.avg_price, 0);
+  const evalAmt = rows.reduce((s, r) => r.current_price != null ? s + r.quantity * r.current_price : s, 0);
+  const hasPrice  = rows.some(r => r.current_price != null);
+  const coveredAll = rows.every(r => r.current_price != null);
+  const brokers = new Set(ehData.map(r => r.brokerage).filter(Boolean)).size;
+  const pnl    = hasPrice ? evalAmt - rows.reduce((s, r) => r.current_price != null ? s + r.quantity * r.avg_price : s, 0) : null;
+  const pnlBase = rows.reduce((s, r) => r.current_price != null ? s + r.quantity * r.avg_price : s, 0);
+  const pnlRate = pnlBase > 0 ? pnl / pnlBase * 100 : null;
+
   document.getElementById('eh-cnt').textContent = cnt;
-  document.getElementById('eh-total').textContent = total >= 1e8
-    ? Math.round(total / 1e8).toLocaleString() + '억'
-    : Math.round(total).toLocaleString() + '원';
-  document.getElementById('eh-brokers').textContent = brokers;
+  document.getElementById('eh-brokers-note').textContent = `증권사 ${brokers}개`;
+  document.getElementById('eh-total').textContent = fmtWon(total);
+
+  if (hasPrice) {
+    document.getElementById('eh-eval').textContent = fmtWon(evalAmt);
+    document.getElementById('eh-eval-note').textContent = coveredAll ? '전 종목' : '일부 종목만 반영';
+    const pnlEl = document.getElementById('eh-pnl');
+    pnlEl.textContent = (pnl >= 0 ? '+' : '') + fmtWon(pnl);
+    pnlEl.style.color = pnl > 0 ? '#4ade80' : pnl < 0 ? '#f87171' : '#94a3b8';
+    document.getElementById('eh-pnl-rate').textContent =
+      pnlRate !== null ? (pnlRate >= 0 ? '+' : '') + pnlRate.toFixed(2) + '%' : '-';
+    document.getElementById('eh-pnl-rate').style.color = pnlRate > 0 ? '#4ade80' : pnlRate < 0 ? '#f87171' : '#64748b';
+  } else {
+    document.getElementById('eh-eval').textContent = '-';
+    document.getElementById('eh-eval-note').textContent = '가격 데이터 없음';
+    document.getElementById('eh-pnl').textContent = '-';
+    document.getElementById('eh-pnl').style.color = '#94a3b8';
+    document.getElementById('eh-pnl-rate').textContent = '-';
+  }
 }
 
 function ehRender() {
@@ -3377,23 +3414,38 @@ function ehRender() {
     return;
   }
   tbody.innerHTML = rows.map(r => {
-    const total = Math.round(r.quantity * r.avg_price);
-    const totalStr = total >= 1e8
-      ? (total / 1e8).toFixed(2) + '억'
-      : total.toLocaleString() + '원';
+    const buyAmt  = Math.round(r.quantity * r.avg_price);
+    const hasCur  = r.current_price != null;
+    const evalAmt = hasCur ? Math.round(r.quantity * r.current_price) : null;
+    const pnl     = hasCur ? evalAmt - buyAmt : null;
+    const pnlRate = hasCur && buyAmt > 0 ? (pnl / buyAmt * 100) : null;
+
+    const pnlColor = pnl == null ? '' : pnl > 0 ? 'color:#4ade80' : pnl < 0 ? 'color:#f87171' : '';
+    const pnlStr   = pnl == null ? '-'
+      : (pnl >= 0 ? '+' : '') + Math.round(pnl).toLocaleString() + '원'
+        + `<br><span style="font-size:11px">${pnlRate >= 0 ? '+' : ''}${pnlRate.toFixed(2)}%</span>`;
+
+    const curPriceStr = hasCur
+      ? `${r.current_price.toLocaleString()}원<br><span style="font-size:10px;color:#475569">${r.price_date || ''}</span>`
+      : '<span style="color:#475569">-</span>';
+
+    const safeName = (r.stock_name || r.stock_code).replace(/'/g, "\\'");
     return `<tr>
       <td>${r.brokerage || '<span style="color:#475569">-</span>'}</td>
       <td style="font-family:monospace;font-size:12px">${r.stock_code}</td>
       <td style="font-weight:500">${r.stock_name || '<span style="color:#475569">-</span>'}</td>
       <td class="num">${Number(r.quantity).toLocaleString()}</td>
       <td class="num">${Number(r.avg_price).toLocaleString()}원</td>
-      <td class="num" style="color:#34d399">${totalStr}</td>
+      <td class="num">${buyAmt.toLocaleString()}원</td>
+      <td class="num">${curPriceStr}</td>
+      <td class="num">${evalAmt != null ? evalAmt.toLocaleString() + '원' : '-'}</td>
+      <td class="num" style="${pnlColor}">${pnlStr}</td>
       <td style="color:#64748b;font-size:12px">${r.memo || ''}</td>
-      <td class="center">
+      <td class="center" style="white-space:nowrap">
         <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;margin-right:4px"
                 onclick="ehOpenModal(${r.id})">수정</button>
         <button class="btn btn-danger" style="font-size:11px;padding:4px 10px"
-                onclick="ehDelete(${r.id}, '${(r.stock_name || r.stock_code).replace(/'/g,"\\'")}')">삭제</button>
+                onclick="ehDelete(${r.id}, '${safeName}')">삭제</button>
       </td>
     </tr>`;
   }).join('');
