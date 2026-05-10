@@ -1253,9 +1253,16 @@ canvas { max-height: 220px; }
     <div class="panel">
       <div class="panel-header">
         <span>보유종목 목록</span>
-        <input type="text" id="eh-search" placeholder="종목명·코드·증권사 검색"
+        <input type="text" id="eh-search" placeholder="종목명·코드 검색"
                oninput="ehRender()"
-               style="padding:6px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:12px;width:200px;outline:none"/>
+               style="padding:6px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:12px;width:180px;outline:none"/>
+      </div>
+      <!-- 증권사 필터 -->
+      <div class="filter-bar" style="padding:10px 16px;gap:6px;border-bottom:1px solid #1e2535">
+        <span style="font-size:12px;color:#64748b;margin-right:4px">증권사</span>
+        <div class="period-btns" id="eh-broker-btns">
+          <button class="period-btn active" data-broker="" onclick="ehSetFilter('')">전체</button>
+        </div>
       </div>
       <div style="overflow-x:auto">
         <table class="data-table" id="eh-table">
@@ -3283,14 +3290,36 @@ async function saveCredentials() {
 let ehData = [];
 let ehBrokerages = [];   // 공통코드에서 로드한 증권사 목록
 let ehStockAcIdx = -1;  // 종목 자동완성 키보드 인덱스
+let ehFilterBroker = ''; // 현재 선택된 증권사 필터 ('' = 전체)
 
 async function loadExtHoldings() {
   await ehLoadBrokerages();
   if (!allStockOptions.length) await _ensureStockOptions();
   const res = await fetch('/api/manual_holdings');
   ehData = await res.json();
+  ehRenderFilterBtns();
   ehUpdateSummary();
   ehRender();
+}
+
+function ehSetFilter(broker) {
+  ehFilterBroker = broker;
+  document.querySelectorAll('#eh-broker-btns .period-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.broker === broker));
+  ehUpdateSummary();
+  ehRender();
+}
+
+function ehRenderFilterBtns() {
+  const brokers = [...new Set(ehData.map(r => r.brokerage).filter(Boolean))].sort();
+  const container = document.getElementById('eh-broker-btns');
+  container.innerHTML =
+    `<button class="period-btn${ehFilterBroker === '' ? ' active' : ''}" data-broker="" onclick="ehSetFilter('')">전체</button>`
+    + brokers.map(b =>
+        `<button class="period-btn${ehFilterBroker === b ? ' active' : ''}" data-broker="${b}" onclick="ehSetFilter('${b.replace(/'/g,"\\'")}')"> ${b}</button>`
+      ).join('');
+  // 현재 필터 대상 증권사가 데이터에서 사라졌으면 전체로 초기화
+  if (ehFilterBroker && !brokers.includes(ehFilterBroker)) ehFilterBroker = '';
 }
 
 async function ehLoadBrokerages() {
@@ -3317,10 +3346,22 @@ async function _ensureStockOptions() {
   } catch(e) {}
 }
 
+function ehFilteredData() {
+  const q = (document.getElementById('eh-search').value || '').toLowerCase();
+  let rows = ehFilterBroker
+    ? ehData.filter(r => r.brokerage === ehFilterBroker)
+    : ehData;
+  if (q) rows = rows.filter(r =>
+    (r.stock_name || '').toLowerCase().includes(q) ||
+    (r.stock_code || '').toLowerCase().includes(q));
+  return rows;
+}
+
 function ehUpdateSummary() {
-  const cnt = ehData.length;
-  const total = ehData.reduce((s, r) => s + r.quantity * r.avg_price, 0);
-  const brokers = new Set(ehData.map(r => r.brokerage).filter(Boolean)).size;
+  const all = ehData;
+  const cnt = all.length;
+  const total = all.reduce((s, r) => s + r.quantity * r.avg_price, 0);
+  const brokers = new Set(all.map(r => r.brokerage).filter(Boolean)).size;
   document.getElementById('eh-cnt').textContent = cnt;
   document.getElementById('eh-total').textContent = total >= 1e8
     ? Math.round(total / 1e8).toLocaleString() + '억'
@@ -3329,14 +3370,7 @@ function ehUpdateSummary() {
 }
 
 function ehRender() {
-  const q = (document.getElementById('eh-search').value || '').toLowerCase();
-  const rows = q
-    ? ehData.filter(r =>
-        (r.stock_name || '').toLowerCase().includes(q) ||
-        (r.stock_code || '').toLowerCase().includes(q) ||
-        (r.brokerage  || '').toLowerCase().includes(q))
-    : ehData;
-
+  const rows = ehFilteredData();
   const tbody = document.getElementById('eh-tbody');
   if (!rows.length) {
     tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:32px;color:#475569">보유종목이 없습니다. 종목을 추가해주세요.</td></tr>';
@@ -3385,8 +3419,8 @@ async function ehOpenModal(id) {
     document.getElementById('eh-memo').value       = r.memo || '';
   } else {
     document.getElementById('eh-modal-title').textContent = '종목 추가';
-    document.getElementById('eh-edit-id').value   = '';
-    document.getElementById('eh-brokerage').value  = '';
+    document.getElementById('eh-edit-id').value    = '';
+    document.getElementById('eh-brokerage').value  = ehFilterBroker || '';
     document.getElementById('eh-stock-code').value = '';
     document.getElementById('eh-stock-input').value = '';
     document.getElementById('eh-stock-name').value = '';
@@ -3395,7 +3429,11 @@ async function ehOpenModal(id) {
     document.getElementById('eh-memo').value       = '';
   }
   modal.classList.add('open');
-  setTimeout(() => document.getElementById('eh-brokerage').focus(), 50);
+  // 증권사가 이미 선택된 경우 → 종목 검색으로, 아니면 증권사 선택으로 커서
+  const focusTarget = (id && document.getElementById('eh-brokerage').value) || (!id && ehFilterBroker)
+    ? 'eh-stock-input'
+    : 'eh-brokerage';
+  setTimeout(() => document.getElementById(focusTarget).focus(), 50);
 }
 
 function ehCloseModal() {
