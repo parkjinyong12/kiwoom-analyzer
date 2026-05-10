@@ -457,7 +457,7 @@ canvas { max-height: 220px; }
           <span class="icon">📧</span> 보유종목 리포트
         </div>
         <div class="nav-item" data-page="ext-holdings" onclick="showPage('ext-holdings')">
-          <span class="icon">🏦</span> 타사 보유종목
+          <span class="icon">🏦</span> 보유종목
         </div>
         <div class="nav-item" data-page="price-mgmt" onclick="showPage('price-mgmt')">
           <span class="icon">💰</span> 현재가 관리
@@ -1158,7 +1158,7 @@ canvas { max-height: 220px; }
     <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between">
       <div>
         <div class="page-title">현재가 관리</div>
-        <div class="page-sub">타사 보유종목의 최신 종가를 키움 API(일봉)로 동기화합니다</div>
+        <div class="page-sub">보유종목의 최신 종가를 키움 API(일봉)로 동기화합니다</div>
       </div>
       <div style="display:flex;gap:8px;align-items:center">
         <span id="pm-sync-status" style="font-size:12px;color:#64748b"></span>
@@ -1295,36 +1295,49 @@ canvas { max-height: 220px; }
     </div>
   </div>
 
-  <!-- ===== 타사 보유종목 페이지 ===== -->
+  <!-- ===== 보유종목 페이지 ===== -->
   <section id="page-ext-holdings" class="page">
-    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between">
+    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
       <div>
-        <div class="page-title">타사 보유종목</div>
-        <div class="page-sub">다른 증권사에서 보유 중인 종목 수량 및 매수평균가 관리</div>
+        <div class="page-title">보유종목</div>
+        <div class="page-sub">증권사별 보유종목 수량·매수평균가 관리 및 포트폴리오 비율</div>
       </div>
-      <button class="btn btn-primary" onclick="ehOpenModal()">+ 종목 추가</button>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <!-- 예수금 인라인 편집 -->
+        <div style="display:flex;align-items:center;gap:6px;background:#161b27;border:1px solid #1e2535;border-radius:8px;padding:6px 12px">
+          <span style="font-size:12px;color:#64748b;white-space:nowrap">예수금</span>
+          <input type="text" id="eh-cash-input" value="0" inputmode="numeric"
+                 style="width:110px;background:none;border:none;color:#e2e8f0;font-size:13px;text-align:right;outline:none;font-variant-numeric:tabular-nums"
+                 onfocus="this.value=this.value.replace(/,/g,'')"
+                 onblur="ehSaveCash()"
+                 onkeydown="if(event.key==='Enter'){this.blur();}"/>
+          <span style="font-size:12px;color:#64748b">원</span>
+        </div>
+        <button class="btn btn-primary" onclick="ehOpenModal()">+ 종목 추가</button>
+      </div>
     </div>
 
     <!-- 요약 카드 -->
     <div class="cards" style="grid-template-columns:repeat(4,1fr)">
       <div class="card">
-        <div class="card-label">총 종목 수</div>
-        <div class="card-value blue" id="eh-cnt">-</div>
-        <div class="card-note" id="eh-brokers-note">-</div>
+        <div class="card-label">총 포트폴리오</div>
+        <div class="card-value blue" id="eh-portfolio" style="font-size:19px">-</div>
+        <div class="card-note" id="eh-portfolio-note">-</div>
       </div>
       <div class="card">
         <div class="card-label">총 투자금액</div>
-        <div class="card-value green" id="eh-total" style="font-size:20px">-</div>
-      </div>
-      <div class="card">
-        <div class="card-label">현재 평가금액</div>
-        <div class="card-value orange" id="eh-eval" style="font-size:20px">-</div>
-        <div class="card-note" id="eh-eval-note" style="color:#475569">-</div>
+        <div class="card-value green" id="eh-total" style="font-size:19px">-</div>
+        <div class="card-note" id="eh-cnt-note">-</div>
       </div>
       <div class="card">
         <div class="card-label">평가손익</div>
-        <div class="card-value" id="eh-pnl" style="font-size:20px">-</div>
+        <div class="card-value" id="eh-pnl" style="font-size:19px">-</div>
         <div class="card-note" id="eh-pnl-rate">-</div>
+      </div>
+      <div class="card">
+        <div class="card-label">예수금 비율</div>
+        <div class="card-value orange" id="eh-cash-rate">-</div>
+        <div class="card-note" id="eh-cash-amt-note">-</div>
       </div>
     </div>
 
@@ -1355,19 +1368,20 @@ canvas { max-height: 220px; }
               <th style="text-align:right">현재가</th>
               <th style="text-align:right">평가금액</th>
               <th style="text-align:right">손익</th>
+              <th style="text-align:right">비율</th>
               <th>메모</th>
               <th style="text-align:center">관리</th>
             </tr>
           </thead>
           <tbody id="eh-tbody">
-            <tr><td colspan="8" class="loading">로딩 중...</td></tr>
+            <tr><td colspan="12" class="loading">로딩 중...</td></tr>
           </tbody>
         </table>
       </div>
     </div>
   </section>
 
-  <!-- 타사 보유종목 추가/수정 모달 -->
+  <!-- 보유종목 추가/수정 모달 -->
   <div class="modal-overlay" id="eh-modal">
     <div class="modal" style="width:440px">
       <h3 id="eh-modal-title">종목 추가</h3>
@@ -1468,7 +1482,7 @@ const PAGE_TITLES = {
   dashboard:'대시보드', supply:'수급 현황', divergence:'수급↑ 가격↔',
   snapshot:'기간별 변화', signals:'매매 신호', report:'보유종목 리포트',
   auditlog:'감사 로그', stocks:'감시 종목', batch:'배치 관리', usermgmt:'사용자 관리',
-  'ext-holdings':'타사 보유종목', 'price-mgmt':'현재가 관리', 'common-codes':'공통코드 관리',
+  'ext-holdings':'보유종목', 'price-mgmt':'현재가 관리', 'common-codes':'공통코드 관리',
 };
 function toggleMobileDrawer() {
   const open = document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -3084,7 +3098,7 @@ const MENU_META = {
   snapshot:   { label: '기간별 변화',     icon: '📊', section: '분석' },
   signals:       { label: '매매 신호',       icon: '📈', section: '분석' },
   report:        { label: '보유종목 리포트', icon: '📧', section: '분석' },
-  'ext-holdings': { label: '타사 보유종목',  icon: '🏦', section: '분석' },
+  'ext-holdings': { label: '보유종목',        icon: '🏦', section: '분석' },
   'price-mgmt':   { label: '현재가 관리',    icon: '💰', section: '분석' },
   auditlog:       { label: '감사 로그',      icon: '📋', section: '시스템' },
   stocks:     { label: '감시 종목',       icon: '🔭', section: '시스템' },
@@ -3490,18 +3504,39 @@ async function pmStartSync() {
   }
 }
 
-// ─── 타사 보유종목 ─────────────────────────────────────
+// ─── 보유종목 ─────────────────────────────────────
 let ehData = [];
 let ehBrokerages = [];   // 공통코드에서 로드한 증권사 목록
 let ehStockAcIdx = -1;  // 종목 자동완성 키보드 인덱스
 let ehFilterBroker = ''; // 현재 선택된 증권사 필터 ('' = 전체)
+let ehCash = 0;          // 예수금
 
 async function loadExtHoldings() {
   await ehLoadBrokerages();
   if (!allStockOptions.length) await _ensureStockOptions();
-  const res = await fetch('/api/manual_holdings');
-  ehData = await res.json();
+  const [holdRes, settRes] = await Promise.all([
+    fetch('/api/manual_holdings'),
+    fetch('/api/settings'),
+  ]);
+  ehData = await holdRes.json();
+  const settings = await settRes.json();
+  ehCash = parseInt((settings.portfolio_cash || '0').replace(/,/g, ''), 10) || 0;
+  const cashInput = document.getElementById('eh-cash-input');
+  if (cashInput) cashInput.value = ehCash.toLocaleString();
   ehRenderFilterBtns();
+  ehUpdateSummary();
+  ehRender();
+}
+
+async function ehSaveCash() {
+  const raw = (document.getElementById('eh-cash-input').value || '').replace(/,/g, '');
+  ehCash = parseInt(raw, 10) || 0;
+  document.getElementById('eh-cash-input').value = ehCash.toLocaleString();
+  await fetch('/api/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key: 'portfolio_cash', value: String(ehCash) }),
+  });
   ehUpdateSummary();
   ehRender();
 }
@@ -3566,53 +3601,77 @@ function fmtWon(n) {
   return Math.round(n).toLocaleString() + '원';
 }
 
+function ehGetStockAmt(r) {
+  return r.current_price != null
+    ? r.quantity * r.current_price
+    : r.quantity * r.avg_price;
+}
+
+function ehGetPortfolioTotal(rows) {
+  return rows.reduce((s, r) => s + ehGetStockAmt(r), 0) + ehCash;
+}
+
 function ehUpdateSummary() {
-  const rows = ehFilteredData();
-  const cnt    = rows.length;
-  const total  = rows.reduce((s, r) => s + r.quantity * r.avg_price, 0);
-  const evalAmt = rows.reduce((s, r) => r.current_price != null ? s + r.quantity * r.current_price : s, 0);
+  const rows     = ehFilteredData();
+  const cnt      = rows.length;
+  const costBase = rows.reduce((s, r) => s + r.quantity * r.avg_price, 0);
+  const evalAmt  = rows.reduce((s, r) => r.current_price != null ? s + r.quantity * r.current_price : s, 0);
   const hasPrice  = rows.some(r => r.current_price != null);
-  const coveredAll = rows.every(r => r.current_price != null);
-  const brokers = new Set(ehData.map(r => r.brokerage).filter(Boolean)).size;
-  const pnl    = hasPrice ? evalAmt - rows.reduce((s, r) => r.current_price != null ? s + r.quantity * r.avg_price : s, 0) : null;
-  const pnlBase = rows.reduce((s, r) => r.current_price != null ? s + r.quantity * r.avg_price : s, 0);
-  const pnlRate = pnlBase > 0 ? pnl / pnlBase * 100 : null;
+  const stockTotal = rows.reduce((s, r) => s + ehGetStockAmt(r), 0);
+  const portfolio  = stockTotal + ehCash;
 
-  document.getElementById('eh-cnt').textContent = cnt;
-  document.getElementById('eh-brokers-note').textContent = `증권사 ${brokers}개`;
-  document.getElementById('eh-total').textContent = fmtWon(total);
+  // 총 포트폴리오
+  document.getElementById('eh-portfolio').textContent = fmtWon(portfolio);
+  document.getElementById('eh-portfolio-note').textContent =
+    `주식 ${fmtWon(stockTotal)} + 예수금 ${fmtWon(ehCash)}`;
 
+  // 총 투자금액 (매입기준)
+  document.getElementById('eh-total').textContent = fmtWon(costBase);
+  document.getElementById('eh-cnt-note').textContent = `${cnt}종목`;
+
+  // 평가손익 (현재가 있는 종목만)
+  const pnlEl = document.getElementById('eh-pnl');
   if (hasPrice) {
-    document.getElementById('eh-eval').textContent = fmtWon(evalAmt);
-    document.getElementById('eh-eval-note').textContent = coveredAll ? '전 종목' : '일부 종목만 반영';
-    const pnlEl = document.getElementById('eh-pnl');
+    const costCovered = rows.reduce((s, r) => r.current_price != null ? s + r.quantity * r.avg_price : s, 0);
+    const pnl     = evalAmt - costCovered;
+    const pnlRate = costCovered > 0 ? pnl / costCovered * 100 : null;
     pnlEl.textContent = (pnl >= 0 ? '+' : '') + fmtWon(pnl);
     pnlEl.style.color = pnl > 0 ? '#4ade80' : pnl < 0 ? '#f87171' : '#94a3b8';
     document.getElementById('eh-pnl-rate').textContent =
       pnlRate !== null ? (pnlRate >= 0 ? '+' : '') + pnlRate.toFixed(2) + '%' : '-';
-    document.getElementById('eh-pnl-rate').style.color = pnlRate > 0 ? '#4ade80' : pnlRate < 0 ? '#f87171' : '#64748b';
+    document.getElementById('eh-pnl-rate').style.color =
+      pnlRate > 0 ? '#4ade80' : pnlRate < 0 ? '#f87171' : '#64748b';
   } else {
-    document.getElementById('eh-eval').textContent = '-';
-    document.getElementById('eh-eval-note').textContent = '가격 데이터 없음';
-    document.getElementById('eh-pnl').textContent = '-';
-    document.getElementById('eh-pnl').style.color = '#94a3b8';
+    pnlEl.textContent = '-';
+    pnlEl.style.color = '#94a3b8';
     document.getElementById('eh-pnl-rate').textContent = '-';
+    document.getElementById('eh-pnl-rate').style.color = '#64748b';
   }
+
+  // 예수금 비율
+  const cashRate = portfolio > 0 ? ehCash / portfolio * 100 : 0;
+  document.getElementById('eh-cash-rate').textContent = cashRate.toFixed(1) + '%';
+  document.getElementById('eh-cash-amt-note').textContent = fmtWon(ehCash);
 }
 
 function ehRender() {
   const rows = ehFilteredData();
   const tbody = document.getElementById('eh-tbody');
-  if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:32px;color:#475569">보유종목이 없습니다. 종목을 추가해주세요.</td></tr>';
+  const portfolio = ehGetPortfolioTotal(rows);
+
+  if (!rows.length && ehCash === 0) {
+    tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;padding:32px;color:#475569">보유종목이 없습니다. 종목을 추가해주세요.</td></tr>';
     return;
   }
-  tbody.innerHTML = rows.map(r => {
+
+  const stockRows = rows.map(r => {
     const buyAmt  = Math.round(r.quantity * r.avg_price);
     const hasCur  = r.current_price != null;
     const evalAmt = hasCur ? Math.round(r.quantity * r.current_price) : null;
     const pnl     = hasCur ? evalAmt - buyAmt : null;
     const pnlRate = hasCur && buyAmt > 0 ? (pnl / buyAmt * 100) : null;
+    const stockAmt = ehGetStockAmt(r);
+    const ratio    = portfolio > 0 ? stockAmt / portfolio * 100 : 0;
 
     const pnlColor = pnl == null ? '' : pnl > 0 ? 'color:#4ade80' : pnl < 0 ? 'color:#f87171' : '';
     const pnlStr   = pnl == null ? '-'
@@ -3634,6 +3693,7 @@ function ehRender() {
       <td class="num">${curPriceStr}</td>
       <td class="num">${evalAmt != null ? evalAmt.toLocaleString() + '원' : '-'}</td>
       <td class="num" style="${pnlColor}">${pnlStr}</td>
+      <td class="num" style="color:#94a3b8">${ratio.toFixed(1)}%</td>
       <td style="color:#64748b;font-size:12px">${r.memo || ''}</td>
       <td class="center" style="white-space:nowrap">
         <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;margin-right:4px"
@@ -3643,6 +3703,23 @@ function ehRender() {
       </td>
     </tr>`;
   }).join('');
+
+  // 예수금 행 (포트폴리오에서 차지하는 비율)
+  const cashRatio = portfolio > 0 ? ehCash / portfolio * 100 : 0;
+  const cashRow = ehCash > 0 ? `<tr style="border-top:2px solid #1e2535;background:#0f1520">
+    <td colspan="2" style="color:#94a3b8;font-size:12px">예수금</td>
+    <td style="color:#94a3b8">-</td>
+    <td class="num" style="color:#94a3b8">-</td>
+    <td class="num" style="color:#94a3b8">-</td>
+    <td class="num" style="color:#e2e8f0;font-weight:500">${ehCash.toLocaleString()}원</td>
+    <td class="num" style="color:#94a3b8">-</td>
+    <td class="num" style="color:#e2e8f0;font-weight:500">${ehCash.toLocaleString()}원</td>
+    <td class="num" style="color:#94a3b8">-</td>
+    <td class="num" style="color:#f59e0b;font-weight:500">${cashRatio.toFixed(1)}%</td>
+    <td colspan="2"></td>
+  </tr>` : '';
+
+  tbody.innerHTML = stockRows + cashRow;
 }
 
 async function ehOpenModal(id) {
