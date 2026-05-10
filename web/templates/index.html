@@ -427,6 +427,9 @@ canvas { max-height: 220px; }
     <div class="nav-item" data-page="report" onclick="showPage('report')">
       <span class="icon">📧</span> 보유종목 리포트
     </div>
+    <div class="nav-item" data-page="ext-holdings" onclick="showPage('ext-holdings')">
+      <span class="icon">🏦</span> 타사 보유종목
+    </div>
 
     <div class="nav-section">시스템</div>
     <div class="nav-item" data-page="auditlog" onclick="showPage('auditlog')">
@@ -1097,6 +1100,110 @@ canvas { max-height: 220px; }
     </div>
   </section>
 
+  <!-- ===== 타사 보유종목 페이지 ===== -->
+  <section id="page-ext-holdings" class="page">
+    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between">
+      <div>
+        <div class="page-title">타사 보유종목</div>
+        <div class="page-sub">다른 증권사에서 보유 중인 종목 수량 및 매수평균가 관리</div>
+      </div>
+      <button class="btn btn-primary" onclick="ehOpenModal()">+ 종목 추가</button>
+    </div>
+
+    <!-- 요약 카드 -->
+    <div class="cards" style="grid-template-columns:repeat(3,1fr)">
+      <div class="card">
+        <div class="card-label">총 종목 수</div>
+        <div class="card-value blue" id="eh-cnt">-</div>
+      </div>
+      <div class="card">
+        <div class="card-label">총 투자금액</div>
+        <div class="card-value green" id="eh-total">-</div>
+      </div>
+      <div class="card">
+        <div class="card-label">보유 증권사 수</div>
+        <div class="card-value orange" id="eh-brokers">-</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <span>보유종목 목록</span>
+        <input type="text" id="eh-search" placeholder="종목명·코드·증권사 검색"
+               oninput="ehRender()"
+               style="padding:6px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:12px;width:200px;outline:none"/>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="data-table" id="eh-table">
+          <thead>
+            <tr>
+              <th>증권사</th>
+              <th>종목코드</th>
+              <th>종목명</th>
+              <th style="text-align:right">보유수량</th>
+              <th style="text-align:right">매수평균가</th>
+              <th style="text-align:right">총 매입금액</th>
+              <th>메모</th>
+              <th style="text-align:center">관리</th>
+            </tr>
+          </thead>
+          <tbody id="eh-tbody">
+            <tr><td colspan="8" class="loading">로딩 중...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- 타사 보유종목 추가/수정 모달 -->
+  <div class="modal-overlay" id="eh-modal">
+    <div class="modal" style="width:420px">
+      <h3 id="eh-modal-title">종목 추가</h3>
+      <input type="hidden" id="eh-edit-id"/>
+      <div style="display:grid;gap:12px">
+        <div>
+          <div style="font-size:12px;color:#64748b;margin-bottom:4px">증권사</div>
+          <input type="text" id="eh-brokerage" placeholder="예) 미래에셋, NH투자, 삼성증권" maxlength="50"
+                 style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div>
+            <div style="font-size:12px;color:#64748b;margin-bottom:4px">종목코드 <span style="color:#f87171">*</span></div>
+            <input type="text" id="eh-stock-code" placeholder="예) 005930" maxlength="10"
+                   style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
+          </div>
+          <div>
+            <div style="font-size:12px;color:#64748b;margin-bottom:4px">종목명</div>
+            <input type="text" id="eh-stock-name" placeholder="예) 삼성전자" maxlength="100"
+                   style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div>
+            <div style="font-size:12px;color:#64748b;margin-bottom:4px">보유수량 <span style="color:#f87171">*</span></div>
+            <input type="number" id="eh-quantity" placeholder="0" min="1" step="1"
+                   style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
+          </div>
+          <div>
+            <div style="font-size:12px;color:#64748b;margin-bottom:4px">매수평균가 <span style="color:#f87171">*</span></div>
+            <input type="number" id="eh-avg-price" placeholder="0" min="0" step="1"
+                   style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:12px;color:#64748b;margin-bottom:4px">메모 (선택)</div>
+          <input type="text" id="eh-memo" placeholder="비고 사항" maxlength="200"
+                 style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
+        </div>
+        <div id="eh-modal-err" style="color:#f87171;font-size:12px;display:none"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="ehCloseModal()">취소</button>
+        <button class="btn btn-primary" onclick="ehSave()">저장</button>
+      </div>
+    </div>
+  </div>
+
 </main>
 
 <!-- ===== 모바일 하단 탭바 ===== -->
@@ -1138,6 +1245,7 @@ const PAGE_TITLES = {
   dashboard:'대시보드', supply:'수급 현황', divergence:'수급↑ 가격↔',
   snapshot:'기간별 변화', signals:'매매 신호', report:'보유종목 리포트',
   auditlog:'감사 로그', stocks:'감시 종목', batch:'배치 관리', usermgmt:'사용자 관리',
+  'ext-holdings':'타사 보유종목',
 };
 function toggleMobileDrawer() {
   const open = document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -1174,8 +1282,9 @@ function showPage(name, fromHash) {
   if (name === 'auditlog')  loadEvents();
   if (name === 'stocks')    loadStocks();
   if (name === 'batch')     loadBatch();
-  if (name === 'report')    loadReportPage();
-  if (name === 'usermgmt')  loadUserMgmt();
+  if (name === 'report')        loadReportPage();
+  if (name === 'usermgmt')      loadUserMgmt();
+  if (name === 'ext-holdings')  loadExtHoldings();
 }
 
 // ─── 대시보드 ─────────────────────────────────────────
@@ -2729,9 +2838,10 @@ const MENU_META = {
   supply:     { label: '수급 현황',       icon: '💹', section: '분석' },
   divergence: { label: '수급↑ 가격↔',   icon: '🔍', section: '분석' },
   snapshot:   { label: '기간별 변화',     icon: '📊', section: '분석' },
-  signals:    { label: '매매 신호',       icon: '📈', section: '분석' },
-  report:     { label: '보유종목 리포트', icon: '📧', section: '분석' },
-  auditlog:   { label: '감사 로그',       icon: '📋', section: '시스템' },
+  signals:       { label: '매매 신호',       icon: '📈', section: '분석' },
+  report:        { label: '보유종목 리포트', icon: '📧', section: '분석' },
+  'ext-holdings':{ label: '타사 보유종목',   icon: '🏦', section: '분석' },
+  auditlog:      { label: '감사 로그',       icon: '📋', section: '시스템' },
   stocks:     { label: '감시 종목',       icon: '🔭', section: '시스템' },
   batch:      { label: '배치 관리',       icon: '⚙️', section: '관리' },
   usermgmt:   { label: '사용자 관리',     icon: '👥', section: '관리' },
@@ -3013,8 +3123,129 @@ async function saveCredentials() {
   setTimeout(() => { closeCredModal(); renderPermMatrix(); }, 800);
 }
 
+// ─── 타사 보유종목 ─────────────────────────────────────
+let ehData = [];
+
+async function loadExtHoldings() {
+  const res = await fetch('/api/manual_holdings');
+  ehData = await res.json();
+  ehUpdateSummary();
+  ehRender();
+}
+
+function ehUpdateSummary() {
+  const cnt = ehData.length;
+  const total = ehData.reduce((s, r) => s + r.quantity * r.avg_price, 0);
+  const brokers = new Set(ehData.map(r => r.brokerage).filter(Boolean)).size;
+  document.getElementById('eh-cnt').textContent = cnt;
+  document.getElementById('eh-total').textContent = total >= 1e8
+    ? Math.round(total / 1e8).toLocaleString() + '억'
+    : Math.round(total).toLocaleString() + '원';
+  document.getElementById('eh-brokers').textContent = brokers;
+}
+
+function ehRender() {
+  const q = (document.getElementById('eh-search').value || '').toLowerCase();
+  const rows = q
+    ? ehData.filter(r =>
+        (r.stock_name || '').toLowerCase().includes(q) ||
+        (r.stock_code || '').toLowerCase().includes(q) ||
+        (r.brokerage  || '').toLowerCase().includes(q))
+    : ehData;
+
+  const tbody = document.getElementById('eh-tbody');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:32px;color:#475569">보유종목이 없습니다. 종목을 추가해주세요.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    const total = Math.round(r.quantity * r.avg_price);
+    const totalStr = total >= 1e8
+      ? (total / 1e8).toFixed(2) + '억'
+      : total.toLocaleString() + '원';
+    return `<tr>
+      <td>${r.brokerage || '<span style="color:#475569">-</span>'}</td>
+      <td style="font-family:monospace;font-size:12px">${r.stock_code}</td>
+      <td style="font-weight:500">${r.stock_name || '<span style="color:#475569">-</span>'}</td>
+      <td class="num">${Number(r.quantity).toLocaleString()}</td>
+      <td class="num">${Number(r.avg_price).toLocaleString()}원</td>
+      <td class="num" style="color:#34d399">${totalStr}</td>
+      <td style="color:#64748b;font-size:12px">${r.memo || ''}</td>
+      <td class="center">
+        <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;margin-right:4px"
+                onclick="ehOpenModal(${r.id})">수정</button>
+        <button class="btn btn-danger" style="font-size:11px;padding:4px 10px"
+                onclick="ehDelete(${r.id}, '${(r.stock_name || r.stock_code).replace(/'/g,"\\'")}')">삭제</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function ehOpenModal(id) {
+  const modal = document.getElementById('eh-modal');
+  document.getElementById('eh-modal-err').style.display = 'none';
+  if (id) {
+    const r = ehData.find(x => x.id === id);
+    if (!r) return;
+    document.getElementById('eh-modal-title').textContent = '종목 수정';
+    document.getElementById('eh-edit-id').value = id;
+    document.getElementById('eh-brokerage').value  = r.brokerage || '';
+    document.getElementById('eh-stock-code').value = r.stock_code;
+    document.getElementById('eh-stock-name').value = r.stock_name || '';
+    document.getElementById('eh-quantity').value   = r.quantity;
+    document.getElementById('eh-avg-price').value  = r.avg_price;
+    document.getElementById('eh-memo').value       = r.memo || '';
+  } else {
+    document.getElementById('eh-modal-title').textContent = '종목 추가';
+    document.getElementById('eh-edit-id').value   = '';
+    document.getElementById('eh-brokerage').value  = '';
+    document.getElementById('eh-stock-code').value = '';
+    document.getElementById('eh-stock-name').value = '';
+    document.getElementById('eh-quantity').value   = '';
+    document.getElementById('eh-avg-price').value  = '';
+    document.getElementById('eh-memo').value       = '';
+  }
+  modal.classList.add('open');
+  setTimeout(() => document.getElementById('eh-brokerage').focus(), 50);
+}
+
+function ehCloseModal() {
+  document.getElementById('eh-modal').classList.remove('open');
+}
+
+async function ehSave() {
+  const errEl = document.getElementById('eh-modal-err');
+  errEl.style.display = 'none';
+  const editId   = document.getElementById('eh-edit-id').value;
+  const payload  = {
+    brokerage:  document.getElementById('eh-brokerage').value.trim(),
+    stock_code: document.getElementById('eh-stock-code').value.trim(),
+    stock_name: document.getElementById('eh-stock-name').value.trim(),
+    quantity:   parseInt(document.getElementById('eh-quantity').value) || 0,
+    avg_price:  parseFloat(document.getElementById('eh-avg-price').value) || 0,
+    memo:       document.getElementById('eh-memo').value.trim(),
+  };
+  const url    = editId ? `/api/manual_holdings/${editId}` : '/api/manual_holdings';
+  const method = editId ? 'PUT' : 'POST';
+  const res    = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+  const data   = await res.json();
+  if (!res.ok) {
+    errEl.textContent = data.error || '저장 실패';
+    errEl.style.display = 'block';
+    return;
+  }
+  ehCloseModal();
+  await loadExtHoldings();
+}
+
+async function ehDelete(id, name) {
+  if (!confirm(`"${name}" 종목을 삭제하시겠습니까?`)) return;
+  const res = await fetch(`/api/manual_holdings/${id}`, { method: 'DELETE' });
+  if (res.ok) await loadExtHoldings();
+}
+
 // ─── 초기 로드 (해시 기반 페이지 복원) ───────────────────
-const PAGES = ['dashboard','supply','divergence','snapshot','signals','report','auditlog','stocks','batch','usermgmt'];
+const PAGES = ['dashboard','supply','divergence','snapshot','signals','report','ext-holdings','auditlog','stocks','batch','usermgmt'];
 // visible_menus 저장 시점 이전에 존재하던 페이지 목록
 const PAGES_V1 = ['dashboard','supply','signals','auditlog','stocks','batch','usermgmt'];
 

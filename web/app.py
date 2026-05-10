@@ -107,6 +107,24 @@ def _ensure_report_tables():
             )
         """)
 
+
+def _ensure_manual_holdings_table():
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS manual_holdings (
+                id          SERIAL PRIMARY KEY,
+                brokerage   VARCHAR(50)    NOT NULL DEFAULT '',
+                stock_code  VARCHAR(10)    NOT NULL,
+                stock_name  VARCHAR(100)   NOT NULL DEFAULT '',
+                quantity    BIGINT         NOT NULL DEFAULT 0,
+                avg_price   NUMERIC(15, 2) NOT NULL DEFAULT 0,
+                memo        TEXT           DEFAULT '',
+                created_at  TIMESTAMP      DEFAULT NOW(),
+                updated_at  TIMESTAMP      DEFAULT NOW()
+            )
+        """)
+
 BATCH_JOBS = {
     "collect_history": {
         "name": "수급 히스토리 수집",
@@ -636,10 +654,85 @@ def api_report_history():
 
 
 # ---------------------------------------------------------------------------
+# API — 타사 보유종목 (manual_holdings)
+# ---------------------------------------------------------------------------
+
+@app.route("/api/manual_holdings")
+def api_manual_holdings_list():
+    rows = query("""
+        SELECT id, brokerage, stock_code, stock_name, quantity, avg_price, memo,
+               created_at AT TIME ZONE 'Asia/Seoul' AS created_at
+        FROM manual_holdings
+        ORDER BY brokerage, stock_name, stock_code
+    """)
+    for r in rows:
+        r["avg_price"] = float(r["avg_price"]) if r["avg_price"] is not None else 0.0
+        r["created_at"] = r["created_at"].strftime("%Y-%m-%d") if r["created_at"] else ""
+    return jsonify(rows)
+
+
+@app.route("/api/manual_holdings", methods=["POST"])
+def api_manual_holdings_create():
+    data = request.get_json() or {}
+    brokerage  = (data.get("brokerage") or "").strip()
+    stock_code = (data.get("stock_code") or "").strip()
+    stock_name = (data.get("stock_name") or "").strip()
+    memo       = (data.get("memo") or "").strip()
+    try:
+        quantity  = int(data.get("quantity") or 0)
+        avg_price = float(data.get("avg_price") or 0)
+    except (TypeError, ValueError):
+        return jsonify({"error": "수량·매수평균가는 숫자로 입력해주세요"}), 400
+    if not stock_code:
+        return jsonify({"error": "종목코드를 입력해주세요"}), 400
+    if quantity <= 0:
+        return jsonify({"error": "보유수량은 1 이상이어야 합니다"}), 400
+    row = query_one("""
+        INSERT INTO manual_holdings (brokerage, stock_code, stock_name, quantity, avg_price, memo)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        RETURNING id
+    """, (brokerage, stock_code, stock_name, quantity, avg_price, memo))
+    return jsonify({"ok": True, "id": row["id"]}), 201
+
+
+@app.route("/api/manual_holdings/<int:hid>", methods=["PUT"])
+def api_manual_holdings_update(hid: int):
+    data = request.get_json() or {}
+    brokerage  = (data.get("brokerage") or "").strip()
+    stock_code = (data.get("stock_code") or "").strip()
+    stock_name = (data.get("stock_name") or "").strip()
+    memo       = (data.get("memo") or "").strip()
+    try:
+        quantity  = int(data.get("quantity") or 0)
+        avg_price = float(data.get("avg_price") or 0)
+    except (TypeError, ValueError):
+        return jsonify({"error": "수량·매수평균가는 숫자로 입력해주세요"}), 400
+    if not stock_code:
+        return jsonify({"error": "종목코드를 입력해주세요"}), 400
+    if quantity <= 0:
+        return jsonify({"error": "보유수량은 1 이상이어야 합니다"}), 400
+    with get_conn() as conn:
+        conn.cursor().execute("""
+            UPDATE manual_holdings
+            SET brokerage = %s, stock_code = %s, stock_name = %s,
+                quantity = %s, avg_price = %s, memo = %s, updated_at = NOW()
+            WHERE id = %s
+        """, (brokerage, stock_code, stock_name, quantity, avg_price, memo, hid))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/manual_holdings/<int:hid>", methods=["DELETE"])
+def api_manual_holdings_delete(hid: int):
+    with get_conn() as conn:
+        conn.cursor().execute("DELETE FROM manual_holdings WHERE id = %s", (hid,))
+    return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------------------
 # API — 사용자 관리
 # ---------------------------------------------------------------------------
 
-ALL_MENUS = ["dashboard", "supply", "divergence", "signals", "report", "auditlog", "stocks", "batch", "usermgmt"]
+ALL_MENUS = ["dashboard", "supply", "divergence", "signals", "report", "ext-holdings", "auditlog", "stocks", "batch", "usermgmt"]
 
 @app.route("/api/users")
 def api_users():
@@ -972,6 +1065,11 @@ except Exception:
 
 try:
     _ensure_report_tables()
+except Exception:
+    pass
+
+try:
+    _ensure_manual_holdings_table()
 except Exception:
     pass
 
