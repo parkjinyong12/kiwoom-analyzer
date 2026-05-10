@@ -1241,6 +1241,7 @@ canvas { max-height: 220px; }
     <!-- 그룹 탭 -->
     <div style="display:flex;gap:4px;margin-bottom:20px;border-bottom:1px solid #1e2535;padding-bottom:0">
       <button class="snap-tab snap-tab-active" id="cc-tab-BROKERAGE" onclick="ccSelectGroup('BROKERAGE')">🏦 증권사</button>
+      <button class="snap-tab" id="cc-tab-THEME" onclick="ccSelectGroup('THEME')">🏷️ 테마</button>
     </div>
 
     <div class="panel" id="cc-panel">
@@ -4502,15 +4503,21 @@ async function rbSaveThresholds() {
 // ─── 테마 리밸런싱 ───────────────────────────────────
 let trbData = null;
 let trbAlertUp = 30, trbAlertDown = 25;
+let trbThemeCodes   = [];   // 공통코드 THEME 그룹
+let trbPopoverStock = null; // 현재 팝오버 열린 종목코드
 
 async function loadThemeRebalance() {
   document.getElementById('trb-theme-tbody').innerHTML =
-    '<tr><td colspan="7" class="loading">로딩 중...</td></tr>';
+    '<tr><td colspan="8" class="loading">로딩 중...</td></tr>';
   document.getElementById('trb-stock-tbody').innerHTML =
     '<tr><td colspan="5" class="loading">로딩 중...</td></tr>';
   try {
-    const res = await fetch('/api/theme_rebalance');
-    trbData = await res.json();
+    const [res, codeRes] = await Promise.all([
+      fetch('/api/theme_rebalance'),
+      fetch('/api/common_codes/THEME'),
+    ]);
+    trbData       = await res.json();
+    trbThemeCodes = (await codeRes.json()).filter(c => c.active);
     trbAlertUp   = trbData.alert_up   ?? 30;
     trbAlertDown = trbData.alert_down ?? 25;
     document.getElementById('trb-threshold-up').value   = trbAlertUp;
@@ -4519,7 +4526,7 @@ async function loadThemeRebalance() {
     trbRenderThemes();
     trbRenderStocks();
   } catch(e) {
-    const err = '<tr><td colspan="7" style="text-align:center;color:#f87171;padding:32px">데이터 로드 실패</td></tr>';
+    const err = '<tr><td colspan="8" style="text-align:center;color:#f87171;padding:32px">데이터 로드 실패</td></tr>';
     document.getElementById('trb-theme-tbody').innerHTML = err;
     document.getElementById('trb-stock-tbody').innerHTML = err;
   }
@@ -4670,14 +4677,9 @@ function trbRenderStocks() {
       <td>
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
           <div id="trb-tags-${s.stock_code}">${themeDisplay}</div>
-          <input type="text" id="trb-inp-${s.stock_code}"
-            value="${s.themes_str}"
-            placeholder="반도체,AI"
-            style="width:130px;padding:3px 8px;border-radius:6px;border:1px solid #1e2535;
-                   background:#0f1117;color:#e2e8f0;font-size:12px;outline:none"
-            onfocus="this.style.borderColor='#3b82f6'"
-            onblur="trbSaveStockTheme('${codeEsc}',this)"
-            onkeydown="if(event.key==='Enter'&&!event.isComposing)this.blur()"/>
+          <button onclick="trbOpenThemePopover('${codeEsc}',this)"
+            style="padding:2px 8px;border-radius:5px;border:1px solid #334155;background:none;
+                   color:#94a3b8;font-size:11px;cursor:pointer;white-space:nowrap">✏️ 편집</button>
         </div>
       </td>
     </tr>`;
@@ -4696,26 +4698,74 @@ async function trbSaveThemeTarget(theme, inputEl) {
   await loadThemeRebalance();
 }
 
-async function trbSaveStockTheme(stockCode, inputEl) {
-  inputEl.style.borderColor = '#1e2535';
-  const raw = inputEl.value.trim();
-  // Normalize: split by comma, trim each, rejoin
-  const normalized = raw.split(',').map(t => t.trim()).filter(Boolean).join(',');
-  inputEl.value = normalized;
+function trbOpenThemePopover(stockCode, btn) {
+  // 같은 버튼 재클릭이면 닫기
+  const existing = document.getElementById('trb-theme-popover');
+  if (existing) {
+    existing.remove();
+    document.removeEventListener('click', trbPopoverOutside);
+    if (trbPopoverStock === stockCode) { trbPopoverStock = null; return; }
+  }
+  trbPopoverStock = stockCode;
+
+  const stockObj  = (trbData?.stocks || []).find(s => s.stock_code === stockCode);
+  const selected  = new Set(stockObj?.themes || []);
+  const rect      = btn.getBoundingClientRect();
+
+  const div = document.createElement('div');
+  div.id = 'trb-theme-popover';
+  div.style.cssText = `position:fixed;z-index:9999;top:${rect.bottom+6}px;left:${rect.left}px;
+    background:#1a2233;border:1px solid #334155;border-radius:8px;padding:12px;
+    min-width:170px;max-height:280px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.55)`;
+
+  if (!trbThemeCodes.length) {
+    div.innerHTML = `<div style="color:#64748b;font-size:12px;text-align:center;line-height:1.6">
+      등록된 테마 코드 없음<br>
+      <span style="font-size:11px">공통코드 관리 → 🏷️ 테마에서 추가하세요</span>
+    </div>`;
+  } else {
+    const items = trbThemeCodes.map(c => `
+      <label style="display:flex;align-items:center;gap:8px;padding:5px 2px;cursor:pointer">
+        <input type="checkbox" class="trb-theme-chk" value="${c.name.replace(/"/g,'&quot;')}"
+               ${selected.has(c.name) ? 'checked' : ''}
+               style="width:14px;height:14px;accent-color:#3b82f6;cursor:pointer"/>
+        <span style="font-size:13px;color:#e2e8f0">${c.name}</span>
+      </label>`).join('');
+    const codeEscJs = stockCode.replace(/'/g,"\\'");
+    div.innerHTML = items + `
+      <div style="display:flex;gap:6px;margin-top:10px;padding-top:8px;border-top:1px solid #1e2535;justify-content:flex-end">
+        <button onclick="trbClosePopover()"
+          style="padding:4px 10px;border-radius:5px;border:1px solid #334155;background:none;color:#94a3b8;font-size:12px;cursor:pointer">취소</button>
+        <button onclick="trbSaveThemePopover('${codeEscJs}')"
+          style="padding:4px 10px;border-radius:5px;border:none;background:#3b82f6;color:#fff;font-size:12px;cursor:pointer;font-weight:600">저장</button>
+      </div>`;
+  }
+
+  document.body.appendChild(div);
+  setTimeout(() => document.addEventListener('click', trbPopoverOutside), 10);
+}
+
+function trbPopoverOutside(e) {
+  const pop = document.getElementById('trb-theme-popover');
+  if (pop && !pop.contains(e.target)) trbClosePopover();
+}
+
+function trbClosePopover() {
+  document.getElementById('trb-theme-popover')?.remove();
+  document.removeEventListener('click', trbPopoverOutside);
+  trbPopoverStock = null;
+}
+
+async function trbSaveThemePopover(stockCode) {
+  const pop = document.getElementById('trb-theme-popover');
+  if (!pop) return;
+  const checked    = [...pop.querySelectorAll('.trb-theme-chk:checked')].map(cb => cb.value);
+  const normalized = checked.join(',');
+  trbClosePopover();
   await fetch('/api/theme_rebalance/stock_themes', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    method: 'PUT', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({ stock_code: stockCode, themes: normalized }),
   });
-  // Update tag display immediately
-  const tagsEl = document.getElementById(`trb-tags-${stockCode}`);
-  if (tagsEl) {
-    const tags = normalized ? normalized.split(',').map(t =>
-      `<span style="display:inline-block;background:#1e2d45;color:#60a5fa;font-size:11px;padding:2px 7px;border-radius:10px;margin:1px">${t.trim()}</span>`
-    ).join('') : '<span style="color:#475569;font-size:11px">미설정</span>';
-    tagsEl.innerHTML = tags;
-  }
-  // Reload theme table to reflect changes
   await loadThemeRebalance();
 }
 
@@ -5089,7 +5139,7 @@ async function qaDeleteItem(id, name) {
 // ─── 공통코드 관리 ────────────────────────────────────
 let ccCurrentGroup = 'BROKERAGE';
 let ccData = [];
-const CC_GROUP_LABELS = { BROKERAGE: '증권사 코드' };
+const CC_GROUP_LABELS = { BROKERAGE: '증권사 코드', THEME: '테마 코드' };
 
 async function loadCommonCodes() {
   await ccLoadGroup(ccCurrentGroup);
