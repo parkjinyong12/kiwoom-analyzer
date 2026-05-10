@@ -1305,9 +1305,9 @@ canvas { max-height: 220px; }
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <!-- 예수금 인라인 편집 -->
         <div style="display:flex;align-items:center;gap:6px;background:#161b27;border:1px solid #1e2535;border-radius:8px;padding:6px 12px">
-          <span style="font-size:12px;color:#64748b;white-space:nowrap">예수금</span>
-          <input type="text" id="eh-cash-input" value="0" inputmode="numeric"
-                 style="width:110px;background:none;border:none;color:#e2e8f0;font-size:13px;text-align:right;outline:none;font-variant-numeric:tabular-nums"
+          <span id="eh-cash-label" style="font-size:12px;color:#64748b;white-space:nowrap">예수금 (전체)</span>
+          <input type="text" id="eh-cash-input" value="0" inputmode="numeric" disabled
+                 style="width:110px;background:none;border:none;color:#64748b;font-size:13px;text-align:right;outline:none;font-variant-numeric:tabular-nums;cursor:default"
                  onfocus="this.value=this.value.replace(/,/g,'')"
                  onblur="ehSaveCash()"
                  onkeydown="if(event.key==='Enter'){this.blur();}"/>
@@ -3509,33 +3509,65 @@ let ehData = [];
 let ehBrokerages = [];   // 공통코드에서 로드한 증권사 목록
 let ehStockAcIdx = -1;  // 종목 자동완성 키보드 인덱스
 let ehFilterBroker = ''; // 현재 선택된 증권사 필터 ('' = 전체)
-let ehCash = 0;          // 예수금
+let ehCashMap = {};      // { 증권사명: 예수금액 }
 
-async function loadExtHoldings() {
+function ehGetCurrentCash() {
+  if (ehFilterBroker) return ehCashMap[ehFilterBroker] || 0;
+  return Object.values(ehCashMap).reduce((s, v) => s + v, 0);
+}
+
+function ehRefreshCashInput() {
+  const cashInput = document.getElementById('eh-cash-input');
+  const cashLabel = document.getElementById('eh-cash-label');
+  const cash = ehGetCurrentCash();
+  if (cashInput) {
+    cashInput.value = cash.toLocaleString();
+    cashInput.disabled = !ehFilterBroker;
+    cashInput.style.color = ehFilterBroker ? '#e2e8f0' : '#64748b';
+    cashInput.style.cursor = ehFilterBroker ? 'text' : 'default';
+  }
+  if (cashLabel) {
+    cashLabel.textContent = ehFilterBroker ? `예수금 (${ehFilterBroker})` : '예수금 (전체)';
+  }
+}
+
+async function loadExtHoldings(reloadCash = true) {
   await ehLoadBrokerages();
   if (!allStockOptions.length) await _ensureStockOptions();
-  const [holdRes, settRes] = await Promise.all([
-    fetch('/api/manual_holdings'),
-    fetch('/api/settings'),
-  ]);
+
+  const reqs = [fetch('/api/manual_holdings')];
+  if (reloadCash) reqs.push(fetch('/api/settings'));
+  const [holdRes, settRes] = await Promise.all(reqs);
+
   ehData = await holdRes.json();
-  const settings = await settRes.json();
-  ehCash = parseInt((settings.portfolio_cash || '0').replace(/,/g, ''), 10) || 0;
-  const cashInput = document.getElementById('eh-cash-input');
-  if (cashInput) cashInput.value = ehCash.toLocaleString();
+
+  if (reloadCash && settRes) {
+    const settings = await settRes.json();
+    ehCashMap = {};
+    Object.entries(settings).forEach(([k, v]) => {
+      if (k.startsWith('portfolio_cash_')) {
+        const broker = k.slice('portfolio_cash_'.length);
+        ehCashMap[broker] = parseInt((v || '0').replace(/,/g, ''), 10) || 0;
+      }
+    });
+    ehRefreshCashInput();
+  }
+
   ehRenderFilterBtns();
   ehUpdateSummary();
   ehRender();
 }
 
 async function ehSaveCash() {
+  if (!ehFilterBroker) return; // 전체 모드에서는 편집 불가
   const raw = (document.getElementById('eh-cash-input').value || '').replace(/,/g, '');
-  ehCash = parseInt(raw, 10) || 0;
-  document.getElementById('eh-cash-input').value = ehCash.toLocaleString();
+  const newCash = parseInt(raw, 10) || 0;
+  ehCashMap[ehFilterBroker] = newCash;
+  document.getElementById('eh-cash-input').value = newCash.toLocaleString();
   await fetch('/api/settings', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ key: 'portfolio_cash', value: String(ehCash) }),
+    body: JSON.stringify({ key: `portfolio_cash_${ehFilterBroker}`, value: String(newCash) }),
   });
   ehUpdateSummary();
   ehRender();
@@ -3545,6 +3577,7 @@ function ehSetFilter(broker) {
   ehFilterBroker = broker;
   document.querySelectorAll('#eh-broker-btns .period-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.broker === broker));
+  ehRefreshCashInput();
   ehUpdateSummary();
   ehRender();
 }
@@ -3608,22 +3641,23 @@ function ehGetStockAmt(r) {
 }
 
 function ehGetPortfolioTotal(rows) {
-  return rows.reduce((s, r) => s + ehGetStockAmt(r), 0) + ehCash;
+  return rows.reduce((s, r) => s + ehGetStockAmt(r), 0) + ehGetCurrentCash();
 }
 
 function ehUpdateSummary() {
   const rows     = ehFilteredData();
   const cnt      = rows.length;
+  const cash     = ehGetCurrentCash();
   const costBase = rows.reduce((s, r) => s + r.quantity * r.avg_price, 0);
   const evalAmt  = rows.reduce((s, r) => r.current_price != null ? s + r.quantity * r.current_price : s, 0);
   const hasPrice  = rows.some(r => r.current_price != null);
   const stockTotal = rows.reduce((s, r) => s + ehGetStockAmt(r), 0);
-  const portfolio  = stockTotal + ehCash;
+  const portfolio  = stockTotal + cash;
 
   // 총 포트폴리오
   document.getElementById('eh-portfolio').textContent = fmtWon(portfolio);
   document.getElementById('eh-portfolio-note').textContent =
-    `주식 ${fmtWon(stockTotal)} + 예수금 ${fmtWon(ehCash)}`;
+    `주식 ${fmtWon(stockTotal)} + 예수금 ${fmtWon(cash)}`;
 
   // 총 투자금액 (매입기준)
   document.getElementById('eh-total').textContent = fmtWon(costBase);
@@ -3649,17 +3683,18 @@ function ehUpdateSummary() {
   }
 
   // 예수금 비율
-  const cashRate = portfolio > 0 ? ehCash / portfolio * 100 : 0;
+  const cashRate = portfolio > 0 ? cash / portfolio * 100 : 0;
   document.getElementById('eh-cash-rate').textContent = cashRate.toFixed(1) + '%';
-  document.getElementById('eh-cash-amt-note').textContent = fmtWon(ehCash);
+  document.getElementById('eh-cash-amt-note').textContent = fmtWon(cash);
 }
 
 function ehRender() {
   const rows = ehFilteredData();
   const tbody = document.getElementById('eh-tbody');
   const portfolio = ehGetPortfolioTotal(rows);
+  const cash = ehGetCurrentCash();
 
-  if (!rows.length && ehCash === 0) {
+  if (!rows.length && cash === 0) {
     tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;padding:32px;color:#475569">보유종목이 없습니다. 종목을 추가해주세요.</td></tr>';
     return;
   }
@@ -3705,15 +3740,16 @@ function ehRender() {
   }).join('');
 
   // 예수금 행 (포트폴리오에서 차지하는 비율)
-  const cashRatio = portfolio > 0 ? ehCash / portfolio * 100 : 0;
-  const cashRow = ehCash > 0 ? `<tr style="border-top:2px solid #1e2535;background:#0f1520">
-    <td colspan="2" style="color:#94a3b8;font-size:12px">예수금</td>
+  const cashRatio = portfolio > 0 ? cash / portfolio * 100 : 0;
+  const cashLabel = ehFilterBroker ? `예수금 (${ehFilterBroker})` : '예수금 (전체)';
+  const cashRow = cash > 0 ? `<tr style="border-top:2px solid #1e2535;background:#0f1520">
+    <td colspan="2" style="color:#94a3b8;font-size:12px">${cashLabel}</td>
     <td style="color:#94a3b8">-</td>
     <td class="num" style="color:#94a3b8">-</td>
     <td class="num" style="color:#94a3b8">-</td>
-    <td class="num" style="color:#e2e8f0;font-weight:500">${ehCash.toLocaleString()}원</td>
+    <td class="num" style="color:#e2e8f0;font-weight:500">${cash.toLocaleString()}원</td>
     <td class="num" style="color:#94a3b8">-</td>
-    <td class="num" style="color:#e2e8f0;font-weight:500">${ehCash.toLocaleString()}원</td>
+    <td class="num" style="color:#e2e8f0;font-weight:500">${cash.toLocaleString()}원</td>
     <td class="num" style="color:#94a3b8">-</td>
     <td class="num" style="color:#f59e0b;font-weight:500">${cashRatio.toFixed(1)}%</td>
     <td colspan="2"></td>
@@ -3855,13 +3891,13 @@ async function ehSave() {
     errEl.textContent = data.error || '저장 실패'; errEl.style.display = 'block'; return;
   }
   ehCloseModal();
-  await loadExtHoldings();
+  await loadExtHoldings(false);
 }
 
 async function ehDelete(id, name) {
   if (!confirm(`"${name}" 종목을 삭제하시겠습니까?`)) return;
   const res = await fetch(`/api/manual_holdings/${id}`, { method: 'DELETE' });
-  if (res.ok) await loadExtHoldings();
+  if (res.ok) await loadExtHoldings(false);
 }
 
 // ─── 공통코드 관리 ────────────────────────────────────
