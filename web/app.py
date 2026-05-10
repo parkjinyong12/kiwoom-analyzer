@@ -125,6 +125,43 @@ def _ensure_manual_holdings_table():
             )
         """)
 
+
+_DEFAULT_BROKERAGES = [
+    ("BROKERAGE", "MAS",  "미래에셋증권",   1),
+    ("BROKERAGE", "NH",   "NH투자증권",     2),
+    ("BROKERAGE", "SS",   "삼성증권",       3),
+    ("BROKERAGE", "KIS",  "한국투자증권",   4),
+    ("BROKERAGE", "KB",   "KB증권",         5),
+    ("BROKERAGE", "SH",   "신한투자증권",   6),
+    ("BROKERAGE", "KIW",  "키움증권",       7),
+    ("BROKERAGE", "DS",   "대신증권",       8),
+    ("BROKERAGE", "HN",   "하나증권",       9),
+    ("BROKERAGE", "MZ",   "메리츠증권",    10),
+]
+
+
+def _ensure_common_codes_table():
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS common_codes (
+                id          SERIAL PRIMARY KEY,
+                code_group  VARCHAR(50)  NOT NULL,
+                code        VARCHAR(50)  NOT NULL,
+                name        VARCHAR(100) NOT NULL,
+                sort_order  SMALLINT     NOT NULL DEFAULT 0,
+                active      BOOLEAN      NOT NULL DEFAULT TRUE,
+                created_at  TIMESTAMP    DEFAULT NOW(),
+                UNIQUE (code_group, code)
+            )
+        """)
+        for grp, code, name, sort in _DEFAULT_BROKERAGES:
+            cur.execute("""
+                INSERT INTO common_codes (code_group, code, name, sort_order)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (code_group, code) DO NOTHING
+            """, (grp, code, name, sort))
+
 BATCH_JOBS = {
     "collect_history": {
         "name": "수급 히스토리 수집",
@@ -654,6 +691,73 @@ def api_report_history():
 
 
 # ---------------------------------------------------------------------------
+# API — 공통코드 (common_codes)
+# ---------------------------------------------------------------------------
+
+@app.route("/api/common_codes/<group>")
+def api_common_codes_list(group: str):
+    """활성 코드 목록 (드롭다운용)."""
+    rows = query("""
+        SELECT id, code, name, sort_order, active
+        FROM common_codes
+        WHERE code_group = %s
+        ORDER BY sort_order, name
+    """, (group.upper(),))
+    return jsonify(rows)
+
+
+@app.route("/api/common_codes/<group>", methods=["POST"])
+def api_common_codes_create(group: str):
+    data = request.get_json() or {}
+    code = (data.get("code") or "").strip().upper()
+    name = (data.get("name") or "").strip()
+    sort_order = int(data.get("sort_order") or 0)
+    if not code or not name:
+        return jsonify({"error": "코드와 명칭을 입력해주세요"}), 400
+    try:
+        row = query_one("""
+            INSERT INTO common_codes (code_group, code, name, sort_order)
+            VALUES (%s, %s, %s, %s)
+            RETURNING id
+        """, (group.upper(), code, name, sort_order))
+    except Exception as e:
+        if "unique" in str(e).lower():
+            return jsonify({"error": "이미 존재하는 코드입니다"}), 409
+        return jsonify({"error": str(e)}), 500
+    return jsonify({"ok": True, "id": row["id"]}), 201
+
+
+@app.route("/api/common_codes/<int:cid>", methods=["PUT"])
+def api_common_codes_update(cid: int):
+    data = request.get_json() or {}
+    name = (data.get("name") or "").strip()
+    sort_order = int(data.get("sort_order") or 0)
+    if not name:
+        return jsonify({"error": "명칭을 입력해주세요"}), 400
+    with get_conn() as conn:
+        conn.cursor().execute("""
+            UPDATE common_codes SET name = %s, sort_order = %s WHERE id = %s
+        """, (name, sort_order, cid))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/common_codes/<int:cid>/toggle", methods=["POST"])
+def api_common_codes_toggle(cid: int):
+    with get_conn() as conn:
+        conn.cursor().execute(
+            "UPDATE common_codes SET active = NOT active WHERE id = %s", (cid,)
+        )
+    return jsonify({"ok": True})
+
+
+@app.route("/api/common_codes/<int:cid>", methods=["DELETE"])
+def api_common_codes_delete(cid: int):
+    with get_conn() as conn:
+        conn.cursor().execute("DELETE FROM common_codes WHERE id = %s", (cid,))
+    return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------------------
 # API — 타사 보유종목 (manual_holdings)
 # ---------------------------------------------------------------------------
 
@@ -732,7 +836,7 @@ def api_manual_holdings_delete(hid: int):
 # API — 사용자 관리
 # ---------------------------------------------------------------------------
 
-ALL_MENUS = ["dashboard", "supply", "divergence", "signals", "report", "ext-holdings", "auditlog", "stocks", "batch", "usermgmt"]
+ALL_MENUS = ["dashboard", "supply", "divergence", "signals", "report", "ext-holdings", "auditlog", "stocks", "batch", "common-codes", "usermgmt"]
 
 @app.route("/api/users")
 def api_users():
@@ -1070,6 +1174,11 @@ except Exception:
 
 try:
     _ensure_manual_holdings_table()
+except Exception:
+    pass
+
+try:
+    _ensure_common_codes_table()
 except Exception:
     pass
 

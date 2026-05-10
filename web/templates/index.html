@@ -31,6 +31,29 @@ body { font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
   letter-spacing: -0.3px;
 }
 .sidebar-logo span { font-size: 11px; color: #64748b; font-weight: 400; display: block; margin-top: 3px; }
+/* ── 2-depth 네비게이션 ────────────────────────────── */
+.nav-group { overflow: hidden; }
+.nav-group-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px 6px; font-size: 10px; font-weight: 700;
+  color: #475569; letter-spacing: 1px; text-transform: uppercase;
+  cursor: pointer; user-select: none; transition: color 0.15s;
+}
+.nav-group-header:hover { color: #94a3b8; }
+.nav-group-header .caret {
+  font-size: 9px; transition: transform 0.2s; color: #334155;
+}
+.nav-group.collapsed .caret { transform: rotate(-90deg); }
+.nav-group-body {
+  overflow: hidden;
+  max-height: 500px; /* 열린 상태 */
+  transition: max-height 0.25s ease, opacity 0.2s;
+  opacity: 1;
+}
+.nav-group.collapsed .nav-group-body {
+  max-height: 0;
+  opacity: 0;
+}
 .nav-section { padding: 16px 12px 8px; font-size: 10px; color: #475569; letter-spacing: 1px; text-transform: uppercase; }
 .nav-item {
   display: flex; align-items: center; gap: 10px;
@@ -408,43 +431,70 @@ canvas { max-height: 220px; }
   </div>
 
   <div id="nav-menu">
-    <div class="nav-section">분석</div>
-    <div class="nav-item active" data-page="dashboard" onclick="showPage('dashboard')">
-      <span class="icon">🏠</span> 대시보드
-    </div>
-    <div class="nav-item" data-page="supply" onclick="showPage('supply')">
-      <span class="icon">💹</span> 수급 현황
-    </div>
-    <div class="nav-item" data-page="divergence" onclick="showPage('divergence')">
-      <span class="icon">🔍</span> 수급↑ 가격↔
-    </div>
-    <div class="nav-item" data-page="snapshot" onclick="showPage('snapshot')">
-      <span class="icon">📊</span> 기간별 변화
-    </div>
-    <div class="nav-item" data-page="signals" onclick="showPage('signals')">
-      <span class="icon">📈</span> 매매 신호
-    </div>
-    <div class="nav-item" data-page="report" onclick="showPage('report')">
-      <span class="icon">📧</span> 보유종목 리포트
-    </div>
-    <div class="nav-item" data-page="ext-holdings" onclick="showPage('ext-holdings')">
-      <span class="icon">🏦</span> 타사 보유종목
+    <!-- 분석 그룹 -->
+    <div class="nav-group" id="navg-analysis">
+      <div class="nav-group-header" onclick="toggleNavGroup('navg-analysis')">
+        <span>분석</span>
+        <span class="caret">▼</span>
+      </div>
+      <div class="nav-group-body">
+        <div class="nav-item active" data-page="dashboard" onclick="showPage('dashboard')">
+          <span class="icon">🏠</span> 대시보드
+        </div>
+        <div class="nav-item" data-page="supply" onclick="showPage('supply')">
+          <span class="icon">💹</span> 수급 현황
+        </div>
+        <div class="nav-item" data-page="divergence" onclick="showPage('divergence')">
+          <span class="icon">🔍</span> 수급↑ 가격↔
+        </div>
+        <div class="nav-item" data-page="snapshot" onclick="showPage('snapshot')">
+          <span class="icon">📊</span> 기간별 변화
+        </div>
+        <div class="nav-item" data-page="signals" onclick="showPage('signals')">
+          <span class="icon">📈</span> 매매 신호
+        </div>
+        <div class="nav-item" data-page="report" onclick="showPage('report')">
+          <span class="icon">📧</span> 보유종목 리포트
+        </div>
+        <div class="nav-item" data-page="ext-holdings" onclick="showPage('ext-holdings')">
+          <span class="icon">🏦</span> 타사 보유종목
+        </div>
+      </div>
     </div>
 
-    <div class="nav-section">시스템</div>
-    <div class="nav-item" data-page="auditlog" onclick="showPage('auditlog')">
-      <span class="icon">📋</span> 감사 로그
-    </div>
-    <div class="nav-item" data-page="stocks" onclick="showPage('stocks')">
-      <span class="icon">🔭</span> 감시 종목
+    <!-- 시스템 그룹 -->
+    <div class="nav-group collapsed" id="navg-system">
+      <div class="nav-group-header" onclick="toggleNavGroup('navg-system')">
+        <span>시스템</span>
+        <span class="caret">▼</span>
+      </div>
+      <div class="nav-group-body">
+        <div class="nav-item" data-page="auditlog" onclick="showPage('auditlog')">
+          <span class="icon">📋</span> 감사 로그
+        </div>
+        <div class="nav-item" data-page="stocks" onclick="showPage('stocks')">
+          <span class="icon">🔭</span> 감시 종목
+        </div>
+      </div>
     </div>
 
-    <div class="nav-section">관리</div>
-    <div class="nav-item" data-page="batch" onclick="showPage('batch')">
-      <span class="icon">⚙️</span> 배치 관리
-    </div>
-    <div class="nav-item" data-page="usermgmt" onclick="showPage('usermgmt')">
-      <span class="icon">👥</span> 사용자 관리
+    <!-- 관리 그룹 -->
+    <div class="nav-group collapsed" id="navg-admin">
+      <div class="nav-group-header" onclick="toggleNavGroup('navg-admin')">
+        <span>관리</span>
+        <span class="caret">▼</span>
+      </div>
+      <div class="nav-group-body">
+        <div class="nav-item" data-page="batch" onclick="showPage('batch')">
+          <span class="icon">⚙️</span> 배치 관리
+        </div>
+        <div class="nav-item" data-page="common-codes" onclick="showPage('common-codes')">
+          <span class="icon">🗂️</span> 공통코드 관리
+        </div>
+        <div class="nav-item" data-page="usermgmt" onclick="showPage('usermgmt')">
+          <span class="icon">👥</span> 사용자 관리
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1100,6 +1150,80 @@ canvas { max-height: 220px; }
     </div>
   </section>
 
+  <!-- ===== 공통코드 관리 페이지 ===== -->
+  <section id="page-common-codes" class="page">
+    <div class="page-header">
+      <div class="page-title">공통코드 관리</div>
+      <div class="page-sub">드롭다운·선택 목록에서 사용하는 공통 코드 관리</div>
+    </div>
+
+    <!-- 그룹 탭 -->
+    <div style="display:flex;gap:4px;margin-bottom:20px;border-bottom:1px solid #1e2535;padding-bottom:0">
+      <button class="snap-tab snap-tab-active" id="cc-tab-BROKERAGE" onclick="ccSelectGroup('BROKERAGE')">🏦 증권사</button>
+    </div>
+
+    <div class="panel" id="cc-panel">
+      <div class="panel-header">
+        <span id="cc-panel-title">증권사 코드</span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="text" id="cc-new-code" placeholder="코드 (영문대문자)" maxlength="20"
+                 style="padding:6px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:12px;width:120px;outline:none;text-transform:uppercase"
+                 oninput="this.value=this.value.toUpperCase()"/>
+          <input type="text" id="cc-new-name" placeholder="명칭" maxlength="100"
+                 style="padding:6px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:12px;width:160px;outline:none"
+                 onkeydown="if(event.key==='Enter')ccAdd()"/>
+          <button class="btn btn-primary" style="font-size:12px" onclick="ccAdd()">추가</button>
+        </div>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>코드</th>
+              <th>명칭</th>
+              <th style="text-align:center">정렬순서</th>
+              <th style="text-align:center">상태</th>
+              <th style="text-align:center">관리</th>
+            </tr>
+          </thead>
+          <tbody id="cc-tbody">
+            <tr><td colspan="5" class="loading">로딩 중...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- 공통코드 수정 모달 -->
+  <div class="modal-overlay" id="cc-edit-modal">
+    <div class="modal" style="width:360px">
+      <h3>코드 수정</h3>
+      <input type="hidden" id="cc-edit-id"/>
+      <div style="display:grid;gap:12px;margin-top:4px">
+        <div>
+          <div style="font-size:12px;color:#64748b;margin-bottom:4px">코드</div>
+          <input type="text" id="cc-edit-code" disabled
+                 style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#1a2233;color:#64748b;font-size:13px"/>
+        </div>
+        <div>
+          <div style="font-size:12px;color:#64748b;margin-bottom:4px">명칭</div>
+          <input type="text" id="cc-edit-name" maxlength="100"
+                 style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
+        </div>
+        <div>
+          <div style="font-size:12px;color:#64748b;margin-bottom:4px">정렬순서</div>
+          <input type="number" id="cc-edit-sort" min="0" step="1"
+                 style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
+        </div>
+        <div id="cc-edit-err" style="color:#f87171;font-size:12px;display:none"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="ccCloseEditModal()">취소</button>
+        <button class="btn btn-primary" onclick="ccSaveEdit()">저장</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ===== 타사 보유종목 페이지 ===== -->
   <section id="page-ext-holdings" class="page">
     <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between">
@@ -1157,26 +1281,37 @@ canvas { max-height: 220px; }
 
   <!-- 타사 보유종목 추가/수정 모달 -->
   <div class="modal-overlay" id="eh-modal">
-    <div class="modal" style="width:420px">
+    <div class="modal" style="width:440px">
       <h3 id="eh-modal-title">종목 추가</h3>
       <input type="hidden" id="eh-edit-id"/>
       <div style="display:grid;gap:12px">
         <div>
-          <div style="font-size:12px;color:#64748b;margin-bottom:4px">증권사</div>
-          <input type="text" id="eh-brokerage" placeholder="예) 미래에셋, NH투자, 삼성증권" maxlength="50"
-                 style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
+          <div style="font-size:12px;color:#64748b;margin-bottom:4px">증권사 <span style="color:#f87171">*</span></div>
+          <select id="eh-brokerage"
+                  style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none;cursor:pointer">
+            <option value="">-- 증권사 선택 --</option>
+          </select>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-          <div>
-            <div style="font-size:12px;color:#64748b;margin-bottom:4px">종목코드 <span style="color:#f87171">*</span></div>
-            <input type="text" id="eh-stock-code" placeholder="예) 005930" maxlength="10"
-                   style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
+        <div>
+          <div style="font-size:12px;color:#64748b;margin-bottom:4px">종목 검색 <span style="color:#f87171">*</span></div>
+          <div class="autocomplete-wrap">
+            <input type="text" id="eh-stock-input" placeholder="종목명 또는 코드 입력..."
+                   autocomplete="off"
+                   style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"
+                   oninput="ehStockInput()"
+                   onblur="setTimeout(ehHideStockDd,150)"
+                   onkeydown="ehStockKey(event)"/>
+            <input type="hidden" id="eh-stock-code"/>
+            <div id="eh-stock-dropdown"
+                 style="display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:400;
+                        background:#161b27;border:1px solid #3b82f6;border-radius:8px;
+                        min-width:100%;max-height:220px;overflow-y:auto;box-shadow:0 8px 28px rgba(0,0,0,0.5)"></div>
           </div>
-          <div>
-            <div style="font-size:12px;color:#64748b;margin-bottom:4px">종목명</div>
-            <input type="text" id="eh-stock-name" placeholder="예) 삼성전자" maxlength="100"
-                   style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
-          </div>
+        </div>
+        <div>
+          <div style="font-size:12px;color:#64748b;margin-bottom:4px">종목명</div>
+          <input type="text" id="eh-stock-name" placeholder="자동 입력 또는 직접 입력" maxlength="100"
+                 style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
           <div>
@@ -1245,7 +1380,7 @@ const PAGE_TITLES = {
   dashboard:'대시보드', supply:'수급 현황', divergence:'수급↑ 가격↔',
   snapshot:'기간별 변화', signals:'매매 신호', report:'보유종목 리포트',
   auditlog:'감사 로그', stocks:'감시 종목', batch:'배치 관리', usermgmt:'사용자 관리',
-  'ext-holdings':'타사 보유종목',
+  'ext-holdings':'타사 보유종목', 'common-codes':'공통코드 관리',
 };
 function toggleMobileDrawer() {
   const open = document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -1256,6 +1391,24 @@ function closeMobileDrawer() {
   document.getElementById('mobile-overlay').classList.remove('open');
 }
 
+// ─── 2-depth 사이드바 그룹 토글 ──────────────────────
+const NAV_GROUP_MAP = {
+  dashboard:'navg-analysis', supply:'navg-analysis', divergence:'navg-analysis',
+  snapshot:'navg-analysis',  signals:'navg-analysis', report:'navg-analysis',
+  'ext-holdings':'navg-analysis',
+  auditlog:'navg-system',    stocks:'navg-system',
+  batch:'navg-admin',        'common-codes':'navg-admin', usermgmt:'navg-admin',
+};
+
+function toggleNavGroup(groupId) {
+  document.getElementById(groupId).classList.toggle('collapsed');
+}
+
+function expandNavGroupFor(pageName) {
+  const gid = NAV_GROUP_MAP[pageName];
+  if (gid) document.getElementById(gid).classList.remove('collapsed');
+}
+
 // ─── 페이지 전환 ─────────────────────────────────────
 function showPage(name, fromHash) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -1263,6 +1416,7 @@ function showPage(name, fromHash) {
   document.getElementById('page-' + name).classList.add('active');
   const navEl = document.querySelector(`.nav-item[data-page="${name}"]`);
   if (navEl) navEl.classList.add('active');
+  expandNavGroupFor(name);
 
   // 하단 탭바 활성화
   document.querySelectorAll('.m-tab[data-page]').forEach(t =>
@@ -1285,6 +1439,7 @@ function showPage(name, fromHash) {
   if (name === 'report')        loadReportPage();
   if (name === 'usermgmt')      loadUserMgmt();
   if (name === 'ext-holdings')  loadExtHoldings();
+  if (name === 'common-codes')  loadCommonCodes();
 }
 
 // ─── 대시보드 ─────────────────────────────────────────
@@ -2840,11 +2995,12 @@ const MENU_META = {
   snapshot:   { label: '기간별 변화',     icon: '📊', section: '분석' },
   signals:       { label: '매매 신호',       icon: '📈', section: '분석' },
   report:        { label: '보유종목 리포트', icon: '📧', section: '분석' },
-  'ext-holdings':{ label: '타사 보유종목',   icon: '🏦', section: '분석' },
-  auditlog:      { label: '감사 로그',       icon: '📋', section: '시스템' },
+  'ext-holdings': { label: '타사 보유종목',  icon: '🏦', section: '분석' },
+  auditlog:       { label: '감사 로그',      icon: '📋', section: '시스템' },
   stocks:     { label: '감시 종목',       icon: '🔭', section: '시스템' },
-  batch:      { label: '배치 관리',       icon: '⚙️', section: '관리' },
-  usermgmt:   { label: '사용자 관리',     icon: '👥', section: '관리' },
+  batch:           { label: '배치 관리',    icon: '⚙️', section: '관리' },
+  'common-codes':  { label: '공통코드 관리', icon: '🗂️', section: '관리' },
+  usermgmt:        { label: '사용자 관리',  icon: '👥', section: '관리' },
 };
 
 let allUsers = [];
@@ -3125,12 +3281,40 @@ async function saveCredentials() {
 
 // ─── 타사 보유종목 ─────────────────────────────────────
 let ehData = [];
+let ehBrokerages = [];   // 공통코드에서 로드한 증권사 목록
+let ehStockAcIdx = -1;  // 종목 자동완성 키보드 인덱스
 
 async function loadExtHoldings() {
+  await ehLoadBrokerages();
+  if (!allStockOptions.length) await _ensureStockOptions();
   const res = await fetch('/api/manual_holdings');
   ehData = await res.json();
   ehUpdateSummary();
   ehRender();
+}
+
+async function ehLoadBrokerages() {
+  try {
+    const res = await fetch('/api/common_codes/BROKERAGE');
+    ehBrokerages = await res.json();
+  } catch(e) { ehBrokerages = []; }
+  // select 옵션 교체
+  const sel = document.getElementById('eh-brokerage');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">-- 증권사 선택 --</option>'
+    + ehBrokerages.filter(b => b.active).map(b =>
+        `<option value="${b.name}">${b.name}</option>`
+      ).join('');
+  if (cur) sel.value = cur;
+}
+
+async function _ensureStockOptions() {
+  if (allStockOptions.length) return;
+  try {
+    const res = await fetch('/api/supply_demand/stocks');
+    const list = await res.json();
+    allStockOptions = list.map(s => ({ code: s.stock_code, name: s.stock_name }));
+  } catch(e) {}
 }
 
 function ehUpdateSummary() {
@@ -3181,9 +3365,12 @@ function ehRender() {
   }).join('');
 }
 
-function ehOpenModal(id) {
+async function ehOpenModal(id) {
+  await ehLoadBrokerages();
+  if (!allStockOptions.length) await _ensureStockOptions();
   const modal = document.getElementById('eh-modal');
   document.getElementById('eh-modal-err').style.display = 'none';
+  document.getElementById('eh-stock-dropdown').style.display = 'none';
   if (id) {
     const r = ehData.find(x => x.id === id);
     if (!r) return;
@@ -3191,6 +3378,7 @@ function ehOpenModal(id) {
     document.getElementById('eh-edit-id').value = id;
     document.getElementById('eh-brokerage').value  = r.brokerage || '';
     document.getElementById('eh-stock-code').value = r.stock_code;
+    document.getElementById('eh-stock-input').value = r.stock_code + (r.stock_name ? ' ' + r.stock_name : '');
     document.getElementById('eh-stock-name').value = r.stock_name || '';
     document.getElementById('eh-quantity').value   = r.quantity;
     document.getElementById('eh-avg-price').value  = r.avg_price;
@@ -3200,6 +3388,7 @@ function ehOpenModal(id) {
     document.getElementById('eh-edit-id').value   = '';
     document.getElementById('eh-brokerage').value  = '';
     document.getElementById('eh-stock-code').value = '';
+    document.getElementById('eh-stock-input').value = '';
     document.getElementById('eh-stock-name').value = '';
     document.getElementById('eh-quantity').value   = '';
     document.getElementById('eh-avg-price').value  = '';
@@ -3211,28 +3400,98 @@ function ehOpenModal(id) {
 
 function ehCloseModal() {
   document.getElementById('eh-modal').classList.remove('open');
+  document.getElementById('eh-stock-dropdown').style.display = 'none';
+}
+
+// 종목 자동완성 (모달 내)
+function ehStockInput() {
+  const q = document.getElementById('eh-stock-input').value.trim();
+  if (!q) { document.getElementById('eh-stock-code').value = ''; ehHideStockDd(); return; }
+  const lower = q.toLowerCase();
+  const filtered = allStockOptions.filter(s =>
+    s.code.includes(lower) || s.name.toLowerCase().includes(lower)
+  ).slice(0, 40);
+  const dd = document.getElementById('eh-stock-dropdown');
+  ehStockAcIdx = -1;
+  if (!filtered.length) {
+    dd.innerHTML = '<div class="ac-empty">검색 결과 없음</div>';
+  } else {
+    dd.innerHTML = filtered.map(s => {
+      const hl = v => {
+        const idx = v.toLowerCase().indexOf(lower);
+        if (idx < 0) return v;
+        return v.slice(0,idx) + `<span class="ac-hl">${v.slice(idx, idx+lower.length)}</span>` + v.slice(idx+lower.length);
+      };
+      const safeName = s.name.replace(/'/g, "\\'");
+      return `<div class="ac-item" data-code="${s.code}" data-name="${s.name}"
+                   onclick="ehSelectStock('${s.code}','${safeName}')">
+        <span class="ac-code">${hl(s.code)}</span>
+        <span class="ac-name">${hl(s.name)}</span>
+      </div>`;
+    }).join('');
+  }
+  dd.style.display = 'block';
+}
+
+function ehSelectStock(code, name) {
+  document.getElementById('eh-stock-code').value  = code;
+  document.getElementById('eh-stock-input').value = code + ' ' + name;
+  document.getElementById('eh-stock-name').value  = name;
+  ehHideStockDd();
+}
+
+function ehHideStockDd() {
+  document.getElementById('eh-stock-dropdown').style.display = 'none';
+}
+
+function ehStockKey(e) {
+  const items = document.querySelectorAll('#eh-stock-dropdown .ac-item');
+  if (!items.length) return;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    ehStockAcIdx = Math.min(ehStockAcIdx + 1, items.length - 1);
+    items.forEach((el, i) => el.classList.toggle('kbd-active', i === ehStockAcIdx));
+    if (items[ehStockAcIdx]) items[ehStockAcIdx].scrollIntoView({block:'nearest'});
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    ehStockAcIdx = Math.max(ehStockAcIdx - 1, 0);
+    items.forEach((el, i) => el.classList.toggle('kbd-active', i === ehStockAcIdx));
+    if (items[ehStockAcIdx]) items[ehStockAcIdx].scrollIntoView({block:'nearest'});
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (ehStockAcIdx >= 0 && items[ehStockAcIdx]) {
+      const el = items[ehStockAcIdx];
+      ehSelectStock(el.dataset.code, el.dataset.name);
+    }
+  } else if (e.key === 'Escape') {
+    ehHideStockDd();
+  }
 }
 
 async function ehSave() {
   const errEl = document.getElementById('eh-modal-err');
   errEl.style.display = 'none';
-  const editId   = document.getElementById('eh-edit-id').value;
-  const payload  = {
-    brokerage:  document.getElementById('eh-brokerage').value.trim(),
+  const editId  = document.getElementById('eh-edit-id').value;
+  const payload = {
+    brokerage:  document.getElementById('eh-brokerage').value,
     stock_code: document.getElementById('eh-stock-code').value.trim(),
     stock_name: document.getElementById('eh-stock-name').value.trim(),
     quantity:   parseInt(document.getElementById('eh-quantity').value) || 0,
     avg_price:  parseFloat(document.getElementById('eh-avg-price').value) || 0,
     memo:       document.getElementById('eh-memo').value.trim(),
   };
+  if (!payload.brokerage) {
+    errEl.textContent = '증권사를 선택해주세요'; errEl.style.display = 'block'; return;
+  }
+  if (!payload.stock_code) {
+    errEl.textContent = '종목을 검색하여 선택해주세요'; errEl.style.display = 'block'; return;
+  }
   const url    = editId ? `/api/manual_holdings/${editId}` : '/api/manual_holdings';
   const method = editId ? 'PUT' : 'POST';
   const res    = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
   const data   = await res.json();
   if (!res.ok) {
-    errEl.textContent = data.error || '저장 실패';
-    errEl.style.display = 'block';
-    return;
+    errEl.textContent = data.error || '저장 실패'; errEl.style.display = 'block'; return;
   }
   ehCloseModal();
   await loadExtHoldings();
@@ -3244,8 +3503,115 @@ async function ehDelete(id, name) {
   if (res.ok) await loadExtHoldings();
 }
 
+// ─── 공통코드 관리 ────────────────────────────────────
+let ccCurrentGroup = 'BROKERAGE';
+let ccData = [];
+const CC_GROUP_LABELS = { BROKERAGE: '증권사 코드' };
+
+async function loadCommonCodes() {
+  await ccLoadGroup(ccCurrentGroup);
+}
+
+async function ccLoadGroup(group) {
+  ccCurrentGroup = group;
+  document.querySelectorAll('[id^="cc-tab-"]').forEach(t =>
+    t.classList.toggle('snap-tab-active', t.id === 'cc-tab-' + group));
+  document.getElementById('cc-panel-title').textContent = CC_GROUP_LABELS[group] || group;
+  const res = await fetch(`/api/common_codes/${group}`);
+  ccData = await res.json();
+  ccRender();
+}
+
+function ccSelectGroup(group) { ccLoadGroup(group); }
+
+function ccRender() {
+  const tbody = document.getElementById('cc-tbody');
+  if (!ccData.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:32px;color:#475569">등록된 코드가 없습니다.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = ccData.map(r => `<tr>
+    <td style="font-family:monospace;font-size:12px;color:#60a5fa">${r.code}</td>
+    <td style="font-weight:500">${r.name}</td>
+    <td class="center">${r.sort_order}</td>
+    <td class="center">
+      <span class="badge ${r.active ? 'badge-success' : 'badge-fail'}"
+            style="cursor:pointer" onclick="ccToggle(${r.id})">
+        ${r.active ? '활성' : '비활성'}
+      </span>
+    </td>
+    <td class="center">
+      <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;margin-right:4px"
+              onclick="ccOpenEdit(${r.id})">수정</button>
+      <button class="btn btn-danger" style="font-size:11px;padding:4px 10px"
+              onclick="ccDelete(${r.id},'${r.name.replace(/'/g,"\\'")}')">삭제</button>
+    </td>
+  </tr>`).join('');
+}
+
+async function ccAdd() {
+  const code = document.getElementById('cc-new-code').value.trim().toUpperCase();
+  const name = document.getElementById('cc-new-name').value.trim();
+  if (!code || !name) { alert('코드와 명칭을 입력해주세요'); return; }
+  const res = await fetch(`/api/common_codes/${ccCurrentGroup}`, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ code, name, sort_order: ccData.length + 1 }),
+  });
+  const data = await res.json();
+  if (!res.ok) { alert(data.error || '추가 실패'); return; }
+  document.getElementById('cc-new-code').value = '';
+  document.getElementById('cc-new-name').value = '';
+  await ccLoadGroup(ccCurrentGroup);
+}
+
+function ccOpenEdit(id) {
+  const r = ccData.find(x => x.id === id);
+  if (!r) return;
+  document.getElementById('cc-edit-id').value    = id;
+  document.getElementById('cc-edit-code').value  = r.code;
+  document.getElementById('cc-edit-name').value  = r.name;
+  document.getElementById('cc-edit-sort').value  = r.sort_order;
+  document.getElementById('cc-edit-err').style.display = 'none';
+  document.getElementById('cc-edit-modal').classList.add('open');
+  setTimeout(() => document.getElementById('cc-edit-name').focus(), 50);
+}
+
+function ccCloseEditModal() {
+  document.getElementById('cc-edit-modal').classList.remove('open');
+}
+
+async function ccSaveEdit() {
+  const id   = document.getElementById('cc-edit-id').value;
+  const name = document.getElementById('cc-edit-name').value.trim();
+  const sort = parseInt(document.getElementById('cc-edit-sort').value) || 0;
+  const errEl = document.getElementById('cc-edit-err');
+  errEl.style.display = 'none';
+  if (!name) { errEl.textContent = '명칭을 입력해주세요'; errEl.style.display = 'block'; return; }
+  const res = await fetch(`/api/common_codes/${id}`, {
+    method: 'PUT',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ name, sort_order: sort }),
+  });
+  const data = await res.json();
+  if (!res.ok) { errEl.textContent = data.error || '저장 실패'; errEl.style.display = 'block'; return; }
+  ccCloseEditModal();
+  await ccLoadGroup(ccCurrentGroup);
+}
+
+async function ccToggle(id) {
+  await fetch(`/api/common_codes/${id}/toggle`, { method: 'POST' });
+  await ccLoadGroup(ccCurrentGroup);
+}
+
+async function ccDelete(id, name) {
+  if (!confirm(`"${name}" 코드를 삭제하시겠습니까?`)) return;
+  await fetch(`/api/common_codes/${id}`, { method: 'DELETE' });
+  await ccLoadGroup(ccCurrentGroup);
+}
+
 // ─── 초기 로드 (해시 기반 페이지 복원) ───────────────────
-const PAGES = ['dashboard','supply','divergence','snapshot','signals','report','ext-holdings','auditlog','stocks','batch','usermgmt'];
+const PAGES = ['dashboard','supply','divergence','snapshot','signals','report','ext-holdings','auditlog','stocks','batch','common-codes','usermgmt'];
 // visible_menus 저장 시점 이전에 존재하던 페이지 목록
 const PAGES_V1 = ['dashboard','supply','signals','auditlog','stocks','batch','usermgmt'];
 
