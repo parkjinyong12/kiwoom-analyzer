@@ -1465,6 +1465,7 @@ canvas { max-height: 220px; }
               <th style="text-align:right">목표비율</th>
               <th style="text-align:right">편차</th>
               <th style="text-align:center">신호</th>
+              <th style="text-align:center">조정수량</th>
             </tr>
           </thead>
           <tbody id="rb-tbody">
@@ -4322,10 +4323,11 @@ async function ehDelete(id, name) {
 let rbData = [];
 let rbAlertUp   = 30;
 let rbAlertDown = 25;
+let rbPortfolioTotal = 0;
 
 async function loadRebalance() {
   document.getElementById('rb-tbody').innerHTML =
-    '<tr><td colspan="9" class="loading">로딩 중...</td></tr>';
+    '<tr><td colspan="10" class="loading">로딩 중...</td></tr>';
   try {
     const [dataRes, settRes] = await Promise.all([
       fetch('/api/rebalance'),
@@ -4334,9 +4336,10 @@ async function loadRebalance() {
     const json    = await dataRes.json();
     const settings = await settRes.json();
 
-    rbData      = json.holdings || [];
-    rbAlertUp   = json.alert_up   ?? 30;
-    rbAlertDown = json.alert_down ?? 25;
+    rbData           = json.holdings || [];
+    rbAlertUp        = json.alert_up   ?? 30;
+    rbAlertDown      = json.alert_down ?? 25;
+    rbPortfolioTotal = json.portfolio_total || 0;
 
     document.getElementById('rb-threshold-up').value   = rbAlertUp;
     document.getElementById('rb-threshold-down').value = rbAlertDown;
@@ -4383,41 +4386,66 @@ function rbUpdateSummary(json) {
 function rbRender() {
   const tbody = document.getElementById('rb-tbody');
   if (!rbData.length) {
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:32px;color:#475569">보유종목 없음</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:32px;color:#475569">보유종목 없음</td></tr>';
     return;
   }
 
   tbody.innerHTML = rbData.map(r => {
-    const cur   = r.current_ratio;
-    const tgt   = r.target_ratio;
-    const relDev = r.deviation_rel;   // relative % (null if target=0)
-    const absDev = r.deviation_pp;    // absolute pp
+    const cur    = r.current_ratio;
+    const tgt    = r.target_ratio;
+    const relDev = r.deviation_rel;
+    const absDev = r.deviation_pp;
 
     // 편차 표시
     let devStr = '-', devColor = '#64748b';
     if (tgt > 0 && relDev !== null) {
       const sign = relDev >= 0 ? '+' : '';
       devStr = `${sign}${relDev.toFixed(1)}%<br><span style="font-size:10px;color:#64748b">${absDev >= 0 ? '+' : ''}${absDev.toFixed(2)}pp</span>`;
-      if (relDev > rbAlertUp)        devColor = '#f87171';
-      else if (relDev < -rbAlertDown) devColor = '#60a5fa';
+      if (relDev > rbAlertUp)              devColor = '#f87171';
+      else if (relDev < -rbAlertDown)      devColor = '#60a5fa';
       else if (Math.abs(relDev) > rbAlertUp * 0.6) devColor = '#f59e0b';
     }
 
     // 신호
     let signal = '', sigColor = '#64748b', sigBg = '';
     if (tgt > 0 && relDev !== null) {
-      if      (relDev > rbAlertUp)        { signal = '차익실현 검토'; sigColor = '#f87171'; sigBg = 'background:rgba(248,113,113,0.1);'; }
-      else if (relDev < -rbAlertDown)     { signal = '추가매수 검토'; sigColor = '#60a5fa'; sigBg = 'background:rgba(96,165,250,0.1);'; }
-      else                                { signal = '정상 범위';   sigColor = '#4ade80'; }
+      if      (relDev > rbAlertUp)    { signal = '차익실현 검토'; sigColor = '#f87171'; sigBg = 'background:rgba(248,113,113,0.1);'; }
+      else if (relDev < -rbAlertDown) { signal = '추가매수 검토'; sigColor = '#60a5fa'; sigBg = 'background:rgba(96,165,250,0.1);'; }
+      else                            { signal = '정상 범위';   sigColor = '#4ade80'; }
     } else if (!tgt) {
       signal = '목표 미설정'; sigColor = '#64748b';
+    }
+
+    // 조정수량 계산
+    let adjCell = '<td class="center" style="color:#475569">-</td>';
+    if (tgt > 0 && r.current_price != null && rbPortfolioTotal > 0) {
+      const targetEval = rbPortfolioTotal * tgt / 100;
+      const diff       = targetEval - r.eval_amt;
+      const shares     = Math.floor(Math.abs(diff) / r.current_price);
+      const adjAmt     = shares * r.current_price;
+      if (shares === 0) {
+        adjCell = `<td class="center" style="color:#4ade80;font-size:12px">유지</td>`;
+      } else if (diff > 0) {
+        adjCell = `<td class="center">
+          <span style="color:#60a5fa;font-weight:600;font-size:13px">매수 ${shares.toLocaleString()}주</span>
+          <br><span style="font-size:10px;color:#64748b">약 ${adjAmt.toLocaleString()}원</span>
+        </td>`;
+      } else {
+        adjCell = `<td class="center">
+          <span style="color:#f87171;font-weight:600;font-size:13px">매도 ${shares.toLocaleString()}주</span>
+          <br><span style="font-size:10px;color:#64748b">약 ${adjAmt.toLocaleString()}원</span>
+        </td>`;
+      }
+    } else if (tgt > 0 && r.current_price == null) {
+      adjCell = `<td class="center" style="color:#475569;font-size:11px">현재가 없음</td>`;
+    } else {
+      adjCell = `<td class="center" style="color:#475569">-</td>`;
     }
 
     const curPriceStr = r.current_price != null
       ? r.current_price.toLocaleString() + '원'
       : '<span style="color:#475569">-</span>';
 
-    // 목표비율 인라인 편집 input
     const targetInput = `<input type="number" class="rb-target-inp"
       id="rb-inp-${r.stock_code}"
       value="${tgt || ''}" placeholder="0" min="0" max="100" step="0.1"
@@ -4438,6 +4466,7 @@ function rbRender() {
       <td class="num">${targetInput}</td>
       <td class="num" style="color:${devColor}">${devStr}</td>
       <td class="center" style="${sigBg}padding:6px"><span style="color:${sigColor};font-size:12px;font-weight:500">${signal}</span></td>
+      ${adjCell}
     </tr>`;
   }).join('');
 }
