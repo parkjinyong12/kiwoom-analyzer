@@ -465,6 +465,9 @@ canvas { max-height: 220px; }
         <div class="nav-item" data-page="rebalance" onclick="showPage('rebalance')">
           <span class="icon">⚖️</span> 리밸런싱
         </div>
+        <div class="nav-item" data-page="theme-rebalance" onclick="showPage('theme-rebalance')">
+          <span class="icon">🏷️</span> 테마 리밸런싱
+        </div>
       </div>
     </div>
 
@@ -1214,10 +1217,11 @@ canvas { max-height: 220px; }
               <th style="text-align:center">기준일자</th>
               <th style="text-align:center">최종업데이트</th>
               <th style="text-align:center">상태</th>
+              <th style="text-align:center">수기 입력</th>
             </tr>
           </thead>
           <tbody id="pm-tbody">
-            <tr><td colspan="6" class="loading">로딩 중...</td></tr>
+            <tr><td colspan="7" class="loading">로딩 중...</td></tr>
           </tbody>
         </table>
       </div>
@@ -1468,6 +1472,113 @@ canvas { max-height: 220px; }
     </div>
   </section>
 
+  <!-- ===== 테마 리밸런싱 페이지 ===== -->
+  <section id="page-theme-rebalance" class="page">
+    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
+      <div>
+        <div class="page-title">테마 리밸런싱</div>
+        <div class="page-sub">종목별 테마 라벨 설정 및 테마별 포트폴리오 비중 분석</div>
+      </div>
+      <button class="btn btn-ghost" style="font-size:12px" onclick="loadThemeRebalance()">새로고침</button>
+    </div>
+
+    <!-- 임계치 (리밸런싱 공유) -->
+    <div class="panel" style="margin-bottom:12px">
+      <div class="panel-header" style="cursor:default">리밸런싱 기준 설정 <span style="font-size:11px;color:#64748b;font-weight:normal">(리밸런싱 화면과 공유)</span></div>
+      <div style="display:flex;gap:20px;align-items:center;padding:12px 16px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:12px;color:#f87171">과다보유 기준</span>
+          <input type="number" id="trb-threshold-up" value="30" min="1" max="500" step="1"
+                 style="width:65px;padding:5px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#f87171;font-size:13px;text-align:center;outline:none"/>
+          <span style="font-size:12px;color:#64748b">% 초과 →</span>
+          <span style="font-size:12px;color:#f87171;font-weight:500">차익실현 검토</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:12px;color:#60a5fa">부족보유 기준</span>
+          <input type="number" id="trb-threshold-down" value="25" min="1" max="500" step="1"
+                 style="width:65px;padding:5px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#60a5fa;font-size:13px;text-align:center;outline:none"/>
+          <span style="font-size:12px;color:#64748b">% 이하 →</span>
+          <span style="font-size:12px;color:#60a5fa;font-weight:500">추가매수 검토</span>
+        </div>
+        <button class="btn btn-primary" style="font-size:12px;padding:6px 14px" onclick="trbSaveThresholds()">기준 저장</button>
+      </div>
+    </div>
+
+    <!-- 요약 카드 -->
+    <div class="cards" style="grid-template-columns:repeat(4,1fr)">
+      <div class="card">
+        <div class="card-label">총 포트폴리오</div>
+        <div class="card-value blue" id="trb-portfolio" style="font-size:19px">-</div>
+        <div class="card-note" id="trb-portfolio-note">-</div>
+      </div>
+      <div class="card">
+        <div class="card-label">테마 목표합계</div>
+        <div class="card-value" id="trb-target-sum" style="font-size:22px">-</div>
+        <div class="card-note" id="trb-target-sum-note">100%가 되어야 균형</div>
+      </div>
+      <div class="card">
+        <div class="card-label">리밸런싱 필요</div>
+        <div class="card-value orange" id="trb-alert-cnt" style="font-size:22px">-</div>
+        <div class="card-note" id="trb-alert-note">기준 초과 테마</div>
+      </div>
+      <div class="card">
+        <div class="card-label">테마 미설정 종목</div>
+        <div class="card-value" id="trb-unset-cnt" style="font-size:22px;color:#64748b">-</div>
+        <div class="card-note">테마 라벨 없는 종목</div>
+      </div>
+    </div>
+
+    <!-- 테마별 비중 패널 -->
+    <div class="panel" style="margin-bottom:12px">
+      <div class="panel-header">
+        <span>테마별 비중</span>
+        <span style="font-size:11px;color:#64748b">목표비율 클릭하여 편집 · 복수 테마 종목은 균등 분배</span>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>테마</th>
+              <th>편입 종목</th>
+              <th style="text-align:right">평가금액</th>
+              <th style="text-align:right">실제비율</th>
+              <th style="text-align:right">목표비율</th>
+              <th style="text-align:right">편차</th>
+              <th style="text-align:center">신호</th>
+            </tr>
+          </thead>
+          <tbody id="trb-theme-tbody">
+            <tr><td colspan="7" class="loading">로딩 중...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 종목별 테마 설정 패널 -->
+    <div class="panel">
+      <div class="panel-header">
+        <span>종목별 테마 설정</span>
+        <span style="font-size:11px;color:#64748b">테마 입력 후 Enter → 저장 · 쉼표로 복수 테마 가능 (예: 반도체,AI)</span>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>종목코드</th>
+              <th>종목명</th>
+              <th style="text-align:right">평가금액</th>
+              <th style="text-align:right">현재비율</th>
+              <th>테마 라벨</th>
+            </tr>
+          </thead>
+          <tbody id="trb-stock-tbody">
+            <tr><td colspan="5" class="loading">로딩 중...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
   <!-- 보유종목 추가/수정 모달 -->
   <div class="modal-overlay" id="eh-modal">
     <div class="modal" style="width:440px">
@@ -1584,7 +1695,8 @@ function closeMobileDrawer() {
 const NAV_GROUP_MAP = {
   dashboard:'navg-analysis', supply:'navg-analysis', divergence:'navg-analysis',
   snapshot:'navg-analysis',  signals:'navg-analysis', report:'navg-analysis',
-  'ext-holdings':'navg-analysis', 'price-mgmt':'navg-analysis', rebalance:'navg-analysis',
+  'ext-holdings':'navg-analysis', 'price-mgmt':'navg-analysis',
+  rebalance:'navg-analysis',     'theme-rebalance':'navg-analysis',
   auditlog:'navg-system',    stocks:'navg-system',
   batch:'navg-admin',        'common-codes':'navg-admin', usermgmt:'navg-admin',
 };
@@ -1629,8 +1741,9 @@ function showPage(name, fromHash) {
   if (name === 'usermgmt')      loadUserMgmt();
   if (name === 'ext-holdings')  loadExtHoldings();
   if (name === 'price-mgmt')    loadPriceMgmt();
-  if (name === 'rebalance')     loadRebalance();
-  if (name === 'common-codes')  loadCommonCodes();
+  if (name === 'rebalance')        loadRebalance();
+  if (name === 'theme-rebalance')  loadThemeRebalance();
+  if (name === 'common-codes')     loadCommonCodes();
 }
 
 // ─── 대시보드 ─────────────────────────────────────────
@@ -3500,23 +3613,70 @@ function pmRenderSummary(rows) {
 function pmRenderTable(rows) {
   const tbody = document.getElementById('pm-tbody');
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:32px;color:#475569">타사 보유종목을 먼저 등록해주세요.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:32px;color:#475569">타사 보유종목을 먼저 등록해주세요.</td></tr>';
     return;
   }
   tbody.innerHTML = rows.map(r => {
-    const hasP   = r.current_price != null;
-    const badge  = hasP
+    const hasP  = r.current_price != null;
+    const badge = hasP
       ? `<span class="badge badge-success">정상</span>`
       : `<span class="badge badge-fail">없음</span>`;
+    const codeEsc = r.stock_code.replace(/'/g, "\\'");
+    const manualInput = `
+      <div style="display:flex;align-items:center;gap:4px">
+        <input type="text" id="pm-manual-${r.stock_code}" inputmode="numeric"
+          placeholder="${hasP ? r.current_price.toLocaleString() : '직접입력'}"
+          style="width:90px;padding:3px 6px;border-radius:5px;border:1px solid #1e2535;
+                 background:#0f1117;color:#e2e8f0;font-size:12px;text-align:right;outline:none"
+          onfocus="this.style.borderColor='#3b82f6';this.value=this.value.replace(/,/g,'')"
+          onblur="this.style.borderColor='#1e2535'"
+          onkeydown="if(event.key==='Enter')pmSaveManualPrice('${codeEsc}',this)"/>
+        <button class="btn btn-ghost" style="font-size:11px;padding:3px 8px"
+                onclick="pmSaveManualPrice('${codeEsc}',document.getElementById('pm-manual-${r.stock_code}'))">저장</button>
+      </div>`;
     return `<tr>
       <td style="font-family:monospace;font-size:12px;color:#60a5fa">${r.stock_code}</td>
       <td style="font-weight:500">${r.stock_name || '-'}</td>
-      <td class="num">${hasP ? r.current_price.toLocaleString() + '원' : '<span style="color:#475569">-</span>'}</td>
-      <td class="center" style="font-size:12px;color:#64748b">${r.price_date || '-'}</td>
+      <td class="num" id="pm-price-${r.stock_code}">${hasP ? r.current_price.toLocaleString() + '원' : '<span style="color:#475569">-</span>'}</td>
+      <td class="center" style="font-size:12px;color:#64748b" id="pm-date-${r.stock_code}">${r.price_date || '-'}</td>
       <td class="center" style="font-size:12px;color:#64748b">${r.fetched_at || '-'}</td>
       <td class="center">${badge}</td>
+      <td class="center">${manualInput}</td>
     </tr>`;
   }).join('');
+}
+
+async function pmSaveManualPrice(stockCode, inputEl) {
+  const raw = (inputEl.value || '').replace(/,/g, '').trim();
+  if (!raw) return;
+  const price = parseInt(raw, 10);
+  if (!price || price <= 0) {
+    inputEl.style.borderColor = '#f87171';
+    setTimeout(() => inputEl.style.borderColor = '#1e2535', 1500);
+    return;
+  }
+  inputEl.disabled = true;
+  try {
+    const res = await fetch('/api/price_sync/manual', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stock_code: stockCode, price }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    // 인라인 업데이트
+    const priceEl = document.getElementById(`pm-price-${stockCode}`);
+    const dateEl  = document.getElementById(`pm-date-${stockCode}`);
+    if (priceEl) priceEl.innerHTML = price.toLocaleString() + '원';
+    if (dateEl)  dateEl.textContent = data.date || '';
+    inputEl.value = '';
+    inputEl.placeholder = price.toLocaleString();
+  } catch(e) {
+    inputEl.style.borderColor = '#f87171';
+    setTimeout(() => inputEl.style.borderColor = '#1e2535', 2000);
+  } finally {
+    inputEl.disabled = false;
+  }
 }
 
 async function pmCheckRunning() {
@@ -4140,6 +4300,212 @@ async function rbSaveThresholds() {
   await loadRebalance();
 }
 
+// ─── 테마 리밸런싱 ───────────────────────────────────
+let trbData = null;
+let trbAlertUp = 30, trbAlertDown = 25;
+
+async function loadThemeRebalance() {
+  document.getElementById('trb-theme-tbody').innerHTML =
+    '<tr><td colspan="7" class="loading">로딩 중...</td></tr>';
+  document.getElementById('trb-stock-tbody').innerHTML =
+    '<tr><td colspan="5" class="loading">로딩 중...</td></tr>';
+  try {
+    const res = await fetch('/api/theme_rebalance');
+    trbData = await res.json();
+    trbAlertUp   = trbData.alert_up   ?? 30;
+    trbAlertDown = trbData.alert_down ?? 25;
+    document.getElementById('trb-threshold-up').value   = trbAlertUp;
+    document.getElementById('trb-threshold-down').value = trbAlertDown;
+    trbUpdateSummary();
+    trbRenderThemes();
+    trbRenderStocks();
+  } catch(e) {
+    const err = '<tr><td colspan="7" style="text-align:center;color:#f87171;padding:32px">데이터 로드 실패</td></tr>';
+    document.getElementById('trb-theme-tbody').innerHTML = err;
+    document.getElementById('trb-stock-tbody').innerHTML = err;
+  }
+}
+
+function trbUpdateSummary() {
+  if (!trbData) return;
+  const total    = trbData.portfolio_total || 0;
+  const cash     = trbData.total_cash     || 0;
+  const themes   = (trbData.themes || []).filter(t => !t.is_untagged);
+  const targetSum = themes.reduce((s, t) => s + (t.target_ratio || 0), 0);
+
+  document.getElementById('trb-portfolio').textContent = Math.round(total).toLocaleString() + '원';
+  document.getElementById('trb-portfolio-note').textContent =
+    `주식 ${(total - cash).toLocaleString()}원 + 예수금 ${cash.toLocaleString()}원`;
+
+  const sumEl = document.getElementById('trb-target-sum');
+  sumEl.textContent = targetSum.toFixed(1) + '%';
+  sumEl.style.color = Math.abs(targetSum - 100) < 0.5 ? '#4ade80' :
+                      targetSum > 100 ? '#f87171' : '#f59e0b';
+  document.getElementById('trb-target-sum-note').textContent =
+    Math.abs(targetSum - 100) < 0.5 ? '균형 잡힘' :
+    `${(targetSum - 100 > 0 ? '+' : '')}${(targetSum - 100).toFixed(1)}pp`;
+
+  const alertCnt = themes.filter(t => {
+    if (!t.target_ratio || t.deviation_rel === null) return false;
+    return t.deviation_rel > trbAlertUp || t.deviation_rel < -trbAlertDown;
+  }).length;
+  const unsetCnt = (trbData.stocks || []).filter(s => !s.themes.length).length;
+
+  const alertEl = document.getElementById('trb-alert-cnt');
+  alertEl.textContent = alertCnt;
+  alertEl.style.color = alertCnt > 0 ? '#f59e0b' : '#4ade80';
+  document.getElementById('trb-alert-note').textContent = alertCnt > 0 ? '즉시 검토 필요' : '이상 없음';
+  document.getElementById('trb-unset-cnt').textContent = unsetCnt;
+}
+
+function trbRenderThemes() {
+  const tbody  = document.getElementById('trb-theme-tbody');
+  const themes = trbData?.themes || [];
+  if (!themes.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:32px;color:#475569">테마 없음. 아래에서 종목에 테마를 설정해주세요.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = themes.map(t => {
+    if (t.is_untagged) {
+      const stockList = t.stocks.map(s => s.stock_name || s.stock_code).join(', ');
+      return `<tr style="opacity:0.6">
+        <td style="color:#64748b;font-style:italic">미분류</td>
+        <td style="font-size:11px;color:#64748b">${stockList}</td>
+        <td class="num" style="color:#64748b">${t.eval_amt.toLocaleString()}원</td>
+        <td class="num" style="color:#64748b">${t.current_ratio.toFixed(2)}%</td>
+        <td class="num" style="color:#64748b">-</td>
+        <td class="num" style="color:#64748b">-</td>
+        <td class="center" style="color:#64748b;font-size:11px">테마 설정 필요</td>
+      </tr>`;
+    }
+
+    const relDev = t.deviation_rel;
+    const absDev = t.deviation_pp;
+    let devStr = '-', devColor = '#64748b';
+    if (t.target_ratio > 0 && relDev !== null) {
+      const sign = relDev >= 0 ? '+' : '';
+      devStr = `${sign}${relDev.toFixed(1)}%<br><span style="font-size:10px;color:#64748b">${absDev >= 0 ? '+' : ''}${absDev.toFixed(2)}pp</span>`;
+      devColor = relDev > trbAlertUp ? '#f87171' : relDev < -trbAlertDown ? '#60a5fa' :
+                 Math.abs(relDev) > trbAlertUp * 0.6 ? '#f59e0b' : '#94a3b8';
+    }
+
+    let signal = '', sigColor = '#64748b', sigBg = '';
+    if (t.target_ratio > 0 && relDev !== null) {
+      if      (relDev > trbAlertUp)         { signal='차익실현 검토'; sigColor='#f87171'; sigBg='background:rgba(248,113,113,0.1);'; }
+      else if (relDev < -trbAlertDown)      { signal='추가매수 검토'; sigColor='#60a5fa'; sigBg='background:rgba(96,165,250,0.1);'; }
+      else                                   { signal='정상 범위';   sigColor='#4ade80'; }
+    } else if (!t.target_ratio) {
+      signal = '목표 미설정'; sigColor = '#64748b';
+    }
+
+    const stockList = t.stocks.map(s => s.stock_name || s.stock_code).join(', ');
+    const themeEsc  = t.theme.replace(/'/g, "\\'");
+
+    const targetInput = `<input type="number" value="${t.target_ratio || ''}" placeholder="0"
+      min="0" max="100" step="0.1"
+      style="width:58px;background:none;border:none;border-bottom:1px solid #1e2535;
+             color:#e2e8f0;font-size:13px;text-align:right;outline:none;padding:2px 4px"
+      onfocus="this.style.borderColor='#3b82f6'"
+      onblur="trbSaveThemeTarget('${themeEsc}',this)"
+      onkeydown="if(event.key==='Enter')this.blur()"/>
+    <span style="font-size:11px;color:#64748b">%</span>`;
+
+    return `<tr>
+      <td style="font-weight:600;color:#e2e8f0">${t.theme}</td>
+      <td style="font-size:11px;color:#94a3b8;max-width:200px;white-space:normal">${stockList}</td>
+      <td class="num">${t.eval_amt.toLocaleString()}원</td>
+      <td class="num;font-weight:500">${t.current_ratio.toFixed(2)}%</td>
+      <td class="num">${targetInput}</td>
+      <td class="num" style="color:${devColor}">${devStr}</td>
+      <td class="center" style="${sigBg}padding:6px"><span style="color:${sigColor};font-size:12px;font-weight:500">${signal}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+function trbRenderStocks() {
+  const tbody  = document.getElementById('trb-stock-tbody');
+  const stocks = trbData?.stocks || [];
+  if (!stocks.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:32px;color:#475569">보유종목 없음</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = stocks.map(s => {
+    const codeEsc = s.stock_code.replace(/'/g, "\\'");
+    const themeDisplay = s.themes.length
+      ? s.themes.map(t => `<span style="display:inline-block;background:#1e2d45;color:#60a5fa;font-size:11px;padding:2px 7px;border-radius:10px;margin:1px">${t}</span>`).join('')
+      : '<span style="color:#475569;font-size:11px">미설정</span>';
+
+    return `<tr>
+      <td style="font-family:monospace;font-size:12px">${s.stock_code}</td>
+      <td style="font-weight:500">${s.stock_name || '-'}</td>
+      <td class="num">${s.eval_amt.toLocaleString()}원${s.has_price ? '' : '<br><span style="font-size:10px;color:#64748b">매입가 기준</span>'}</td>
+      <td class="num">${s.current_ratio.toFixed(2)}%</td>
+      <td>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <div id="trb-tags-${s.stock_code}">${themeDisplay}</div>
+          <input type="text" id="trb-inp-${s.stock_code}"
+            value="${s.themes_str}"
+            placeholder="반도체,AI"
+            style="width:130px;padding:3px 8px;border-radius:6px;border:1px solid #1e2535;
+                   background:#0f1117;color:#e2e8f0;font-size:12px;outline:none"
+            onfocus="this.style.borderColor='#3b82f6'"
+            onblur="trbSaveStockTheme('${codeEsc}',this)"
+            onkeydown="if(event.key==='Enter')this.blur()"/>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function trbSaveThemeTarget(theme, inputEl) {
+  inputEl.style.borderColor = '#1e2535';
+  const val = parseFloat(inputEl.value) || 0;
+  inputEl.value = val || '';
+  await fetch('/api/theme_rebalance/theme_target', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ theme, target_ratio: val }),
+  });
+  await loadThemeRebalance();
+}
+
+async function trbSaveStockTheme(stockCode, inputEl) {
+  inputEl.style.borderColor = '#1e2535';
+  const raw = inputEl.value.trim();
+  // Normalize: split by comma, trim each, rejoin
+  const normalized = raw.split(',').map(t => t.trim()).filter(Boolean).join(',');
+  inputEl.value = normalized;
+  await fetch('/api/theme_rebalance/stock_themes', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ stock_code: stockCode, themes: normalized }),
+  });
+  // Update tag display immediately
+  const tagsEl = document.getElementById(`trb-tags-${stockCode}`);
+  if (tagsEl) {
+    const tags = normalized ? normalized.split(',').map(t =>
+      `<span style="display:inline-block;background:#1e2d45;color:#60a5fa;font-size:11px;padding:2px 7px;border-radius:10px;margin:1px">${t.trim()}</span>`
+    ).join('') : '<span style="color:#475569;font-size:11px">미설정</span>';
+    tagsEl.innerHTML = tags;
+  }
+  // Reload theme table to reflect changes
+  await loadThemeRebalance();
+}
+
+async function trbSaveThresholds() {
+  trbAlertUp   = parseFloat(document.getElementById('trb-threshold-up').value)   || 30;
+  trbAlertDown = parseFloat(document.getElementById('trb-threshold-down').value) || 25;
+  await Promise.all([
+    fetch('/api/settings', { method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ key:'rebalance_alert_up',   value:String(trbAlertUp)   }) }),
+    fetch('/api/settings', { method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ key:'rebalance_alert_down', value:String(trbAlertDown) }) }),
+  ]);
+  await loadThemeRebalance();
+}
+
 // ─── 공통코드 관리 ────────────────────────────────────
 let ccCurrentGroup = 'BROKERAGE';
 let ccData = [];
@@ -4248,7 +4614,7 @@ async function ccDelete(id, name) {
 }
 
 // ─── 초기 로드 (해시 기반 페이지 복원) ───────────────────
-const PAGES = ['dashboard','supply','divergence','snapshot','signals','report','ext-holdings','price-mgmt','rebalance','auditlog','stocks','batch','common-codes','usermgmt'];
+const PAGES = ['dashboard','supply','divergence','snapshot','signals','report','ext-holdings','price-mgmt','rebalance','theme-rebalance','auditlog','stocks','batch','common-codes','usermgmt'];
 // visible_menus 저장 시점 이전에 존재하던 페이지 목록
 const PAGES_V1 = ['dashboard','supply','signals','auditlog','stocks','batch','usermgmt'];
 

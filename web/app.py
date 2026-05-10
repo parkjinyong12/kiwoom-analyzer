@@ -140,6 +140,24 @@ _DEFAULT_BROKERAGES = [
 ]
 
 
+def _ensure_theme_tables():
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS stock_themes (
+                stock_code VARCHAR(20) PRIMARY KEY,
+                themes     TEXT        NOT NULL DEFAULT ''
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS theme_targets (
+                theme        VARCHAR(50)   PRIMARY KEY,
+                target_ratio DECIMAL(6, 2) NOT NULL DEFAULT 0,
+                updated_at   TIMESTAMP     DEFAULT NOW()
+            )
+        """)
+
+
 def _ensure_rebalance_targets_table():
     with get_conn() as conn:
         cur = conn.cursor()
@@ -908,6 +926,38 @@ def api_price_sync_stocks():
     return jsonify(rows)
 
 
+@app.route("/api/price_sync/manual", methods=["PUT"])
+def api_price_sync_manual():
+    """종목 현재가 수기 입력 (supply_demand + stocks 업데이트)."""
+    data = request.get_json() or {}
+    stock_code  = (data.get("stock_code") or "").strip()
+    price_raw   = data.get("price")
+    try:
+        price = int(str(price_raw).replace(",", "").strip())
+        if price <= 0:
+            raise ValueError
+    except (ValueError, TypeError):
+        return jsonify({"error": "유효한 가격을 입력해주세요"}), 400
+    if not stock_code:
+        return jsonify({"error": "종목코드 필수"}), 400
+
+    from datetime import date as date_cls
+    today = date_cls.today()
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO supply_demand (stock_code, date, close_price)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (stock_code, date)
+            DO UPDATE SET close_price = EXCLUDED.close_price
+        """, (stock_code, today, price))
+        cur.execute("""
+            UPDATE stocks SET last_price = %s, fetched_at = NOW()
+            WHERE stock_code = %s
+        """, (str(price), stock_code))
+    return jsonify({"ok": True, "stock_code": stock_code, "price": price, "date": str(today)})
+
+
 # ---------------------------------------------------------------------------
 # API — 리밸런싱
 # ---------------------------------------------------------------------------
@@ -1020,10 +1070,172 @@ def api_rebalance_target():
 
 
 # ---------------------------------------------------------------------------
+# API — 테마 리밸런싱
+# ---------------------------------------------------------------------------
+
+@app.route("/api/theme_rebalance")
+def api_theme_rebalance():
+    """테마별 포트폴리오 비중 분석."""
+    rows = query("""
+        WITH latest_close AS (
+            SELECT DISTINCT ON (stock_code)
+                stock_code, close_price
+            FROM supply_demand
+            WHERE close_price IS NOT NULL AND close_price > 0
+            ORDER BY stock_code, date DESC
+        ),
+        holdings_agg AS (
+            SELECT
+                stock_code,
+                MAX(stock_name) AS stock_name,
+                SUM(quantity) AS total_qty,
+                SUM(quantity * avg_price) / NULLIF(SUM(quantity), 0) AS weighted_avg_price
+            FROM manual_holdings
+            GROUP BY stock_code
+        )
+        SELECT
+            ha.stock_code,
+            ha.stock_name,
+            ha.total_qty,
+            ROUND(ha.weighted_avg_price::NUMERIC, 0) AS avg_price,
+            COALESCE(lc.close_price,
+                CASE WHEN st.last_price ~ '^[0-9]+$' THEN st.last_price::BIGINT ELSE NULL END
+            ) AS current_price,
+            COALESCE(sth.themes, '') AS themes
+        FROM holdings_agg ha
+        LEFT JOIN latest_close lc ON lc.stock_code = ha.stock_code
+        LEFT JOIN stocks st ON st.stock_code = ha.stock_code
+        LEFT JOIN stock_themes sth ON sth.stock_code = ha.stock_code
+        ORDER BY ha.stock_name
+    """)
+
+    settings = _get_app_settings()
+    total_cash = sum(
+        int(v or 0)
+        for k, v in settings.items()
+        if k.startswith("portfolio_cash_")
+    )
+    alert_up   = float(settings.get("rebalance_alert_up",   30))
+    alert_down = float(settings.get("rebalance_alert_down", 25))
+
+    # Calc eval amounts
+    stock_total = 0
+    stocks = []
+    for r in rows:
+        qty       = int(r["total_qty"] or 0)
+        cur_price = r["current_price"]
+        avg_price = float(r["avg_price"] or 0)
+        eval_amt  = qty * (int(cur_price) if cur_price is not None else avg_price)
+        stock_total += eval_amt
+        themes_str  = (r["themes"] or "").strip()
+        themes_list = [t.strip() for t in themes_str.split(",") if t.strip()]
+        stocks.append({
+            "stock_code":   r["stock_code"],
+            "stock_name":   r["stock_name"],
+            "total_qty":    qty,
+            "avg_price":    int(avg_price),
+            "current_price": int(cur_price) if cur_price is not None else None,
+            "eval_amt":     round(eval_amt),
+            "has_price":    cur_price is not None,
+            "themes":       themes_list,
+            "themes_str":   themes_str,
+        })
+
+    portfolio_total = stock_total + total_cash
+    for s in stocks:
+        s["current_ratio"] = round(s["eval_amt"] / portfolio_total * 100, 2) if portfolio_total > 0 else 0
+
+    # Aggregate by theme (split eval_amt equally across themes)
+    theme_data: dict[str, dict] = {}
+    for s in stocks:
+        themes = s["themes"]
+        bucket = themes if themes else ["__untagged__"]
+        n = len(bucket)
+        for t in bucket:
+            if t not in theme_data:
+                theme_data[t] = {"eval_amt": 0.0, "stocks": []}
+            theme_data[t]["eval_amt"] += s["eval_amt"] / n
+            theme_data[t]["stocks"].append({
+                "stock_code": s["stock_code"],
+                "stock_name": s["stock_name"],
+            })
+
+    target_rows = query("SELECT theme, target_ratio FROM theme_targets")
+    targets = {r["theme"]: float(r["target_ratio"]) for r in target_rows}
+
+    theme_result = []
+    for tname, data in sorted(theme_data.items(), key=lambda x: -x[1]["eval_amt"]):
+        eval_amt     = data["eval_amt"]
+        cur_ratio    = round(eval_amt / portfolio_total * 100, 2) if portfolio_total > 0 else 0
+        tgt_ratio    = targets.get(tname, 0)
+        is_untagged  = tname == "__untagged__"
+        dev_pp       = round(cur_ratio - tgt_ratio, 2) if not is_untagged else None
+        dev_rel      = round(dev_pp / tgt_ratio * 100, 1) if (dev_pp is not None and tgt_ratio > 0) else None
+        theme_result.append({
+            "theme":         tname,
+            "is_untagged":   is_untagged,
+            "stocks":        data["stocks"],
+            "stock_count":   len(data["stocks"]),
+            "eval_amt":      round(eval_amt),
+            "current_ratio": cur_ratio,
+            "target_ratio":  tgt_ratio,
+            "deviation_pp":  dev_pp,
+            "deviation_rel": dev_rel,
+        })
+
+    return jsonify({
+        "themes":          theme_result,
+        "stocks":          stocks,
+        "portfolio_total": round(portfolio_total),
+        "total_cash":      total_cash,
+        "alert_up":        alert_up,
+        "alert_down":      alert_down,
+    })
+
+
+@app.route("/api/theme_rebalance/stock_themes", methods=["PUT"])
+def api_theme_rebalance_stock_themes():
+    data = request.get_json() or {}
+    stock_code = (data.get("stock_code") or "").strip()
+    themes_str = (data.get("themes") or "").strip()
+    if not stock_code:
+        return jsonify({"error": "종목코드 필수"}), 400
+    with get_conn() as conn:
+        conn.cursor().execute("""
+            INSERT INTO stock_themes (stock_code, themes)
+            VALUES (%s, %s)
+            ON CONFLICT (stock_code) DO UPDATE SET themes = EXCLUDED.themes
+        """, (stock_code, themes_str))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/theme_rebalance/theme_target", methods=["PUT"])
+def api_theme_rebalance_theme_target():
+    data = request.get_json() or {}
+    theme = (data.get("theme") or "").strip()
+    if not theme:
+        return jsonify({"error": "테마명 필수"}), 400
+    try:
+        target_ratio = float(data.get("target_ratio") or 0)
+        if not (0 <= target_ratio <= 100):
+            return jsonify({"error": "비율은 0~100 사이여야 합니다"}), 400
+    except (ValueError, TypeError):
+        return jsonify({"error": "잘못된 비율 값"}), 400
+    with get_conn() as conn:
+        conn.cursor().execute("""
+            INSERT INTO theme_targets (theme, target_ratio, updated_at)
+            VALUES (%s, %s, NOW())
+            ON CONFLICT (theme) DO UPDATE
+            SET target_ratio = EXCLUDED.target_ratio, updated_at = NOW()
+        """, (theme, target_ratio))
+    return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------------------
 # API — 사용자 관리
 # ---------------------------------------------------------------------------
 
-ALL_MENUS = ["dashboard", "supply", "divergence", "signals", "report", "ext-holdings", "price-mgmt", "rebalance", "auditlog", "stocks", "batch", "common-codes", "usermgmt"]
+ALL_MENUS = ["dashboard", "supply", "divergence", "signals", "report", "ext-holdings", "price-mgmt", "rebalance", "theme-rebalance", "auditlog", "stocks", "batch", "common-codes", "usermgmt"]
 
 @app.route("/api/users")
 def api_users():
@@ -1371,6 +1583,11 @@ except Exception:
 
 try:
     _ensure_rebalance_targets_table()
+except Exception:
+    pass
+
+try:
+    _ensure_theme_tables()
 except Exception:
     pass
 
