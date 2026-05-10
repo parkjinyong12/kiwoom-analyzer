@@ -140,6 +140,18 @@ _DEFAULT_BROKERAGES = [
 ]
 
 
+def _ensure_rebalance_targets_table():
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS rebalance_targets (
+                stock_code   VARCHAR(20)   PRIMARY KEY,
+                target_ratio DECIMAL(6, 2) NOT NULL DEFAULT 0,
+                updated_at   TIMESTAMP     DEFAULT NOW()
+            )
+        """)
+
+
 def _ensure_common_codes_table():
     with get_conn() as conn:
         cur = conn.cursor()
@@ -897,10 +909,121 @@ def api_price_sync_stocks():
 
 
 # ---------------------------------------------------------------------------
+# API — 리밸런싱
+# ---------------------------------------------------------------------------
+
+@app.route("/api/rebalance")
+def api_rebalance():
+    """보유종목 통합(전 증권사) 리밸런싱 데이터."""
+    rows = query("""
+        WITH latest_close AS (
+            SELECT DISTINCT ON (stock_code)
+                stock_code, close_price
+            FROM supply_demand
+            WHERE close_price IS NOT NULL AND close_price > 0
+            ORDER BY stock_code, date DESC
+        ),
+        holdings_agg AS (
+            SELECT
+                stock_code,
+                MAX(stock_name) AS stock_name,
+                SUM(quantity) AS total_qty,
+                SUM(quantity * avg_price) / NULLIF(SUM(quantity), 0) AS weighted_avg_price
+            FROM manual_holdings
+            GROUP BY stock_code
+        )
+        SELECT
+            ha.stock_code,
+            ha.stock_name,
+            ha.total_qty,
+            ROUND(ha.weighted_avg_price::NUMERIC, 0) AS avg_price,
+            COALESCE(
+                lc.close_price,
+                CASE WHEN st.last_price ~ '^[0-9]+$' THEN st.last_price::BIGINT ELSE NULL END
+            ) AS current_price,
+            COALESCE(rt.target_ratio, 0) AS target_ratio
+        FROM holdings_agg ha
+        LEFT JOIN latest_close lc ON lc.stock_code = ha.stock_code
+        LEFT JOIN stocks st ON st.stock_code = ha.stock_code
+        LEFT JOIN rebalance_targets rt ON rt.stock_code = ha.stock_code
+        ORDER BY ha.stock_name
+    """)
+
+    settings = _get_app_settings()
+    total_cash = sum(
+        int(v or 0)
+        for k, v in settings.items()
+        if k.startswith("portfolio_cash_")
+    )
+    alert_up   = float(settings.get("rebalance_alert_up",   30))
+    alert_down = float(settings.get("rebalance_alert_down", 25))
+
+    result = []
+    stock_total = 0
+    for r in rows:
+        qty       = int(r["total_qty"] or 0)
+        cur_price = r["current_price"]
+        avg_price = float(r["avg_price"] or 0)
+        eval_amt  = qty * (int(cur_price) if cur_price is not None else avg_price)
+        stock_total += eval_amt
+        result.append({
+            "stock_code":   r["stock_code"],
+            "stock_name":   r["stock_name"],
+            "total_qty":    qty,
+            "avg_price":    int(avg_price),
+            "current_price": int(cur_price) if cur_price is not None else None,
+            "eval_amt":     round(eval_amt),
+            "has_price":    cur_price is not None,
+            "target_ratio": float(r["target_ratio"] or 0),
+        })
+
+    portfolio_total = stock_total + total_cash
+
+    for r in result:
+        current_ratio = r["eval_amt"] / portfolio_total * 100 if portfolio_total > 0 else 0
+        target_ratio  = r["target_ratio"]
+        deviation_pp  = round(current_ratio - target_ratio, 2)
+        deviation_rel = round(deviation_pp / target_ratio * 100, 1) if target_ratio > 0 else None
+        r["current_ratio"]  = round(current_ratio, 2)
+        r["deviation_pp"]   = deviation_pp
+        r["deviation_rel"]  = deviation_rel
+
+    return jsonify({
+        "holdings":        result,
+        "portfolio_total": round(portfolio_total),
+        "total_cash":      total_cash,
+        "alert_up":        alert_up,
+        "alert_down":      alert_down,
+    })
+
+
+@app.route("/api/rebalance/target", methods=["PUT"])
+def api_rebalance_target():
+    data = request.get_json() or {}
+    stock_code = (data.get("stock_code") or "").strip()
+    if not stock_code:
+        return jsonify({"error": "종목코드 필수"}), 400
+    try:
+        target_ratio = float(data.get("target_ratio") or 0)
+        if not (0 <= target_ratio <= 100):
+            return jsonify({"error": "비율은 0~100 사이여야 합니다"}), 400
+    except (ValueError, TypeError):
+        return jsonify({"error": "잘못된 비율 값"}), 400
+    with get_conn() as conn:
+        conn.cursor().execute("""
+            INSERT INTO rebalance_targets (stock_code, target_ratio, updated_at)
+            VALUES (%s, %s, NOW())
+            ON CONFLICT (stock_code)
+            DO UPDATE SET target_ratio = EXCLUDED.target_ratio, updated_at = NOW()
+        """, (stock_code, target_ratio))
+    return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------------------
 # API — 사용자 관리
 # ---------------------------------------------------------------------------
 
-ALL_MENUS = ["dashboard", "supply", "divergence", "signals", "report", "ext-holdings", "price-mgmt", "auditlog", "stocks", "batch", "common-codes", "usermgmt"]
+ALL_MENUS = ["dashboard", "supply", "divergence", "signals", "report", "ext-holdings", "price-mgmt", "rebalance", "auditlog", "stocks", "batch", "common-codes", "usermgmt"]
 
 @app.route("/api/users")
 def api_users():
@@ -1243,6 +1366,11 @@ except Exception:
 
 try:
     _ensure_common_codes_table()
+except Exception:
+    pass
+
+try:
+    _ensure_rebalance_targets_table()
 except Exception:
     pass
 

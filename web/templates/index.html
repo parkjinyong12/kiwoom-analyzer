@@ -462,6 +462,9 @@ canvas { max-height: 220px; }
         <div class="nav-item" data-page="price-mgmt" onclick="showPage('price-mgmt')">
           <span class="icon">💰</span> 현재가 관리
         </div>
+        <div class="nav-item" data-page="rebalance" onclick="showPage('rebalance')">
+          <span class="icon">⚖️</span> 리밸런싱
+        </div>
       </div>
     </div>
 
@@ -1381,6 +1384,90 @@ canvas { max-height: 220px; }
     </div>
   </section>
 
+  <!-- ===== 리밸런싱 페이지 ===== -->
+  <section id="page-rebalance" class="page">
+    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
+      <div>
+        <div class="page-title">리밸런싱</div>
+        <div class="page-sub">종목별 목표비율 설정 및 포트폴리오 편차 모니터링</div>
+      </div>
+      <button class="btn btn-ghost" style="font-size:12px" onclick="loadRebalance()">새로고침</button>
+    </div>
+
+    <!-- 임계치 설정 -->
+    <div class="panel" style="margin-bottom:12px">
+      <div class="panel-header" style="cursor:default">리밸런싱 기준 설정</div>
+      <div style="display:flex;gap:20px;align-items:center;padding:12px 16px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:12px;color:#f87171">과다보유 기준</span>
+          <input type="number" id="rb-threshold-up" value="30" min="1" max="500" step="1"
+                 style="width:65px;padding:5px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#f87171;font-size:13px;text-align:center;outline:none"/>
+          <span style="font-size:12px;color:#64748b">% 초과 →</span>
+          <span style="font-size:12px;color:#f87171;font-weight:500">차익실현 검토</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:12px;color:#60a5fa">부족보유 기준</span>
+          <input type="number" id="rb-threshold-down" value="25" min="1" max="500" step="1"
+                 style="width:65px;padding:5px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#60a5fa;font-size:13px;text-align:center;outline:none"/>
+          <span style="font-size:12px;color:#64748b">% 이하 →</span>
+          <span style="font-size:12px;color:#60a5fa;font-weight:500">추가매수 검토</span>
+        </div>
+        <button class="btn btn-primary" style="font-size:12px;padding:6px 14px" onclick="rbSaveThresholds()">기준 저장</button>
+      </div>
+    </div>
+
+    <!-- 요약 카드 -->
+    <div class="cards" style="grid-template-columns:repeat(4,1fr)">
+      <div class="card">
+        <div class="card-label">총 포트폴리오</div>
+        <div class="card-value blue" id="rb-portfolio" style="font-size:19px">-</div>
+        <div class="card-note" id="rb-portfolio-note">-</div>
+      </div>
+      <div class="card">
+        <div class="card-label">목표비율 합계</div>
+        <div class="card-value" id="rb-target-sum" style="font-size:22px">-</div>
+        <div class="card-note" id="rb-target-sum-note">100%가 되어야 균형</div>
+      </div>
+      <div class="card">
+        <div class="card-label">리밸런싱 필요</div>
+        <div class="card-value orange" id="rb-alert-cnt" style="font-size:22px">-</div>
+        <div class="card-note" id="rb-alert-note">기준 초과 종목</div>
+      </div>
+      <div class="card">
+        <div class="card-label">목표비율 미설정</div>
+        <div class="card-value" id="rb-unset-cnt" style="font-size:22px;color:#64748b">-</div>
+        <div class="card-note">target = 0% 종목</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <span>종목별 비율 현황</span>
+        <span style="font-size:11px;color:#64748b">목표비율 클릭하여 직접 입력</span>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>종목코드</th>
+              <th>종목명</th>
+              <th style="text-align:right">보유수량</th>
+              <th style="text-align:right">현재가</th>
+              <th style="text-align:right">평가금액</th>
+              <th style="text-align:right">현재비율</th>
+              <th style="text-align:right">목표비율</th>
+              <th style="text-align:right">편차</th>
+              <th style="text-align:center">신호</th>
+            </tr>
+          </thead>
+          <tbody id="rb-tbody">
+            <tr><td colspan="9" class="loading">로딩 중...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
   <!-- 보유종목 추가/수정 모달 -->
   <div class="modal-overlay" id="eh-modal">
     <div class="modal" style="width:440px">
@@ -1497,7 +1584,7 @@ function closeMobileDrawer() {
 const NAV_GROUP_MAP = {
   dashboard:'navg-analysis', supply:'navg-analysis', divergence:'navg-analysis',
   snapshot:'navg-analysis',  signals:'navg-analysis', report:'navg-analysis',
-  'ext-holdings':'navg-analysis', 'price-mgmt':'navg-analysis',
+  'ext-holdings':'navg-analysis', 'price-mgmt':'navg-analysis', rebalance:'navg-analysis',
   auditlog:'navg-system',    stocks:'navg-system',
   batch:'navg-admin',        'common-codes':'navg-admin', usermgmt:'navg-admin',
 };
@@ -1542,6 +1629,7 @@ function showPage(name, fromHash) {
   if (name === 'usermgmt')      loadUserMgmt();
   if (name === 'ext-holdings')  loadExtHoldings();
   if (name === 'price-mgmt')    loadPriceMgmt();
+  if (name === 'rebalance')     loadRebalance();
   if (name === 'common-codes')  loadCommonCodes();
 }
 
@@ -3900,6 +3988,158 @@ async function ehDelete(id, name) {
   if (res.ok) await loadExtHoldings(false);
 }
 
+// ─── 리밸런싱 ────────────────────────────────────────
+let rbData = [];
+let rbAlertUp   = 30;
+let rbAlertDown = 25;
+
+async function loadRebalance() {
+  document.getElementById('rb-tbody').innerHTML =
+    '<tr><td colspan="9" class="loading">로딩 중...</td></tr>';
+  try {
+    const [dataRes, settRes] = await Promise.all([
+      fetch('/api/rebalance'),
+      fetch('/api/settings'),
+    ]);
+    const json    = await dataRes.json();
+    const settings = await settRes.json();
+
+    rbData      = json.holdings || [];
+    rbAlertUp   = json.alert_up   ?? 30;
+    rbAlertDown = json.alert_down ?? 25;
+
+    document.getElementById('rb-threshold-up').value   = rbAlertUp;
+    document.getElementById('rb-threshold-down').value = rbAlertDown;
+
+    rbUpdateSummary(json);
+    rbRender();
+  } catch(e) {
+    document.getElementById('rb-tbody').innerHTML =
+      '<tr><td colspan="9" style="text-align:center;color:#f87171;padding:32px">데이터 로드 실패</td></tr>';
+  }
+}
+
+function rbUpdateSummary(json) {
+  const total     = json.portfolio_total || 0;
+  const cash      = json.total_cash      || 0;
+  const targetSum = rbData.reduce((s, r) => s + (r.target_ratio || 0), 0);
+
+  document.getElementById('rb-portfolio').textContent = Math.round(total).toLocaleString() + '원';
+  document.getElementById('rb-portfolio-note').textContent =
+    `주식 ${(total - cash).toLocaleString()}원 + 예수금 ${cash.toLocaleString()}원`;
+
+  const targetSumEl = document.getElementById('rb-target-sum');
+  targetSumEl.textContent = targetSum.toFixed(1) + '%';
+  targetSumEl.style.color =
+    Math.abs(targetSum - 100) < 0.5 ? '#4ade80' :
+    targetSum > 100 ? '#f87171' : '#f59e0b';
+  document.getElementById('rb-target-sum-note').textContent =
+    Math.abs(targetSum - 100) < 0.5 ? '균형 잡힘' :
+    `${(targetSum - 100).toFixed(1)}pp ${targetSum > 100 ? '초과' : '부족'}`;
+
+  const alertCnt = rbData.filter(r => {
+    if (!r.target_ratio || r.deviation_rel === null) return false;
+    return r.deviation_rel > rbAlertUp || r.deviation_rel < -rbAlertDown;
+  }).length;
+  const unsetCnt = rbData.filter(r => !r.target_ratio).length;
+
+  const alertEl = document.getElementById('rb-alert-cnt');
+  alertEl.textContent = alertCnt;
+  alertEl.style.color = alertCnt > 0 ? '#f59e0b' : '#4ade80';
+  document.getElementById('rb-alert-note').textContent = alertCnt > 0 ? '즉시 검토 필요' : '이상 없음';
+  document.getElementById('rb-unset-cnt').textContent = unsetCnt;
+}
+
+function rbRender() {
+  const tbody = document.getElementById('rb-tbody');
+  if (!rbData.length) {
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:32px;color:#475569">보유종목 없음</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = rbData.map(r => {
+    const cur   = r.current_ratio;
+    const tgt   = r.target_ratio;
+    const relDev = r.deviation_rel;   // relative % (null if target=0)
+    const absDev = r.deviation_pp;    // absolute pp
+
+    // 편차 표시
+    let devStr = '-', devColor = '#64748b';
+    if (tgt > 0 && relDev !== null) {
+      const sign = relDev >= 0 ? '+' : '';
+      devStr = `${sign}${relDev.toFixed(1)}%<br><span style="font-size:10px;color:#64748b">${absDev >= 0 ? '+' : ''}${absDev.toFixed(2)}pp</span>`;
+      if (relDev > rbAlertUp)        devColor = '#f87171';
+      else if (relDev < -rbAlertDown) devColor = '#60a5fa';
+      else if (Math.abs(relDev) > rbAlertUp * 0.6) devColor = '#f59e0b';
+    }
+
+    // 신호
+    let signal = '', sigColor = '#64748b', sigBg = '';
+    if (tgt > 0 && relDev !== null) {
+      if      (relDev > rbAlertUp)        { signal = '차익실현 검토'; sigColor = '#f87171'; sigBg = 'background:rgba(248,113,113,0.1);'; }
+      else if (relDev < -rbAlertDown)     { signal = '추가매수 검토'; sigColor = '#60a5fa'; sigBg = 'background:rgba(96,165,250,0.1);'; }
+      else                                { signal = '정상 범위';   sigColor = '#4ade80'; }
+    } else if (!tgt) {
+      signal = '목표 미설정'; sigColor = '#64748b';
+    }
+
+    const curPriceStr = r.current_price != null
+      ? r.current_price.toLocaleString() + '원'
+      : '<span style="color:#475569">-</span>';
+
+    // 목표비율 인라인 편집 input
+    const targetInput = `<input type="number" class="rb-target-inp"
+      id="rb-inp-${r.stock_code}"
+      value="${tgt || ''}" placeholder="0" min="0" max="100" step="0.1"
+      style="width:58px;background:none;border:none;border-bottom:1px solid #1e2535;
+             color:#e2e8f0;font-size:13px;text-align:right;outline:none;padding:2px 4px"
+      onfocus="this.style.borderColor='#3b82f6'"
+      onblur="rbSaveTarget('${r.stock_code}',this)"
+      onkeydown="if(event.key==='Enter')this.blur()"/>
+    <span style="font-size:11px;color:#64748b">%</span>`;
+
+    return `<tr>
+      <td style="font-family:monospace;font-size:12px">${r.stock_code}</td>
+      <td style="font-weight:500">${r.stock_name || '-'}</td>
+      <td class="num">${Number(r.total_qty).toLocaleString()}</td>
+      <td class="num">${curPriceStr}</td>
+      <td class="num">${r.eval_amt.toLocaleString()}원${r.has_price ? '' : '<br><span style="font-size:10px;color:#64748b">매입가 기준</span>'}</td>
+      <td class="num" style="font-weight:500">${cur.toFixed(2)}%</td>
+      <td class="num">${targetInput}</td>
+      <td class="num" style="color:${devColor}">${devStr}</td>
+      <td class="center" style="${sigBg}padding:6px"><span style="color:${sigColor};font-size:12px;font-weight:500">${signal}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+async function rbSaveTarget(stockCode, inputEl) {
+  inputEl.style.borderColor = '#1e2535';
+  const val = parseFloat(inputEl.value) || 0;
+  inputEl.value = val || '';
+  await fetch('/api/rebalance/target', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ stock_code: stockCode, target_ratio: val }),
+  });
+  // 저장 후 전체 데이터 재로드해서 편차·신호 갱신
+  await loadRebalance();
+}
+
+async function rbSaveThresholds() {
+  rbAlertUp   = parseFloat(document.getElementById('rb-threshold-up').value)   || 30;
+  rbAlertDown = parseFloat(document.getElementById('rb-threshold-down').value) || 25;
+  await Promise.all([
+    fetch('/api/settings', { method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ key: 'rebalance_alert_up', value: String(rbAlertUp) }) }),
+    fetch('/api/settings', { method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ key: 'rebalance_alert_down', value: String(rbAlertDown) }) }),
+  ]);
+  rbRender();
+  // 카드 재계산
+  rbUpdateSummary({ portfolio_total: 0, total_cash: 0 }); // 재로드로 갱신
+  await loadRebalance();
+}
+
 // ─── 공통코드 관리 ────────────────────────────────────
 let ccCurrentGroup = 'BROKERAGE';
 let ccData = [];
@@ -4008,7 +4248,7 @@ async function ccDelete(id, name) {
 }
 
 // ─── 초기 로드 (해시 기반 페이지 복원) ───────────────────
-const PAGES = ['dashboard','supply','divergence','snapshot','signals','report','ext-holdings','price-mgmt','auditlog','stocks','batch','common-codes','usermgmt'];
+const PAGES = ['dashboard','supply','divergence','snapshot','signals','report','ext-holdings','price-mgmt','rebalance','auditlog','stocks','batch','common-codes','usermgmt'];
 // visible_menus 저장 시점 이전에 존재하던 페이지 목록
 const PAGES_V1 = ['dashboard','supply','signals','auditlog','stocks','batch','usermgmt'];
 
