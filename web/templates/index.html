@@ -459,6 +459,9 @@ canvas { max-height: 220px; }
         <div class="nav-item" data-page="ext-holdings" onclick="showPage('ext-holdings')">
           <span class="icon">🏦</span> 타사 보유종목
         </div>
+        <div class="nav-item" data-page="price-mgmt" onclick="showPage('price-mgmt')">
+          <span class="icon">💰</span> 현재가 관리
+        </div>
       </div>
     </div>
 
@@ -1150,6 +1153,74 @@ canvas { max-height: 220px; }
     </div>
   </section>
 
+  <!-- ===== 현재가 관리 페이지 ===== -->
+  <section id="page-price-mgmt" class="page">
+    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between">
+      <div>
+        <div class="page-title">현재가 관리</div>
+        <div class="page-sub">타사 보유종목의 최신 종가를 키움 API(일봉)로 동기화합니다</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span id="pm-sync-status" style="font-size:12px;color:#64748b"></span>
+        <button class="btn btn-primary" id="pm-sync-btn" onclick="pmStartSync()">⟳ 동기화</button>
+      </div>
+    </div>
+
+    <!-- 요약 카드 -->
+    <div class="cards" style="grid-template-columns:repeat(3,1fr)">
+      <div class="card">
+        <div class="card-label">대상 종목 수</div>
+        <div class="card-value blue" id="pm-total-cnt">-</div>
+      </div>
+      <div class="card">
+        <div class="card-label">가격 보유</div>
+        <div class="card-value green" id="pm-has-price">-</div>
+        <div class="card-note" id="pm-has-price-note"></div>
+      </div>
+      <div class="card">
+        <div class="card-label">가격 없음</div>
+        <div class="card-value orange" id="pm-no-price">-</div>
+        <div class="card-note" style="color:#64748b">동기화 필요</div>
+      </div>
+    </div>
+
+    <!-- 배치 로그 (실행 중일 때 표시) -->
+    <div id="pm-log-panel" class="panel" style="display:none;margin-bottom:20px">
+      <div class="panel-header">
+        <span>동기화 진행 로그</span>
+        <span id="pm-log-running" class="badge badge-success" style="display:none">실행 중</span>
+      </div>
+      <div id="pm-log-body"
+           style="padding:12px 16px;font-family:monospace;font-size:12px;color:#94a3b8;
+                  max-height:200px;overflow-y:auto;white-space:pre-wrap;background:#0a0e17"></div>
+    </div>
+
+    <!-- 종목별 현재가 테이블 -->
+    <div class="panel">
+      <div class="panel-header">
+        <span>종목별 현재가</span>
+        <span style="font-size:12px;color:#64748b" id="pm-last-sync"></span>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>종목코드</th>
+              <th>종목명</th>
+              <th style="text-align:right">현재가 (종가)</th>
+              <th style="text-align:center">기준일자</th>
+              <th style="text-align:center">최종업데이트</th>
+              <th style="text-align:center">상태</th>
+            </tr>
+          </thead>
+          <tbody id="pm-tbody">
+            <tr><td colspan="6" class="loading">로딩 중...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
   <!-- ===== 공통코드 관리 페이지 ===== -->
   <section id="page-common-codes" class="page">
     <div class="page-header">
@@ -1397,7 +1468,7 @@ const PAGE_TITLES = {
   dashboard:'대시보드', supply:'수급 현황', divergence:'수급↑ 가격↔',
   snapshot:'기간별 변화', signals:'매매 신호', report:'보유종목 리포트',
   auditlog:'감사 로그', stocks:'감시 종목', batch:'배치 관리', usermgmt:'사용자 관리',
-  'ext-holdings':'타사 보유종목', 'common-codes':'공통코드 관리',
+  'ext-holdings':'타사 보유종목', 'price-mgmt':'현재가 관리', 'common-codes':'공통코드 관리',
 };
 function toggleMobileDrawer() {
   const open = document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -1412,7 +1483,7 @@ function closeMobileDrawer() {
 const NAV_GROUP_MAP = {
   dashboard:'navg-analysis', supply:'navg-analysis', divergence:'navg-analysis',
   snapshot:'navg-analysis',  signals:'navg-analysis', report:'navg-analysis',
-  'ext-holdings':'navg-analysis',
+  'ext-holdings':'navg-analysis', 'price-mgmt':'navg-analysis',
   auditlog:'navg-system',    stocks:'navg-system',
   batch:'navg-admin',        'common-codes':'navg-admin', usermgmt:'navg-admin',
 };
@@ -1456,6 +1527,7 @@ function showPage(name, fromHash) {
   if (name === 'report')        loadReportPage();
   if (name === 'usermgmt')      loadUserMgmt();
   if (name === 'ext-holdings')  loadExtHoldings();
+  if (name === 'price-mgmt')    loadPriceMgmt();
   if (name === 'common-codes')  loadCommonCodes();
 }
 
@@ -3013,6 +3085,7 @@ const MENU_META = {
   signals:       { label: '매매 신호',       icon: '📈', section: '분석' },
   report:        { label: '보유종목 리포트', icon: '📧', section: '분석' },
   'ext-holdings': { label: '타사 보유종목',  icon: '🏦', section: '분석' },
+  'price-mgmt':   { label: '현재가 관리',    icon: '💰', section: '분석' },
   auditlog:       { label: '감사 로그',      icon: '📋', section: '시스템' },
   stocks:     { label: '감시 종목',       icon: '🔭', section: '시스템' },
   batch:           { label: '배치 관리',    icon: '⚙️', section: '관리' },
@@ -3294,6 +3367,127 @@ async function saveCredentials() {
   msg.style.color = '#4ade80';
   msg.textContent = '✓ 저장되었습니다';
   setTimeout(() => { closeCredModal(); renderPermMatrix(); }, 800);
+}
+
+// ─── 현재가 관리 ──────────────────────────────────────
+let pmPollTimer = null;
+
+async function loadPriceMgmt() {
+  const res  = await fetch('/api/price_sync/stocks');
+  const rows = await res.json();
+  pmRenderSummary(rows);
+  pmRenderTable(rows);
+  await pmCheckRunning();
+}
+
+function pmRenderSummary(rows) {
+  const total    = rows.length;
+  const hasPrice = rows.filter(r => r.current_price != null).length;
+  const noPrice  = total - hasPrice;
+  document.getElementById('pm-total-cnt').textContent   = total;
+  document.getElementById('pm-has-price').textContent   = hasPrice;
+  document.getElementById('pm-no-price').textContent    = noPrice;
+  document.getElementById('pm-has-price-note').textContent = total > 0
+    ? `${Math.round(hasPrice / total * 100)}% 확보` : '';
+  // 최종 업데이트 시각
+  const dates = rows.filter(r => r.fetched_at).map(r => r.fetched_at).sort().reverse();
+  document.getElementById('pm-last-sync').textContent   = dates.length
+    ? `최종 동기화: ${dates[0]}` : '동기화 이력 없음';
+}
+
+function pmRenderTable(rows) {
+  const tbody = document.getElementById('pm-tbody');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:32px;color:#475569">타사 보유종목을 먼저 등록해주세요.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    const hasP   = r.current_price != null;
+    const badge  = hasP
+      ? `<span class="badge badge-success">정상</span>`
+      : `<span class="badge badge-fail">없음</span>`;
+    return `<tr>
+      <td style="font-family:monospace;font-size:12px;color:#60a5fa">${r.stock_code}</td>
+      <td style="font-weight:500">${r.stock_name || '-'}</td>
+      <td class="num">${hasP ? r.current_price.toLocaleString() + '원' : '<span style="color:#475569">-</span>'}</td>
+      <td class="center" style="font-size:12px;color:#64748b">${r.price_date || '-'}</td>
+      <td class="center" style="font-size:12px;color:#64748b">${r.fetched_at || '-'}</td>
+      <td class="center">${badge}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function pmCheckRunning() {
+  try {
+    const res  = await fetch('/api/batch');
+    const jobs = await res.json();
+    const job  = jobs.find(j => j.id === 'sync_prices');
+    if (!job) return;
+    const running = job.running;
+    document.getElementById('pm-sync-btn').disabled = running;
+    document.getElementById('pm-sync-btn').textContent = running ? '⟳ 실행 중...' : '⟳ 동기화';
+    document.getElementById('pm-sync-status').textContent = running ? '동기화 중...' : '';
+    if (running) {
+      pmShowLog(job.last_line);
+      if (!pmPollTimer) pmPollTimer = setInterval(pmPoll, 3000);
+    } else {
+      if (pmPollTimer) { clearInterval(pmPollTimer); pmPollTimer = null; }
+    }
+  } catch(e) {}
+}
+
+function pmShowLog(lastLine) {
+  const panel = document.getElementById('pm-log-panel');
+  const body  = document.getElementById('pm-log-body');
+  panel.style.display = 'block';
+  if (lastLine) body.textContent = lastLine;
+}
+
+async function pmPoll() {
+  try {
+    const [bRes, lRes] = await Promise.all([
+      fetch('/api/batch'),
+      fetch('/api/batch/sync_prices/logs'),
+    ]);
+    const jobs = await bRes.json();
+    const job  = jobs.find(j => j.id === 'sync_prices');
+    const logs = await lRes.json();
+
+    const body = document.getElementById('pm-log-body');
+    body.textContent = logs.slice(-30).join('\n');
+    body.scrollTop   = body.scrollHeight;
+
+    if (job && !job.running) {
+      clearInterval(pmPollTimer); pmPollTimer = null;
+      document.getElementById('pm-sync-btn').disabled = false;
+      document.getElementById('pm-sync-btn').textContent = '⟳ 동기화';
+      document.getElementById('pm-sync-status').textContent = '동기화 완료';
+      setTimeout(() => document.getElementById('pm-sync-status').textContent = '', 3000);
+      await loadPriceMgmt();
+    }
+  } catch(e) {}
+}
+
+async function pmStartSync() {
+  const btn = document.getElementById('pm-sync-btn');
+  btn.disabled = true; btn.textContent = '⟳ 시작 중...';
+  try {
+    const res  = await fetch('/api/batch/sync_prices/start', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.error || '동기화 시작 실패');
+      btn.disabled = false; btn.textContent = '⟳ 동기화';
+      return;
+    }
+    document.getElementById('pm-log-panel').style.display = 'block';
+    document.getElementById('pm-log-body').textContent    = '동기화 시작...';
+    document.getElementById('pm-sync-status').textContent = '동기화 중...';
+    btn.textContent = '⟳ 실행 중...';
+    if (!pmPollTimer) pmPollTimer = setInterval(pmPoll, 3000);
+  } catch(e) {
+    alert('오류: ' + e.message);
+    btn.disabled = false; btn.textContent = '⟳ 동기화';
+  }
 }
 
 // ─── 타사 보유종목 ─────────────────────────────────────
@@ -3701,7 +3895,7 @@ async function ccDelete(id, name) {
 }
 
 // ─── 초기 로드 (해시 기반 페이지 복원) ───────────────────
-const PAGES = ['dashboard','supply','divergence','snapshot','signals','report','ext-holdings','auditlog','stocks','batch','common-codes','usermgmt'];
+const PAGES = ['dashboard','supply','divergence','snapshot','signals','report','ext-holdings','price-mgmt','auditlog','stocks','batch','common-codes','usermgmt'];
 // visible_menus 저장 시점 이전에 존재하던 페이지 목록
 const PAGES_V1 = ['dashboard','supply','signals','auditlog','stocks','batch','usermgmt'];
 

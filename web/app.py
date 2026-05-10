@@ -184,6 +184,13 @@ BATCH_JOBS = {
         "cmd": "python -u scripts/holdings_report.py --send",
         "log_prefix": "holdings_report",
     },
+    "sync_prices": {
+        "name": "현재가 동기화",
+        "desc": "타사 보유종목 최신 종가를 키움 API(ka10081)로 조회하여 DB 업데이트",
+        "match": "scripts/sync_prices",
+        "cmd": "python -u scripts/sync_prices.py",
+        "log_prefix": "sync_prices",
+    },
 }
 
 
@@ -852,11 +859,48 @@ def api_manual_holdings_delete(hid: int):
     return jsonify({"ok": True})
 
 
+@app.route("/api/price_sync/stocks")
+def api_price_sync_stocks():
+    """타사 보유종목 현재가 현황 (현재가 관리 화면용)."""
+    rows = query("""
+        WITH holdings AS (
+            SELECT stock_code, MAX(stock_name) AS stock_name
+            FROM manual_holdings
+            GROUP BY stock_code
+        ),
+        latest_close AS (
+            SELECT DISTINCT ON (stock_code)
+                stock_code, close_price, date AS price_date
+            FROM supply_demand
+            WHERE close_price IS NOT NULL AND close_price > 0
+            ORDER BY stock_code, date DESC
+        )
+        SELECT
+            h.stock_code,
+            h.stock_name,
+            COALESCE(
+                lc.close_price,
+                CASE WHEN st.last_price ~ '^[0-9]+$' THEN st.last_price::BIGINT ELSE NULL END
+            ) AS current_price,
+            lc.price_date,
+            st.fetched_at AT TIME ZONE 'Asia/Seoul' AS fetched_at
+        FROM holdings h
+        LEFT JOIN latest_close lc ON lc.stock_code = h.stock_code
+        LEFT JOIN stocks st ON st.stock_code = h.stock_code
+        ORDER BY h.stock_code
+    """)
+    for r in rows:
+        r["current_price"] = int(r["current_price"]) if r["current_price"] is not None else None
+        r["price_date"]    = r["price_date"].strftime("%Y-%m-%d") if r["price_date"] else None
+        r["fetched_at"]    = r["fetched_at"].strftime("%Y-%m-%d %H:%M") if r["fetched_at"] else None
+    return jsonify(rows)
+
+
 # ---------------------------------------------------------------------------
 # API — 사용자 관리
 # ---------------------------------------------------------------------------
 
-ALL_MENUS = ["dashboard", "supply", "divergence", "signals", "report", "ext-holdings", "auditlog", "stocks", "batch", "common-codes", "usermgmt"]
+ALL_MENUS = ["dashboard", "supply", "divergence", "signals", "report", "ext-holdings", "price-mgmt", "auditlog", "stocks", "batch", "common-codes", "usermgmt"]
 
 @app.route("/api/users")
 def api_users():
