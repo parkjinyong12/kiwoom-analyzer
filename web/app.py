@@ -1398,6 +1398,58 @@ def api_macro_rates_delete(mid):
     return jsonify({"ok": True})
 
 
+# 네이버 금융에서 자동 조회 가능한 키 → reuters 코드 매핑
+_NAVER_REUTERS_MAP: dict[str, str] = {
+    "USD_KRW": "FX_USDKRW",
+    "EUR_KRW": "FX_EURKRW",
+    "JPY_KRW": "FX_JPYKRW",
+    "CNY_KRW": "FX_CNYKRW",
+    "GBP_KRW": "FX_GBPKRW",
+}
+
+
+@app.route("/api/macro_rates/<int:mid>/sync_naver", methods=["POST"])
+def api_macro_rates_sync_naver(mid):
+    """네이버 금융에서 환율을 조회해 macro_rates 값 업데이트."""
+    row = query_one("SELECT key FROM macro_rates WHERE id = %s", (mid,))
+    if not row:
+        return jsonify({"error": "지표 없음"}), 404
+
+    key = row["key"]
+    reuters_code = _NAVER_REUTERS_MAP.get(key)
+    if not reuters_code:
+        return jsonify({"error": f"'{key}'는 네이버 자동 동기화를 지원하지 않습니다"}), 400
+
+    try:
+        import requests as _req
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+            "Referer": f"https://stock.naver.com/marketindex/exchange/{reuters_code}/price",
+        }
+        resp = _req.get(
+            f"https://api.stock.naver.com/marketindex/{reuters_code}/basic",
+            headers=headers,
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        close_price = float(str(data["closePrice"]).replace(",", ""))
+    except Exception as e:
+        logging.exception("네이버 환율 조회 실패: %s", key)
+        return jsonify({"error": f"네이버 조회 실패: {e}"}), 502
+
+    with get_conn() as conn:
+        conn.cursor().execute(
+            "UPDATE macro_rates SET value = %s, updated_at = NOW() WHERE id = %s",
+            (close_price, mid),
+        )
+    return jsonify({"ok": True, "value": close_price, "key": key})
+
+
 # ---------------------------------------------------------------------------
 # API — 현금성 자산 관리
 # ---------------------------------------------------------------------------

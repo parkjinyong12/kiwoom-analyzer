@@ -5802,13 +5802,21 @@ async function loadMacro() {
   macroRender();
 }
 
+const MACRO_NAVER_KEYS = new Set(['USD_KRW','EUR_KRW','JPY_KRW','CNY_KRW','GBP_KRW']);
+
 function macroRender() {
   const tbody = document.getElementById('macro-tbody');
   if (!macroData.length) {
     tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:32px;color:#475569">등록된 지표 없음</td></tr>';
     return;
   }
-  tbody.innerHTML = macroData.map(r => `<tr>
+  tbody.innerHTML = macroData.map(r => {
+    const canSync = MACRO_NAVER_KEYS.has(r.key);
+    const syncBtn = canSync
+      ? `<button class="btn" style="font-size:11px;padding:3px 8px;background:#0c2d1a;color:#4ade80;border:1px solid #166534;margin-right:4px"
+                 onclick="macroSyncNaver(${r.id},'${r.key}',this)" title="네이버 금융에서 최신 환율 가져오기">동기화</button>`
+      : '';
+    return `<tr>
     <td style="font-family:monospace;font-size:12px;color:#60a5fa">${r.key}</td>
     <td style="font-weight:500">${r.name}</td>
     <td class="num">
@@ -5822,10 +5830,28 @@ function macroRender() {
     <td style="color:#64748b;font-size:12px">${r.unit || '-'}</td>
     <td class="center" style="font-size:11px;color:#64748b;white-space:nowrap">${r.updated_at || '-'}</td>
     <td class="center">
-      <button class="btn btn-danger" style="font-size:11px;padding:3px 8px"
+      ${syncBtn}<button class="btn btn-danger" style="font-size:11px;padding:3px 8px"
               onclick="macroDelete(${r.id},'${r.name.replace(/'/g,"\\'")}')">삭제</button>
     </td>
-  </tr>`).join('');
+  </tr>`;
+  }).join('');
+}
+
+async function macroSyncNaver(id, key, btn) {
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '조회 중...';
+  try {
+    const res = await fetch(`/api/macro_rates/${id}/sync_naver`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) { alert(data.error || '동기화 실패'); return; }
+    await loadMacro();
+  } catch(e) {
+    alert('네트워크 오류: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = orig;
+  }
 }
 
 async function macroSaveValue(id, inputEl) {
