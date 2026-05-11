@@ -465,6 +465,9 @@ canvas { max-height: 220px; }
         <div class="nav-item" data-page="cash-assets" onclick="showPage('cash-assets')">
           <span class="icon">💵</span> 현금성 자산
         </div>
+        <div class="nav-item" data-page="macro" onclick="showPage('macro')">
+          <span class="icon">📊</span> 매크로 관리
+        </div>
         <div class="nav-item" data-page="rebalance" onclick="showPage('rebalance')">
           <span class="icon">⚖️</span> 리밸런싱
         </div>
@@ -1404,6 +1407,7 @@ canvas { max-height: 220px; }
       </div>
       <div style="display:flex;gap:8px">
         <button class="btn btn-primary" style="font-size:12px" onclick="caOpenModal()">+ 자산 추가</button>
+        <button class="btn btn-ghost"   style="font-size:12px" onclick="caSyncAll(event)">🔄 전체 동기화</button>
         <button class="btn btn-ghost"   style="font-size:12px" onclick="loadCashAssets()">새로고침</button>
       </div>
     </div>
@@ -1441,13 +1445,14 @@ canvas { max-height: 220px; }
         <table class="data-table">
           <thead>
             <tr>
-              <th>자산명</th>
+              <th>자산명 / 연동</th>
               <th style="text-align:right">수량</th>
               <th style="text-align:right">단가(원)</th>
               <th style="text-align:right">평가금액(원)</th>
               <th style="text-align:right">비중</th>
               <th>메모</th>
               <th style="text-align:center">최근수정</th>
+              <th style="text-align:center">동기화</th>
               <th style="text-align:center">관리</th>
             </tr>
           </thead>
@@ -1461,7 +1466,7 @@ canvas { max-height: 220px; }
 
   <!-- 현금성 자산 추가/수정 모달 -->
   <div class="modal-overlay" id="ca-modal">
-    <div class="modal" style="width:420px">
+    <div class="modal" style="width:460px">
       <h3 id="ca-modal-title">현금성 자산 추가</h3>
       <input type="hidden" id="ca-modal-id"/>
       <div style="display:grid;gap:14px;margin-top:8px">
@@ -1470,23 +1475,51 @@ canvas { max-height: 220px; }
           <input type="text" id="ca-modal-name" placeholder="예: 현금, 달러, 금현물ETF, CD ETF" maxlength="100"
                  style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
         </div>
+
+        <!-- 가격 연동 설정 -->
+        <div style="background:#0a0f1a;border-radius:8px;padding:12px;border:1px solid #1e2535">
+          <div style="font-size:12px;color:#94a3b8;margin-bottom:8px;font-weight:600">가격 연동</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;color:#e2e8f0">
+              <input type="radio" name="ca-link-type" value="none" checked onchange="caOnLinkTypeChange()"/> 직접입력
+            </label>
+            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;color:#60a5fa">
+              <input type="radio" name="ca-link-type" value="stock" onchange="caOnLinkTypeChange()"/> 종목(ETF) 연동
+            </label>
+            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;color:#f59e0b">
+              <input type="radio" name="ca-link-type" value="macro" onchange="caOnLinkTypeChange()"/> 매크로 연동
+            </label>
+          </div>
+          <div id="ca-link-stock" style="display:none">
+            <div style="font-size:11px;color:#64748b;margin-bottom:4px">종목코드 (supply_demand에 등록된 ETF)</div>
+            <input type="text" id="ca-modal-stock-code" placeholder="예: 473130 (금현물ETF)" maxlength="20"
+                   style="width:100%;padding:7px 10px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#60a5fa;font-size:13px;outline:none;font-family:monospace"/>
+          </div>
+          <div id="ca-link-macro" style="display:none">
+            <div style="font-size:11px;color:#64748b;margin-bottom:4px">매크로 지표</div>
+            <select id="ca-modal-macro-key"
+                    style="width:100%;padding:7px 10px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#f59e0b;font-size:13px;outline:none">
+            </select>
+          </div>
+        </div>
+
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
           <div>
-            <div style="font-size:12px;color:#64748b;margin-bottom:4px">수량 <span style="font-size:10px">(선택)</span></div>
+            <div style="font-size:12px;color:#64748b;margin-bottom:4px">수량</div>
             <input type="number" id="ca-modal-qty" placeholder="예: 1000" step="any" min="0"
                    style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"
                    oninput="caAutoCalc()"/>
           </div>
           <div>
-            <div style="font-size:12px;color:#64748b;margin-bottom:4px">단가(원) <span style="font-size:10px">(선택)</span></div>
-            <input type="number" id="ca-modal-price" placeholder="예: 1380" step="1" min="0"
+            <div style="font-size:12px;color:#64748b;margin-bottom:4px">단가(원) <span style="font-size:10px" id="ca-price-hint"></span></div>
+            <input type="number" id="ca-modal-price" placeholder="자동(동기화 후 업데이트)" step="1" min="0"
                    style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"
                    oninput="caAutoCalc()"/>
           </div>
         </div>
         <div>
           <div style="font-size:12px;color:#64748b;margin-bottom:4px">
-            평가금액(원) <span style="font-size:10px" id="ca-amount-hint" style="color:#60a5fa"></span>
+            평가금액(원) <span style="font-size:10px;color:#60a5fa" id="ca-amount-hint"></span>
           </div>
           <input type="number" id="ca-modal-amount" placeholder="예: 5000000" step="1" min="0"
                  style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
@@ -1501,6 +1534,78 @@ canvas { max-height: 220px; }
       <div class="modal-actions">
         <button class="btn btn-ghost" onclick="caCloseModal()">취소</button>
         <button class="btn btn-primary" onclick="caSave()">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 매크로 관리 페이지 ===== -->
+  <section id="page-macro" class="page">
+    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
+      <div>
+        <div class="page-title">매크로 관리</div>
+        <div class="page-sub">환율, 금리 등 매크로 지표 수동 입력 — 현금성 자산 가격 연동에 사용</div>
+      </div>
+      <button class="btn btn-primary" style="font-size:12px" onclick="macroOpenAdd()">+ 지표 추가</button>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <span>매크로 지표 목록</span>
+        <span style="font-size:11px;color:#64748b">값 클릭 시 바로 수정 가능</span>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>키(코드)</th>
+              <th>지표명</th>
+              <th style="text-align:right">현재 값</th>
+              <th>단위</th>
+              <th style="text-align:center">최근수정</th>
+              <th style="text-align:center">관리</th>
+            </tr>
+          </thead>
+          <tbody id="macro-tbody">
+            <tr><td colspan="6" class="loading">로딩 중...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- 매크로 지표 추가 모달 -->
+  <div class="modal-overlay" id="macro-add-modal">
+    <div class="modal" style="width:380px">
+      <h3>매크로 지표 추가</h3>
+      <div style="display:grid;gap:12px;margin-top:8px">
+        <div>
+          <div style="font-size:12px;color:#64748b;margin-bottom:4px">키(코드) <span style="color:#f87171">*</span></div>
+          <input type="text" id="macro-add-key" placeholder="예: USD_KRW, EUR_KRW" maxlength="50"
+                 style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none;text-transform:uppercase"
+                 oninput="this.value=this.value.toUpperCase().replace(/ /g,'_')"/>
+        </div>
+        <div>
+          <div style="font-size:12px;color:#64748b;margin-bottom:4px">지표명 <span style="color:#f87171">*</span></div>
+          <input type="text" id="macro-add-name" placeholder="예: 달러/원 환율" maxlength="100"
+                 style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div>
+            <div style="font-size:12px;color:#64748b;margin-bottom:4px">현재 값</div>
+            <input type="number" id="macro-add-value" placeholder="예: 1380.50" step="any"
+                   style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
+          </div>
+          <div>
+            <div style="font-size:12px;color:#64748b;margin-bottom:4px">단위</div>
+            <input type="text" id="macro-add-unit" placeholder="예: 원/달러" maxlength="30"
+                   style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
+          </div>
+        </div>
+        <div id="macro-add-err" style="color:#f87171;font-size:12px;display:none"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="macroCloseAdd()">취소</button>
+        <button class="btn btn-primary" onclick="macroSaveAdd()">추가</button>
       </div>
     </div>
   </div>
@@ -1964,7 +2069,7 @@ const PAGE_TITLES = {
   dashboard:'대시보드', supply:'수급 현황', divergence:'수급↑ 가격↔',
   snapshot:'기간별 변화', signals:'매매 신호', report:'보유종목 리포트',
   auditlog:'감사 로그', stocks:'감시 종목', batch:'배치 관리', usermgmt:'사용자 관리',
-  'ext-holdings':'보유종목', 'price-mgmt':'현재가 관리', 'cash-assets':'현금성 자산', 'common-codes':'공통코드 관리',
+  'ext-holdings':'보유종목', 'price-mgmt':'현재가 관리', 'cash-assets':'현금성 자산', macro:'매크로 관리', 'common-codes':'공통코드 관리',
 };
 function toggleMobileDrawer() {
   const open = document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -1980,7 +2085,7 @@ const NAV_GROUP_MAP = {
   dashboard:'navg-analysis', supply:'navg-analysis', divergence:'navg-analysis',
   snapshot:'navg-analysis',  signals:'navg-analysis', report:'navg-analysis',
   'ext-holdings':'navg-analysis', 'price-mgmt':'navg-analysis',
-  'cash-assets':'navg-analysis',
+  'cash-assets':'navg-analysis', macro:'navg-analysis',
   rebalance:'navg-analysis',     'theme-rebalance':'navg-analysis', qualitative:'navg-analysis',
   auditlog:'navg-system',    stocks:'navg-system',
   batch:'navg-admin',        'common-codes':'navg-admin', usermgmt:'navg-admin',
@@ -2027,6 +2132,7 @@ function showPage(name, fromHash) {
   if (name === 'ext-holdings')  loadExtHoldings();
   if (name === 'price-mgmt')    loadPriceMgmt();
   if (name === 'cash-assets')   loadCashAssets();
+  if (name === 'macro')         loadMacro();
   if (name === 'rebalance')        loadRebalance();
   if (name === 'theme-rebalance')  loadThemeRebalance();
   if (name === 'qualitative')      loadQualitative();
@@ -3589,6 +3695,7 @@ const MENU_META = {
   'ext-holdings': { label: '보유종목',        icon: '🏦', section: '분석' },
   'price-mgmt':   { label: '현재가 관리',    icon: '💰', section: '분석' },
   'cash-assets':  { label: '현금성 자산',    icon: '💵', section: '분석' },
+  macro:          { label: '매크로 관리',    icon: '📊', section: '분석' },
   auditlog:       { label: '감사 로그',      icon: '📋', section: '시스템' },
   stocks:     { label: '감시 종목',       icon: '🔭', section: '시스템' },
   batch:           { label: '배치 관리',    icon: '⚙️', section: '관리' },
@@ -5346,24 +5453,27 @@ async function qaDeleteItem(id, name) {
 }
 
 // ─── 현금성 자산 ─────────────────────────────────────
-let caData = { items: [], total: 0 };
+let caData      = { items: [], total: 0 };
+let caMacroList = [];   // 매크로 지표 목록 (연동 드롭다운용)
 
 async function loadCashAssets() {
   document.getElementById('ca-tbody').innerHTML =
-    '<tr><td colspan="8" class="loading">로딩 중...</td></tr>';
+    '<tr><td colspan="9" class="loading">로딩 중...</td></tr>';
   try {
-    const [caRes, rbRes] = await Promise.all([
+    const [caRes, rbRes, macroRes] = await Promise.all([
       fetch('/api/cash_assets'),
       fetch('/api/rebalance'),
+      fetch('/api/macro_rates'),
     ]);
-    caData = await caRes.json();
+    caData      = await caRes.json();
+    caMacroList = await macroRes.json();
     const rb   = await rbRes.json();
     const stockTotal = (rb.portfolio_total || 0) - (rb.total_cash || 0);
     caRenderSummary(stockTotal);
     caRenderTable();
   } catch(e) {
     document.getElementById('ca-tbody').innerHTML =
-      '<tr><td colspan="8" style="text-align:center;color:#f87171;padding:32px">로드 실패</td></tr>';
+      '<tr><td colspan="9" style="text-align:center;color:#f87171;padding:32px">로드 실패</td></tr>';
   }
 }
 
@@ -5373,15 +5483,13 @@ function caRenderSummary(stockTotal) {
   const ratio = stockTotal > 0 ? total / (stockTotal + total) * 100 : 0;
 
   document.getElementById('ca-total').textContent = total.toLocaleString() + '원';
-  document.getElementById('ca-total-note').textContent =
-    cnt ? `${cnt}개 자산 합산` : '자산 없음';
+  document.getElementById('ca-total-note').textContent = cnt ? `${cnt}개 자산 합산` : '자산 없음';
   document.getElementById('ca-count').textContent = cnt;
 
   const ratioEl = document.getElementById('ca-ratio');
   ratioEl.textContent = ratio.toFixed(1) + '%';
   ratioEl.style.color = ratio > 40 ? '#f87171' : ratio > 20 ? '#f59e0b' : '#60a5fa';
-  document.getElementById('ca-ratio-note').textContent =
-    `주식 ${stockTotal.toLocaleString()}원 대비`;
+  document.getElementById('ca-ratio-note').textContent = `주식 ${stockTotal.toLocaleString()}원 대비`;
 
   const sorted = [...(caData.items || [])].sort((a, b) =>
     (b.updated_at || '').localeCompare(a.updated_at || ''));
@@ -5390,29 +5498,41 @@ function caRenderSummary(stockTotal) {
   document.getElementById('ca-recent-note').textContent = recent ? recent.updated_at : '-';
 }
 
+function caLinkBadge(r) {
+  if (r.link_type === 'stock') return `<span style="font-size:10px;background:#1e3a5f;color:#60a5fa;padding:1px 6px;border-radius:8px">ETF ${r.link_key}</span>`;
+  if (r.link_type === 'macro') return `<span style="font-size:10px;background:#3a2a00;color:#f59e0b;padding:1px 6px;border-radius:8px">매크로 ${r.link_key}</span>`;
+  return '';
+}
+
 function caRenderTable() {
   const tbody = document.getElementById('ca-tbody');
   const items = caData.items || [];
   const total = caData.total || 0;
 
   if (!items.length) {
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:40px;color:#475569">' +
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:40px;color:#475569">' +
       '등록된 자산이 없습니다. <button class="btn btn-primary" style="font-size:12px;margin-left:8px" onclick="caOpenModal()">+ 자산 추가</button></td></tr>';
     return;
   }
 
   tbody.innerHTML = items.map(r => {
-    const pct  = total > 0 ? (r.amount / total * 100).toFixed(1) : '-';
+    const pct      = total > 0 ? (r.amount / total * 100).toFixed(1) : '-';
     const qtyStr   = r.quantity   != null ? Number(r.quantity).toLocaleString(undefined, {maximumFractionDigits:4}) : '-';
     const priceStr = r.unit_price != null ? r.unit_price.toLocaleString() + '원' : '-';
+    const hasLink  = r.link_type !== 'none' && r.link_key;
+    const syncBtn  = hasLink
+      ? `<button class="btn btn-ghost" style="font-size:11px;padding:2px 6px;margin-right:2px"
+                 onclick="caSync(${r.id})">🔄</button>`
+      : '';
     return `<tr>
-      <td style="font-weight:600">${r.name}</td>
+      <td style="font-weight:600">${r.name}<br>${caLinkBadge(r)}</td>
       <td class="num" style="color:#94a3b8">${qtyStr}</td>
       <td class="num" style="color:#94a3b8">${priceStr}</td>
       <td class="num" style="font-weight:600">${r.amount.toLocaleString()}원</td>
       <td class="num" style="color:#f59e0b">${pct}%</td>
-      <td style="font-size:11px;color:#64748b;max-width:150px">${r.note || '-'}</td>
+      <td style="font-size:11px;color:#64748b;max-width:120px">${r.note || '-'}</td>
       <td class="center" style="font-size:11px;color:#64748b;white-space:nowrap">${r.updated_at || '-'}</td>
+      <td class="center">${syncBtn}</td>
       <td class="center">
         <button class="btn btn-ghost" style="font-size:11px;padding:3px 8px;margin-right:3px"
                 onclick="caOpenModal(${r.id})">수정</button>
@@ -5424,8 +5544,35 @@ function caRenderTable() {
     <td colspan="3" style="font-weight:600;color:#94a3b8;padding:10px 12px">합계</td>
     <td class="num" style="font-weight:700;color:#60a5fa;font-size:15px">${total.toLocaleString()}원</td>
     <td class="num" style="font-weight:600;color:#f59e0b">100%</td>
-    <td colspan="3"></td>
+    <td colspan="4"></td>
   </tr>`;
+}
+
+async function caSync(id) {
+  const res  = await fetch(`/api/cash_assets/${id}/sync`, { method: 'POST' });
+  const data = await res.json();
+  if (!res.ok) { alert(data.error || '동기화 실패'); return; }
+  await loadCashAssets();
+}
+
+async function caSyncAll() {
+  const btn = event.target;
+  btn.disabled = true; btn.textContent = '동기화 중...';
+  const res  = await fetch('/api/cash_assets/sync_all', { method: 'POST' });
+  const data = await res.json();
+  btn.disabled = false; btn.textContent = '🔄 전체 동기화';
+  if (data.ok) alert(`동기화 완료: ${data.updated}개 성공, ${data.failed}개 실패`);
+  await loadCashAssets();
+}
+
+function caOnLinkTypeChange() {
+  const lt = document.querySelector('input[name="ca-link-type"]:checked')?.value || 'none';
+  document.getElementById('ca-link-stock').style.display = lt === 'stock' ? 'block' : 'none';
+  document.getElementById('ca-link-macro').style.display = lt === 'macro' ? 'block' : 'none';
+  const hint = document.getElementById('ca-price-hint');
+  if (lt === 'none')  hint.textContent = '';
+  if (lt === 'stock') hint.textContent = '(동기화 후 자동 업데이트)';
+  if (lt === 'macro') hint.textContent = '(동기화 후 자동 업데이트)';
 }
 
 function caAutoCalc() {
@@ -5434,41 +5581,56 @@ function caAutoCalc() {
   const hint  = document.getElementById('ca-amount-hint');
   const amtEl = document.getElementById('ca-modal-amount');
   if (!isNaN(qty) && !isNaN(price) && qty > 0 && price > 0) {
-    const computed = Math.round(qty * price);
-    amtEl.value = computed;
+    amtEl.value = Math.round(qty * price);
     amtEl.style.color = '#60a5fa';
     hint.textContent = '수량 × 단가 자동 계산';
-    hint.style.color = '#60a5fa';
   } else {
     amtEl.style.color = '#e2e8f0';
     hint.textContent = '';
   }
 }
 
+function caPopulateMacroSelect() {
+  const sel = document.getElementById('ca-modal-macro-key');
+  sel.innerHTML = caMacroList.map(m =>
+    `<option value="${m.key}">${m.name} (${m.key})</option>`
+  ).join('') || '<option value="">매크로 지표 없음</option>';
+}
+
 function caOpenModal(id) {
   const modal = document.getElementById('ca-modal');
   document.getElementById('ca-modal-err').style.display = 'none';
+  caPopulateMacroSelect();
   if (id) {
     const item = (caData.items || []).find(r => r.id === id);
     if (!item) return;
-    document.getElementById('ca-modal-title').textContent  = '현금성 자산 수정';
+    document.getElementById('ca-modal-title').textContent = '현금성 자산 수정';
     document.getElementById('ca-modal-id').value          = id;
     document.getElementById('ca-modal-name').value        = item.name;
-    document.getElementById('ca-modal-qty').value         = item.quantity  ?? '';
+    document.getElementById('ca-modal-qty').value         = item.quantity   ?? '';
     document.getElementById('ca-modal-price').value       = item.unit_price ?? '';
     document.getElementById('ca-modal-amount').value      = item.amount;
     document.getElementById('ca-modal-note').value        = item.note || '';
+    // link type
+    const lt = item.link_type || 'none';
+    document.querySelector(`input[name="ca-link-type"][value="${lt}"]`).checked = true;
+    document.getElementById('ca-modal-stock-code').value = lt === 'stock' ? item.link_key : '';
+    if (lt === 'macro') document.getElementById('ca-modal-macro-key').value = item.link_key;
+    caOnLinkTypeChange();
     caAutoCalc();
   } else {
-    document.getElementById('ca-modal-title').textContent  = '현금성 자산 추가';
+    document.getElementById('ca-modal-title').textContent = '현금성 자산 추가';
     document.getElementById('ca-modal-id').value          = '';
     document.getElementById('ca-modal-name').value        = '';
     document.getElementById('ca-modal-qty').value         = '';
     document.getElementById('ca-modal-price').value       = '';
     document.getElementById('ca-modal-amount').value      = '';
     document.getElementById('ca-modal-note').value        = '';
+    document.querySelector('input[name="ca-link-type"][value="none"]').checked = true;
+    document.getElementById('ca-modal-stock-code').value = '';
     document.getElementById('ca-amount-hint').textContent = '';
     document.getElementById('ca-modal-amount').style.color = '#e2e8f0';
+    caOnLinkTypeChange();
   }
   modal.style.display = 'flex';
   document.getElementById('ca-modal-name').focus();
@@ -5487,22 +5649,28 @@ async function caSave() {
   const price = document.getElementById('ca-modal-price').value;
   const amt   = document.getElementById('ca-modal-amount').value;
   const note  = document.getElementById('ca-modal-note').value.trim();
+  const lt    = document.querySelector('input[name="ca-link-type"]:checked')?.value || 'none';
+  const lk    = lt === 'stock' ? document.getElementById('ca-modal-stock-code').value.trim()
+              : lt === 'macro' ? document.getElementById('ca-modal-macro-key').value
+              : '';
 
   if (!name) { errEl.textContent = '자산명을 입력해주세요'; errEl.style.display = 'block'; return; }
+  if (lt === 'stock' && !lk) { errEl.textContent = '종목코드를 입력해주세요'; errEl.style.display = 'block'; return; }
+  if (lt === 'macro' && !lk) { errEl.textContent = '매크로 지표를 선택해주세요'; errEl.style.display = 'block'; return; }
+
   const payload = {
     name,
     quantity:   qty   !== '' ? parseFloat(qty)   : null,
     unit_price: price !== '' ? parseInt(price)   : null,
     amount:     amt   !== '' ? parseInt(amt.toString().replace(/,/g,'')) : 0,
+    link_type:  lt,
+    link_key:   lk,
     note,
   };
 
   const url    = id ? `/api/cash_assets/${id}` : '/api/cash_assets';
   const method = id ? 'PUT' : 'POST';
-  const res = await fetch(url, {
-    method, headers: {'Content-Type':'application/json'},
-    body: JSON.stringify(payload),
-  });
+  const res = await fetch(url, { method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
   const data = await res.json();
   if (!res.ok) { errEl.textContent = data.error || '저장 실패'; errEl.style.display = 'block'; return; }
   caCloseModal();
@@ -5513,6 +5681,93 @@ async function caDelete(id, name) {
   if (!confirm(`"${name}" 자산을 삭제하시겠습니까?`)) return;
   await fetch(`/api/cash_assets/${id}`, { method: 'DELETE' });
   await loadCashAssets();
+}
+
+// ─── 매크로 관리 ──────────────────────────────────────
+let macroData = [];
+
+async function loadMacro() {
+  document.getElementById('macro-tbody').innerHTML =
+    '<tr><td colspan="6" class="loading">로딩 중...</td></tr>';
+  const res = await fetch('/api/macro_rates');
+  macroData = await res.json();
+  macroRender();
+}
+
+function macroRender() {
+  const tbody = document.getElementById('macro-tbody');
+  if (!macroData.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:32px;color:#475569">등록된 지표 없음</td></tr>';
+    return;
+  }
+  tbody.innerHTML = macroData.map(r => `<tr>
+    <td style="font-family:monospace;font-size:12px;color:#60a5fa">${r.key}</td>
+    <td style="font-weight:500">${r.name}</td>
+    <td class="num">
+      <input type="number" value="${r.value ?? ''}" placeholder="-" step="any"
+             style="width:110px;background:none;border:none;border-bottom:1px solid #1e2535;
+                    color:#4ade80;font-size:14px;text-align:right;outline:none;padding:2px 4px;font-weight:600"
+             onfocus="this.style.borderColor='#3b82f6'"
+             onblur="macroSaveValue(${r.id},this)"
+             onkeydown="if(event.key==='Enter'&&!event.isComposing)this.blur()"/>
+    </td>
+    <td style="color:#64748b;font-size:12px">${r.unit || '-'}</td>
+    <td class="center" style="font-size:11px;color:#64748b;white-space:nowrap">${r.updated_at || '-'}</td>
+    <td class="center">
+      <button class="btn btn-danger" style="font-size:11px;padding:3px 8px"
+              onclick="macroDelete(${r.id},'${r.name.replace(/'/g,"\\'")}')">삭제</button>
+    </td>
+  </tr>`).join('');
+}
+
+async function macroSaveValue(id, inputEl) {
+  inputEl.style.borderColor = '#1e2535';
+  const val  = inputEl.value !== '' ? parseFloat(inputEl.value) : null;
+  const item = macroData.find(r => r.id === id);
+  if (!item) return;
+  await fetch(`/api/macro_rates/${id}`, {
+    method: 'PUT', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ name: item.name, unit: item.unit, value: val }),
+  });
+  await loadMacro();
+}
+
+function macroOpenAdd() {
+  document.getElementById('macro-add-key').value   = '';
+  document.getElementById('macro-add-name').value  = '';
+  document.getElementById('macro-add-value').value = '';
+  document.getElementById('macro-add-unit').value  = '';
+  document.getElementById('macro-add-err').style.display = 'none';
+  document.getElementById('macro-add-modal').style.display = 'flex';
+  document.getElementById('macro-add-key').focus();
+}
+
+function macroCloseAdd() {
+  document.getElementById('macro-add-modal').style.display = 'none';
+}
+
+async function macroSaveAdd() {
+  const errEl = document.getElementById('macro-add-err');
+  errEl.style.display = 'none';
+  const key  = document.getElementById('macro-add-key').value.trim();
+  const name = document.getElementById('macro-add-name').value.trim();
+  const val  = document.getElementById('macro-add-value').value;
+  const unit = document.getElementById('macro-add-unit').value.trim();
+  if (!key || !name) { errEl.textContent = '키와 명칭 필수'; errEl.style.display = 'block'; return; }
+  const res  = await fetch('/api/macro_rates', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ key, name, value: val !== '' ? parseFloat(val) : null, unit }),
+  });
+  const data = await res.json();
+  if (!res.ok) { errEl.textContent = data.error || '추가 실패'; errEl.style.display = 'block'; return; }
+  macroCloseAdd();
+  await loadMacro();
+}
+
+async function macroDelete(id, name) {
+  if (!confirm(`"${name}" 지표를 삭제하시겠습니까?`)) return;
+  await fetch(`/api/macro_rates/${id}`, { method: 'DELETE' });
+  await loadMacro();
 }
 
 // ─── 공통코드 관리 ────────────────────────────────────
@@ -5623,7 +5878,7 @@ async function ccDelete(id, name) {
 }
 
 // ─── 초기 로드 (해시 기반 페이지 복원) ───────────────────
-const PAGES = ['dashboard','supply','divergence','snapshot','signals','report','ext-holdings','price-mgmt','cash-assets','rebalance','theme-rebalance','qualitative','auditlog','stocks','batch','common-codes','usermgmt'];
+const PAGES = ['dashboard','supply','divergence','snapshot','signals','report','ext-holdings','price-mgmt','cash-assets','macro','rebalance','theme-rebalance','qualitative','auditlog','stocks','batch','common-codes','usermgmt'];
 // visible_menus 저장 시점 이전에 존재하던 페이지 목록
 const PAGES_V1 = ['dashboard','supply','signals','auditlog','stocks','batch','usermgmt'];
 

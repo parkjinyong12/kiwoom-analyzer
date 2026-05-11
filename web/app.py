@@ -188,19 +188,44 @@ def _ensure_theme_tables():
         cur.execute("ALTER TABLE theme_targets ADD COLUMN IF NOT EXISTS alert_down DECIMAL(6, 2)")
 
 
+def _ensure_macro_rates_table():
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS macro_rates (
+                id         SERIAL PRIMARY KEY,
+                key        VARCHAR(50) UNIQUE NOT NULL,
+                name       VARCHAR(100) NOT NULL,
+                value      DECIMAL(20, 4),
+                unit       VARCHAR(30) DEFAULT '',
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+        cur.execute("""
+            INSERT INTO macro_rates (key, name, unit)
+            VALUES ('USD_KRW', '달러/원 환율', '원/달러')
+            ON CONFLICT (key) DO NOTHING
+        """)
+
+
 def _ensure_cash_assets_table():
     with get_conn() as conn:
-        conn.cursor().execute("""
+        cur = conn.cursor()
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS cash_assets (
                 id          SERIAL PRIMARY KEY,
                 name        VARCHAR(100) NOT NULL,
                 quantity    DECIMAL(20, 4) DEFAULT NULL,
                 unit_price  BIGINT DEFAULT NULL,
                 amount      BIGINT NOT NULL DEFAULT 0,
+                link_type   VARCHAR(20) NOT NULL DEFAULT 'none',
+                link_key    VARCHAR(50) NOT NULL DEFAULT '',
                 note        TEXT NOT NULL DEFAULT '',
                 updated_at  TIMESTAMP DEFAULT NOW()
             )
         """)
+        cur.execute("ALTER TABLE cash_assets ADD COLUMN IF NOT EXISTS link_type VARCHAR(20) NOT NULL DEFAULT 'none'")
+        cur.execute("ALTER TABLE cash_assets ADD COLUMN IF NOT EXISTS link_key  VARCHAR(50) NOT NULL DEFAULT ''")
 
 
 def _get_total_cash() -> int:
@@ -1313,11 +1338,72 @@ def api_theme_rebalance_theme_alert():
 
 
 # ---------------------------------------------------------------------------
+# API — 매크로 지표 관리
+# ---------------------------------------------------------------------------
+
+@app.route("/api/macro_rates")
+def api_macro_rates_list():
+    rows = query("""
+        SELECT id, key, name, value, unit,
+               TO_CHAR(updated_at, 'YYYY-MM-DD HH24:MI') AS updated_at
+        FROM macro_rates ORDER BY id
+    """)
+    return jsonify([{
+        "id":         r["id"],
+        "key":        r["key"],
+        "name":       r["name"],
+        "value":      float(r["value"]) if r["value"] is not None else None,
+        "unit":       r["unit"] or "",
+        "updated_at": r["updated_at"],
+    } for r in rows])
+
+
+@app.route("/api/macro_rates", methods=["POST"])
+def api_macro_rates_create():
+    data = request.get_json() or {}
+    key  = (data.get("key")  or "").strip().upper().replace(" ", "_")
+    name = (data.get("name") or "").strip()
+    if not key or not name:
+        return jsonify({"error": "키와 명칭 필수"}), 400
+    unit = (data.get("unit") or "").strip()
+    val  = data.get("value")
+    value = float(val) if val not in (None, "") else None
+    with get_conn() as conn:
+        conn.cursor().execute(
+            "INSERT INTO macro_rates (key, name, value, unit) VALUES (%s,%s,%s,%s) ON CONFLICT (key) DO NOTHING",
+            (key, name, value, unit),
+        )
+    return jsonify({"ok": True})
+
+
+@app.route("/api/macro_rates/<int:mid>", methods=["PUT"])
+def api_macro_rates_update(mid):
+    data  = request.get_json() or {}
+    name  = (data.get("name") or "").strip()
+    unit  = (data.get("unit") or "").strip()
+    val   = data.get("value")
+    value = float(val) if val not in (None, "") else None
+    with get_conn() as conn:
+        conn.cursor().execute(
+            "UPDATE macro_rates SET name=%s, value=%s, unit=%s, updated_at=NOW() WHERE id=%s",
+            (name, value, unit, mid),
+        )
+    return jsonify({"ok": True})
+
+
+@app.route("/api/macro_rates/<int:mid>", methods=["DELETE"])
+def api_macro_rates_delete(mid):
+    with get_conn() as conn:
+        conn.cursor().execute("DELETE FROM macro_rates WHERE id=%s", (mid,))
+    return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------------------
 # API — 현금성 자산 관리
 # ---------------------------------------------------------------------------
 
 def _parse_cash_asset_body(data: dict):
-    """Request body → (name, quantity, unit_price, amount, note) or raise ValueError."""
+    """Request body → (name, qty, up, amount, link_type, link_key, note)."""
     name = (data.get("name") or "").strip()
     if not name:
         raise ValueError("자산명 필수")
@@ -1332,14 +1418,36 @@ def _parse_cash_asset_body(data: dict):
             amount = int(str(data.get("amount") or 0).replace(",", ""))
         except (ValueError, TypeError):
             raise ValueError("평가금액 오류")
+    link_type = (data.get("link_type") or "none").strip()
+    link_key  = (data.get("link_key")  or "").strip()
     note = (data.get("note") or "").strip()
-    return name, qty_val, up_val, amount, note
+    return name, qty_val, up_val, amount, link_type, link_key, note
+
+
+def _resolve_linked_price(link_type: str, link_key: str):
+    """연동 설정에 따른 최신 단가(원) 반환. 없으면 None."""
+    if link_type == "stock" and link_key:
+        rows = query("""
+            SELECT COALESCE(
+                (SELECT close_price FROM supply_demand
+                 WHERE stock_code=%s AND close_price>0 ORDER BY date DESC LIMIT 1),
+                (SELECT CASE WHEN last_price ~ '^[0-9]+$' THEN last_price::BIGINT ELSE NULL END
+                 FROM stocks WHERE stock_code=%s)
+            ) AS price
+        """, (link_key, link_key))
+        if rows and rows[0]["price"] is not None:
+            return int(rows[0]["price"])
+    elif link_type == "macro" and link_key:
+        rows = query("SELECT value FROM macro_rates WHERE key=%s", (link_key,))
+        if rows and rows[0]["value"] is not None:
+            return float(rows[0]["value"])
+    return None
 
 
 @app.route("/api/cash_assets")
 def api_cash_assets_list():
     rows = query("""
-        SELECT id, name, quantity, unit_price, amount, note,
+        SELECT id, name, quantity, unit_price, amount, link_type, link_key, note,
                TO_CHAR(updated_at, 'YYYY-MM-DD HH24:MI') AS updated_at
         FROM cash_assets ORDER BY id
     """)
@@ -1354,6 +1462,8 @@ def api_cash_assets_list():
             "quantity":   float(r["quantity"])   if r["quantity"]   is not None else None,
             "unit_price": int(r["unit_price"])   if r["unit_price"] is not None else None,
             "amount":     amt,
+            "link_type":  r["link_type"] or "none",
+            "link_key":   r["link_key"]  or "",
             "note":       r["note"] or "",
             "updated_at": r["updated_at"],
         })
@@ -1363,13 +1473,13 @@ def api_cash_assets_list():
 @app.route("/api/cash_assets", methods=["POST"])
 def api_cash_assets_create():
     try:
-        name, qty, up, amount, note = _parse_cash_asset_body(request.get_json() or {})
+        name, qty, up, amount, lt, lk, note = _parse_cash_asset_body(request.get_json() or {})
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     with get_conn() as conn:
         conn.cursor().execute(
-            "INSERT INTO cash_assets (name, quantity, unit_price, amount, note) VALUES (%s,%s,%s,%s,%s)",
-            (name, qty, up, amount, note),
+            "INSERT INTO cash_assets (name, quantity, unit_price, amount, link_type, link_key, note) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+            (name, qty, up, amount, lt, lk, note),
         )
     return jsonify({"ok": True})
 
@@ -1377,13 +1487,13 @@ def api_cash_assets_create():
 @app.route("/api/cash_assets/<int:aid>", methods=["PUT"])
 def api_cash_assets_update(aid):
     try:
-        name, qty, up, amount, note = _parse_cash_asset_body(request.get_json() or {})
+        name, qty, up, amount, lt, lk, note = _parse_cash_asset_body(request.get_json() or {})
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     with get_conn() as conn:
         conn.cursor().execute(
-            "UPDATE cash_assets SET name=%s, quantity=%s, unit_price=%s, amount=%s, note=%s, updated_at=NOW() WHERE id=%s",
-            (name, qty, up, amount, note, aid),
+            "UPDATE cash_assets SET name=%s, quantity=%s, unit_price=%s, amount=%s, link_type=%s, link_key=%s, note=%s, updated_at=NOW() WHERE id=%s",
+            (name, qty, up, amount, lt, lk, note, aid),
         )
     return jsonify({"ok": True})
 
@@ -1393,6 +1503,50 @@ def api_cash_assets_delete(aid):
     with get_conn() as conn:
         conn.cursor().execute("DELETE FROM cash_assets WHERE id=%s", (aid,))
     return jsonify({"ok": True})
+
+
+@app.route("/api/cash_assets/<int:aid>/sync", methods=["POST"])
+def api_cash_assets_sync(aid):
+    rows = query("SELECT quantity, link_type, link_key FROM cash_assets WHERE id=%s", (aid,))
+    if not rows:
+        return jsonify({"error": "없음"}), 404
+    r   = rows[0]
+    qty = float(r["quantity"]) if r["quantity"] is not None else None
+    if not qty:
+        return jsonify({"error": "수량 없음"}), 400
+    price = _resolve_linked_price(r["link_type"], r["link_key"])
+    if price is None:
+        return jsonify({"error": "최신 가격 없음"}), 404
+    amount = round(qty * price)
+    up_int = round(price)
+    with get_conn() as conn:
+        conn.cursor().execute(
+            "UPDATE cash_assets SET amount=%s, unit_price=%s, updated_at=NOW() WHERE id=%s",
+            (amount, up_int, aid),
+        )
+    return jsonify({"ok": True, "amount": amount, "unit_price": up_int})
+
+
+@app.route("/api/cash_assets/sync_all", methods=["POST"])
+def api_cash_assets_sync_all():
+    rows = query("SELECT id, quantity, link_type, link_key FROM cash_assets WHERE link_type != 'none' AND link_key != ''")
+    updated, failed = 0, 0
+    for r in rows:
+        qty = float(r["quantity"]) if r["quantity"] is not None else None
+        if not qty:
+            failed += 1
+            continue
+        price = _resolve_linked_price(r["link_type"], r["link_key"])
+        if price is None:
+            failed += 1
+            continue
+        with get_conn() as conn:
+            conn.cursor().execute(
+                "UPDATE cash_assets SET amount=%s, unit_price=%s, updated_at=NOW() WHERE id=%s",
+                (round(qty * price), round(price), r["id"]),
+            )
+        updated += 1
+    return jsonify({"ok": True, "updated": updated, "failed": failed})
 
 
 # ---------------------------------------------------------------------------
@@ -1537,7 +1691,7 @@ def api_qualitative_scores_delete(score_id: int):
 # API — 사용자 관리
 # ---------------------------------------------------------------------------
 
-ALL_MENUS = ["dashboard", "supply", "divergence", "signals", "report", "ext-holdings", "price-mgmt", "cash-assets", "rebalance", "theme-rebalance", "qualitative", "auditlog", "stocks", "batch", "common-codes", "usermgmt"]
+ALL_MENUS = ["dashboard", "supply", "divergence", "signals", "report", "ext-holdings", "price-mgmt", "cash-assets", "macro", "rebalance", "theme-rebalance", "qualitative", "auditlog", "stocks", "batch", "common-codes", "usermgmt"]
 
 @app.route("/api/users")
 def api_users():
@@ -1895,6 +2049,11 @@ except Exception:
 
 try:
     _ensure_qualitative_tables()
+except Exception:
+    pass
+
+try:
+    _ensure_macro_rates_table()
 except Exception:
     pass
 
