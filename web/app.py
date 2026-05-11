@@ -1035,8 +1035,9 @@ def api_rebalance():
         for k, v in settings.items()
         if k.startswith("portfolio_cash_")
     )
-    alert_up   = float(settings.get("rebalance_alert_up",   30))
-    alert_down = float(settings.get("rebalance_alert_down", 25))
+    alert_up          = float(settings.get("rebalance_alert_up",   30))
+    alert_down        = float(settings.get("rebalance_alert_down", 25))
+    cash_target_ratio = float(settings.get("cash_target_ratio",    0))
 
     result = []
     stock_total = 0
@@ -1069,11 +1070,12 @@ def api_rebalance():
         r["deviation_rel"]  = deviation_rel
 
     return jsonify({
-        "holdings":        result,
-        "portfolio_total": round(portfolio_total),
-        "total_cash":      total_cash,
-        "alert_up":        alert_up,
-        "alert_down":      alert_down,
+        "holdings":          result,
+        "portfolio_total":   round(portfolio_total),
+        "total_cash":        total_cash,
+        "alert_up":          alert_up,
+        "alert_down":        alert_down,
+        "cash_target_ratio": cash_target_ratio,
     })
 
 

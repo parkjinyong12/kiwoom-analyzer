@@ -4322,9 +4322,11 @@ async function ehDelete(id, name) {
 
 // ─── 리밸런싱 ────────────────────────────────────────
 let rbData = [];
-let rbAlertUp   = 30;
-let rbAlertDown = 25;
+let rbAlertUp        = 30;
+let rbAlertDown      = 25;
 let rbPortfolioTotal = 0;
+let rbTotalCash      = 0;
+let rbCashTargetRatio = 0;
 
 async function loadRebalance() {
   document.getElementById('rb-tbody').innerHTML =
@@ -4337,10 +4339,12 @@ async function loadRebalance() {
     const json    = await dataRes.json();
     const settings = await settRes.json();
 
-    rbData           = json.holdings || [];
-    rbAlertUp        = json.alert_up   ?? 30;
-    rbAlertDown      = json.alert_down ?? 25;
-    rbPortfolioTotal = json.portfolio_total || 0;
+    rbData            = json.holdings || [];
+    rbAlertUp         = json.alert_up          ?? 30;
+    rbAlertDown       = json.alert_down        ?? 25;
+    rbPortfolioTotal  = json.portfolio_total   || 0;
+    rbTotalCash       = json.total_cash        || 0;
+    rbCashTargetRatio = json.cash_target_ratio || 0;
 
     document.getElementById('rb-threshold-up').value   = rbAlertUp;
     document.getElementById('rb-threshold-down').value = rbAlertDown;
@@ -4349,18 +4353,19 @@ async function loadRebalance() {
     rbRender();
   } catch(e) {
     document.getElementById('rb-tbody').innerHTML =
-      '<tr><td colspan="9" style="text-align:center;color:#f87171;padding:32px">데이터 로드 실패</td></tr>';
+      '<tr><td colspan="10" style="text-align:center;color:#f87171;padding:32px">데이터 로드 실패</td></tr>';
   }
 }
 
 function rbUpdateSummary(json) {
   const total     = json.portfolio_total || 0;
   const cash      = json.total_cash      || 0;
-  const targetSum = rbData.reduce((s, r) => s + (r.target_ratio || 0), 0);
+  // 목표합계 = 주식 개별 목표 + 현금 목표
+  const targetSum = rbData.reduce((s, r) => s + (r.target_ratio || 0), 0) + rbCashTargetRatio;
 
   document.getElementById('rb-portfolio').textContent = Math.round(total).toLocaleString() + '원';
   document.getElementById('rb-portfolio-note').textContent =
-    `주식 ${(total - cash).toLocaleString()}원 + 예수금 ${cash.toLocaleString()}원`;
+    `주식 ${(total - cash).toLocaleString()}원 + 현금 ${cash.toLocaleString()}원`;
 
   const targetSumEl = document.getElementById('rb-target-sum');
   targetSumEl.textContent = targetSum.toFixed(1) + '%';
@@ -4371,11 +4376,19 @@ function rbUpdateSummary(json) {
     Math.abs(targetSum - 100) < 0.5 ? '균형 잡힘' :
     `${(targetSum - 100).toFixed(1)}pp ${targetSum > 100 ? '초과' : '부족'}`;
 
-  const alertCnt = rbData.filter(r => {
+  // 현금 편차 알림 여부
+  let cashAlerted = false;
+  if (rbCashTargetRatio > 0 && total > 0) {
+    const cashRatio   = cash / total * 100;
+    const cashDevRel  = (cashRatio - rbCashTargetRatio) / rbCashTargetRatio * 100;
+    cashAlerted = cashDevRel > rbAlertUp || cashDevRel < -rbAlertDown;
+  }
+  const stockAlertCnt = rbData.filter(r => {
     if (!r.target_ratio || r.deviation_rel === null) return false;
     return r.deviation_rel > rbAlertUp || r.deviation_rel < -rbAlertDown;
   }).length;
-  const unsetCnt = rbData.filter(r => !r.target_ratio).length;
+  const alertCnt = stockAlertCnt + (cashAlerted ? 1 : 0);
+  const unsetCnt = rbData.filter(r => !r.target_ratio).length + (rbCashTargetRatio ? 0 : 1);
 
   const alertEl = document.getElementById('rb-alert-cnt');
   alertEl.textContent = alertCnt;
@@ -4391,7 +4404,75 @@ function rbRender() {
     return;
   }
 
-  tbody.innerHTML = rbData.map(r => {
+  // ── 현금성 자산 행 ──────────────────────────────────────
+  const cashRatio  = rbPortfolioTotal > 0 ? rbTotalCash / rbPortfolioTotal * 100 : 0;
+  const cashTgt    = rbCashTargetRatio;
+  const cashDevPP  = cashTgt > 0 ? parseFloat((cashRatio - cashTgt).toFixed(2)) : null;
+  const cashDevRel = (cashDevPP !== null && cashTgt > 0)
+    ? parseFloat((cashDevPP / cashTgt * 100).toFixed(1)) : null;
+
+  let cashDevStr = '-', cashDevColor = '#64748b';
+  if (cashDevRel !== null) {
+    const sign = cashDevRel >= 0 ? '+' : '';
+    cashDevStr = `${sign}${cashDevRel.toFixed(1)}%<br><span style="font-size:10px;color:#64748b">${cashDevPP >= 0 ? '+' : ''}${cashDevPP.toFixed(2)}pp</span>`;
+    cashDevColor = cashDevRel > rbAlertUp ? '#f87171' : cashDevRel < -rbAlertDown ? '#60a5fa' :
+                   Math.abs(cashDevRel) > rbAlertUp * 0.6 ? '#f59e0b' : '#94a3b8';
+  }
+
+  let cashSignal = '목표 미설정', cashSigColor = '#64748b', cashSigBg = '';
+  if (cashTgt > 0 && cashDevRel !== null) {
+    if      (cashDevRel > rbAlertUp)    { cashSignal = '현금 과다'; cashSigColor = '#f87171'; cashSigBg = 'background:rgba(248,113,113,0.1);'; }
+    else if (cashDevRel < -rbAlertDown) { cashSignal = '현금 부족'; cashSigColor = '#60a5fa'; cashSigBg = 'background:rgba(96,165,250,0.1);'; }
+    else                                { cashSignal = '정상 범위'; cashSigColor = '#4ade80'; }
+  }
+
+  let cashAdjCell = `<td class="center" style="color:#475569">-</td>`;
+  if (cashTgt > 0 && rbPortfolioTotal > 0) {
+    const targetCash = rbPortfolioTotal * cashTgt / 100;
+    const diff       = targetCash - rbTotalCash;
+    const adjAmt     = Math.abs(Math.round(diff));
+    if (adjAmt < 1000) {
+      cashAdjCell = `<td class="center" style="color:#4ade80;font-size:12px">유지</td>`;
+    } else if (diff > 0) {
+      cashAdjCell = `<td class="center">
+        <span style="color:#f87171;font-weight:600;font-size:12px">주식 매도 필요</span>
+        <br><span style="font-size:10px;color:#64748b">약 ${adjAmt.toLocaleString()}원</span></td>`;
+    } else {
+      cashAdjCell = `<td class="center">
+        <span style="color:#60a5fa;font-weight:600;font-size:12px">주식 매수 재원</span>
+        <br><span style="font-size:10px;color:#64748b">약 ${adjAmt.toLocaleString()}원</span></td>`;
+    }
+  }
+
+  const cashTargetInput = `<input type="number" id="rb-cash-target"
+    value="${cashTgt || ''}" placeholder="0" min="0" max="100" step="0.1"
+    style="width:58px;background:none;border:none;border-bottom:1px solid #1e2535;
+           color:#e2e8f0;font-size:13px;text-align:right;outline:none;padding:2px 4px"
+    onfocus="this.style.borderColor='#3b82f6'"
+    onblur="rbSaveCashTarget(this)"
+    onkeydown="if(event.key==='Enter'&&!event.isComposing)this.blur()"/>
+  <span style="font-size:11px;color:#64748b">%</span>`;
+
+  const cashRow = `<tr style="background:rgba(148,163,184,0.06)">
+    <td style="font-family:monospace;font-size:11px;color:#64748b">CASH</td>
+    <td style="font-weight:600;color:#94a3b8">현금성 자산</td>
+    <td class="num" style="color:#64748b">-</td>
+    <td class="num" style="color:#64748b">-</td>
+    <td class="num" style="color:#94a3b8">${rbTotalCash.toLocaleString()}원</td>
+    <td class="num" style="font-weight:600;color:#94a3b8">${cashRatio.toFixed(2)}%</td>
+    <td class="num">${cashTargetInput}</td>
+    <td class="num" style="color:${cashDevColor}">${cashDevStr}</td>
+    <td class="center" style="${cashSigBg}padding:6px">
+      <span style="color:${cashSigColor};font-size:12px;font-weight:500">${cashSignal}</span>
+      ${cashTgt > 0 && cashDevRel !== null && cashSignal !== '정상 범위'
+        ? `<br><span style="font-size:10px;color:#64748b">${cashDevRel > 0 ? '→ 주식 매수 검토' : '→ 주식 매도 검토'}</span>`
+        : ''}
+    </td>
+    ${cashAdjCell}
+  </tr>
+  <tr><td colspan="10" style="padding:0;border-bottom:2px solid #334155"></td></tr>`;
+
+  tbody.innerHTML = cashRow + rbData.map(r => {
     const cur    = r.current_ratio;
     const tgt    = r.target_ratio;
     const relDev = r.deviation_rel;
@@ -4482,6 +4563,18 @@ async function rbSaveTarget(stockCode, inputEl) {
     body: JSON.stringify({ stock_code: stockCode, target_ratio: val }),
   });
   // 저장 후 전체 데이터 재로드해서 편차·신호 갱신
+  await loadRebalance();
+}
+
+async function rbSaveCashTarget(inputEl) {
+  inputEl.style.borderColor = '#1e2535';
+  const val = parseFloat(inputEl.value) || 0;
+  inputEl.value = val || '';
+  rbCashTargetRatio = val;
+  await fetch('/api/settings', {
+    method: 'PUT', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ key: 'cash_target_ratio', value: String(val) }),
+  });
   await loadRebalance();
 }
 
