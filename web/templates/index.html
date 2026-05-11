@@ -462,6 +462,9 @@ canvas { max-height: 220px; }
         <div class="nav-item" data-page="price-mgmt" onclick="showPage('price-mgmt')">
           <span class="icon">💰</span> 현재가 관리
         </div>
+        <div class="nav-item" data-page="cash-assets" onclick="showPage('cash-assets')">
+          <span class="icon">💵</span> 현금성 자산
+        </div>
         <div class="nav-item" data-page="rebalance" onclick="showPage('rebalance')">
           <span class="icon">⚖️</span> 리밸런싱
         </div>
@@ -1392,6 +1395,116 @@ canvas { max-height: 220px; }
     </div>
   </section>
 
+  <!-- ===== 현금성 자산 페이지 ===== -->
+  <section id="page-cash-assets" class="page">
+    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
+      <div>
+        <div class="page-title">현금성 자산</div>
+        <div class="page-sub">현금, 달러, 금현물ETF, CD ETF 등 현금성 자산 관리</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" style="font-size:12px" onclick="caOpenModal()">+ 자산 추가</button>
+        <button class="btn btn-ghost"   style="font-size:12px" onclick="loadCashAssets()">새로고침</button>
+      </div>
+    </div>
+
+    <!-- 요약 카드 -->
+    <div class="cards" style="grid-template-columns:repeat(4,1fr)">
+      <div class="card">
+        <div class="card-label">총 현금성자산</div>
+        <div class="card-value blue" id="ca-total" style="font-size:19px">-</div>
+        <div class="card-note" id="ca-total-note">-</div>
+      </div>
+      <div class="card">
+        <div class="card-label">자산 종류</div>
+        <div class="card-value" id="ca-count" style="font-size:22px">-</div>
+        <div class="card-note">등록된 자산 수</div>
+      </div>
+      <div class="card">
+        <div class="card-label">주식 포트폴리오 대비</div>
+        <div class="card-value orange" id="ca-ratio" style="font-size:22px">-</div>
+        <div class="card-note" id="ca-ratio-note">주식 평가금액 대비</div>
+      </div>
+      <div class="card">
+        <div class="card-label">최근 수정</div>
+        <div class="card-value" id="ca-recent" style="font-size:15px;color:#94a3b8">-</div>
+        <div class="card-note" id="ca-recent-note">-</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <span>자산 목록</span>
+        <span style="font-size:11px;color:#64748b">수량 × 단가 입력 시 평가금액 자동 계산</span>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>자산명</th>
+              <th style="text-align:right">수량</th>
+              <th style="text-align:right">단가(원)</th>
+              <th style="text-align:right">평가금액(원)</th>
+              <th style="text-align:right">비중</th>
+              <th>메모</th>
+              <th style="text-align:center">최근수정</th>
+              <th style="text-align:center">관리</th>
+            </tr>
+          </thead>
+          <tbody id="ca-tbody">
+            <tr><td colspan="8" class="loading">로딩 중...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- 현금성 자산 추가/수정 모달 -->
+  <div class="modal-overlay" id="ca-modal">
+    <div class="modal" style="width:420px">
+      <h3 id="ca-modal-title">현금성 자산 추가</h3>
+      <input type="hidden" id="ca-modal-id"/>
+      <div style="display:grid;gap:14px;margin-top:8px">
+        <div>
+          <div style="font-size:12px;color:#64748b;margin-bottom:4px">자산명 <span style="color:#f87171">*</span></div>
+          <input type="text" id="ca-modal-name" placeholder="예: 현금, 달러, 금현물ETF, CD ETF" maxlength="100"
+                 style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div>
+            <div style="font-size:12px;color:#64748b;margin-bottom:4px">수량 <span style="font-size:10px">(선택)</span></div>
+            <input type="number" id="ca-modal-qty" placeholder="예: 1000" step="any" min="0"
+                   style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"
+                   oninput="caAutoCalc()"/>
+          </div>
+          <div>
+            <div style="font-size:12px;color:#64748b;margin-bottom:4px">단가(원) <span style="font-size:10px">(선택)</span></div>
+            <input type="number" id="ca-modal-price" placeholder="예: 1380" step="1" min="0"
+                   style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"
+                   oninput="caAutoCalc()"/>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:12px;color:#64748b;margin-bottom:4px">
+            평가금액(원) <span style="font-size:10px" id="ca-amount-hint" style="color:#60a5fa"></span>
+          </div>
+          <input type="number" id="ca-modal-amount" placeholder="예: 5000000" step="1" min="0"
+                 style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
+        </div>
+        <div>
+          <div style="font-size:12px;color:#64748b;margin-bottom:4px">메모</div>
+          <input type="text" id="ca-modal-note" placeholder="참고사항" maxlength="200"
+                 style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
+        </div>
+        <div id="ca-modal-err" style="color:#f87171;font-size:12px;display:none"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="caCloseModal()">취소</button>
+        <button class="btn btn-primary" onclick="caSave()">저장</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ===== 리밸런싱 페이지 ===== -->
   <section id="page-rebalance" class="page">
     <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
@@ -1851,7 +1964,7 @@ const PAGE_TITLES = {
   dashboard:'대시보드', supply:'수급 현황', divergence:'수급↑ 가격↔',
   snapshot:'기간별 변화', signals:'매매 신호', report:'보유종목 리포트',
   auditlog:'감사 로그', stocks:'감시 종목', batch:'배치 관리', usermgmt:'사용자 관리',
-  'ext-holdings':'보유종목', 'price-mgmt':'현재가 관리', 'common-codes':'공통코드 관리',
+  'ext-holdings':'보유종목', 'price-mgmt':'현재가 관리', 'cash-assets':'현금성 자산', 'common-codes':'공통코드 관리',
 };
 function toggleMobileDrawer() {
   const open = document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -1867,6 +1980,7 @@ const NAV_GROUP_MAP = {
   dashboard:'navg-analysis', supply:'navg-analysis', divergence:'navg-analysis',
   snapshot:'navg-analysis',  signals:'navg-analysis', report:'navg-analysis',
   'ext-holdings':'navg-analysis', 'price-mgmt':'navg-analysis',
+  'cash-assets':'navg-analysis',
   rebalance:'navg-analysis',     'theme-rebalance':'navg-analysis', qualitative:'navg-analysis',
   auditlog:'navg-system',    stocks:'navg-system',
   batch:'navg-admin',        'common-codes':'navg-admin', usermgmt:'navg-admin',
@@ -1912,6 +2026,7 @@ function showPage(name, fromHash) {
   if (name === 'usermgmt')      loadUserMgmt();
   if (name === 'ext-holdings')  loadExtHoldings();
   if (name === 'price-mgmt')    loadPriceMgmt();
+  if (name === 'cash-assets')   loadCashAssets();
   if (name === 'rebalance')        loadRebalance();
   if (name === 'theme-rebalance')  loadThemeRebalance();
   if (name === 'qualitative')      loadQualitative();
@@ -3473,6 +3588,7 @@ const MENU_META = {
   report:        { label: '보유종목 리포트', icon: '📧', section: '분석' },
   'ext-holdings': { label: '보유종목',        icon: '🏦', section: '분석' },
   'price-mgmt':   { label: '현재가 관리',    icon: '💰', section: '분석' },
+  'cash-assets':  { label: '현금성 자산',    icon: '💵', section: '분석' },
   auditlog:       { label: '감사 로그',      icon: '📋', section: '시스템' },
   stocks:     { label: '감시 종목',       icon: '🔭', section: '시스템' },
   batch:           { label: '배치 관리',    icon: '⚙️', section: '관리' },
@@ -5229,6 +5345,176 @@ async function qaDeleteItem(id, name) {
   await loadQualitative();
 }
 
+// ─── 현금성 자산 ─────────────────────────────────────
+let caData = { items: [], total: 0 };
+
+async function loadCashAssets() {
+  document.getElementById('ca-tbody').innerHTML =
+    '<tr><td colspan="8" class="loading">로딩 중...</td></tr>';
+  try {
+    const [caRes, rbRes] = await Promise.all([
+      fetch('/api/cash_assets'),
+      fetch('/api/rebalance'),
+    ]);
+    caData = await caRes.json();
+    const rb   = await rbRes.json();
+    const stockTotal = (rb.portfolio_total || 0) - (rb.total_cash || 0);
+    caRenderSummary(stockTotal);
+    caRenderTable();
+  } catch(e) {
+    document.getElementById('ca-tbody').innerHTML =
+      '<tr><td colspan="8" style="text-align:center;color:#f87171;padding:32px">로드 실패</td></tr>';
+  }
+}
+
+function caRenderSummary(stockTotal) {
+  const total = caData.total || 0;
+  const cnt   = (caData.items || []).length;
+  const ratio = stockTotal > 0 ? total / (stockTotal + total) * 100 : 0;
+
+  document.getElementById('ca-total').textContent = total.toLocaleString() + '원';
+  document.getElementById('ca-total-note').textContent =
+    cnt ? `${cnt}개 자산 합산` : '자산 없음';
+  document.getElementById('ca-count').textContent = cnt;
+
+  const ratioEl = document.getElementById('ca-ratio');
+  ratioEl.textContent = ratio.toFixed(1) + '%';
+  ratioEl.style.color = ratio > 40 ? '#f87171' : ratio > 20 ? '#f59e0b' : '#60a5fa';
+  document.getElementById('ca-ratio-note').textContent =
+    `주식 ${stockTotal.toLocaleString()}원 대비`;
+
+  const sorted = [...(caData.items || [])].sort((a, b) =>
+    (b.updated_at || '').localeCompare(a.updated_at || ''));
+  const recent = sorted[0];
+  document.getElementById('ca-recent').textContent = recent ? recent.name : '-';
+  document.getElementById('ca-recent-note').textContent = recent ? recent.updated_at : '-';
+}
+
+function caRenderTable() {
+  const tbody = document.getElementById('ca-tbody');
+  const items = caData.items || [];
+  const total = caData.total || 0;
+
+  if (!items.length) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:40px;color:#475569">' +
+      '등록된 자산이 없습니다. <button class="btn btn-primary" style="font-size:12px;margin-left:8px" onclick="caOpenModal()">+ 자산 추가</button></td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = items.map(r => {
+    const pct  = total > 0 ? (r.amount / total * 100).toFixed(1) : '-';
+    const qtyStr   = r.quantity   != null ? Number(r.quantity).toLocaleString(undefined, {maximumFractionDigits:4}) : '-';
+    const priceStr = r.unit_price != null ? r.unit_price.toLocaleString() + '원' : '-';
+    return `<tr>
+      <td style="font-weight:600">${r.name}</td>
+      <td class="num" style="color:#94a3b8">${qtyStr}</td>
+      <td class="num" style="color:#94a3b8">${priceStr}</td>
+      <td class="num" style="font-weight:600">${r.amount.toLocaleString()}원</td>
+      <td class="num" style="color:#f59e0b">${pct}%</td>
+      <td style="font-size:11px;color:#64748b;max-width:150px">${r.note || '-'}</td>
+      <td class="center" style="font-size:11px;color:#64748b;white-space:nowrap">${r.updated_at || '-'}</td>
+      <td class="center">
+        <button class="btn btn-ghost" style="font-size:11px;padding:3px 8px;margin-right:3px"
+                onclick="caOpenModal(${r.id})">수정</button>
+        <button class="btn btn-danger" style="font-size:11px;padding:3px 8px"
+                onclick="caDelete(${r.id},'${r.name.replace(/'/g,"\\'")}')">삭제</button>
+      </td>
+    </tr>`;
+  }).join('') + `<tr style="border-top:2px solid #334155;background:rgba(148,163,184,0.06)">
+    <td colspan="3" style="font-weight:600;color:#94a3b8;padding:10px 12px">합계</td>
+    <td class="num" style="font-weight:700;color:#60a5fa;font-size:15px">${total.toLocaleString()}원</td>
+    <td class="num" style="font-weight:600;color:#f59e0b">100%</td>
+    <td colspan="3"></td>
+  </tr>`;
+}
+
+function caAutoCalc() {
+  const qty   = parseFloat(document.getElementById('ca-modal-qty').value);
+  const price = parseFloat(document.getElementById('ca-modal-price').value);
+  const hint  = document.getElementById('ca-amount-hint');
+  const amtEl = document.getElementById('ca-modal-amount');
+  if (!isNaN(qty) && !isNaN(price) && qty > 0 && price > 0) {
+    const computed = Math.round(qty * price);
+    amtEl.value = computed;
+    amtEl.style.color = '#60a5fa';
+    hint.textContent = '수량 × 단가 자동 계산';
+    hint.style.color = '#60a5fa';
+  } else {
+    amtEl.style.color = '#e2e8f0';
+    hint.textContent = '';
+  }
+}
+
+function caOpenModal(id) {
+  const modal = document.getElementById('ca-modal');
+  document.getElementById('ca-modal-err').style.display = 'none';
+  if (id) {
+    const item = (caData.items || []).find(r => r.id === id);
+    if (!item) return;
+    document.getElementById('ca-modal-title').textContent  = '현금성 자산 수정';
+    document.getElementById('ca-modal-id').value          = id;
+    document.getElementById('ca-modal-name').value        = item.name;
+    document.getElementById('ca-modal-qty').value         = item.quantity  ?? '';
+    document.getElementById('ca-modal-price').value       = item.unit_price ?? '';
+    document.getElementById('ca-modal-amount').value      = item.amount;
+    document.getElementById('ca-modal-note').value        = item.note || '';
+    caAutoCalc();
+  } else {
+    document.getElementById('ca-modal-title').textContent  = '현금성 자산 추가';
+    document.getElementById('ca-modal-id').value          = '';
+    document.getElementById('ca-modal-name').value        = '';
+    document.getElementById('ca-modal-qty').value         = '';
+    document.getElementById('ca-modal-price').value       = '';
+    document.getElementById('ca-modal-amount').value      = '';
+    document.getElementById('ca-modal-note').value        = '';
+    document.getElementById('ca-amount-hint').textContent = '';
+    document.getElementById('ca-modal-amount').style.color = '#e2e8f0';
+  }
+  modal.style.display = 'flex';
+  document.getElementById('ca-modal-name').focus();
+}
+
+function caCloseModal() {
+  document.getElementById('ca-modal').style.display = 'none';
+}
+
+async function caSave() {
+  const errEl = document.getElementById('ca-modal-err');
+  errEl.style.display = 'none';
+  const id    = document.getElementById('ca-modal-id').value;
+  const name  = document.getElementById('ca-modal-name').value.trim();
+  const qty   = document.getElementById('ca-modal-qty').value;
+  const price = document.getElementById('ca-modal-price').value;
+  const amt   = document.getElementById('ca-modal-amount').value;
+  const note  = document.getElementById('ca-modal-note').value.trim();
+
+  if (!name) { errEl.textContent = '자산명을 입력해주세요'; errEl.style.display = 'block'; return; }
+  const payload = {
+    name,
+    quantity:   qty   !== '' ? parseFloat(qty)   : null,
+    unit_price: price !== '' ? parseInt(price)   : null,
+    amount:     amt   !== '' ? parseInt(amt.toString().replace(/,/g,'')) : 0,
+    note,
+  };
+
+  const url    = id ? `/api/cash_assets/${id}` : '/api/cash_assets';
+  const method = id ? 'PUT' : 'POST';
+  const res = await fetch(url, {
+    method, headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) { errEl.textContent = data.error || '저장 실패'; errEl.style.display = 'block'; return; }
+  caCloseModal();
+  await loadCashAssets();
+}
+
+async function caDelete(id, name) {
+  if (!confirm(`"${name}" 자산을 삭제하시겠습니까?`)) return;
+  await fetch(`/api/cash_assets/${id}`, { method: 'DELETE' });
+  await loadCashAssets();
+}
+
 // ─── 공통코드 관리 ────────────────────────────────────
 let ccCurrentGroup = 'BROKERAGE';
 let ccData = [];
@@ -5337,7 +5623,7 @@ async function ccDelete(id, name) {
 }
 
 // ─── 초기 로드 (해시 기반 페이지 복원) ───────────────────
-const PAGES = ['dashboard','supply','divergence','snapshot','signals','report','ext-holdings','price-mgmt','rebalance','theme-rebalance','qualitative','auditlog','stocks','batch','common-codes','usermgmt'];
+const PAGES = ['dashboard','supply','divergence','snapshot','signals','report','ext-holdings','price-mgmt','cash-assets','rebalance','theme-rebalance','qualitative','auditlog','stocks','batch','common-codes','usermgmt'];
 // visible_menus 저장 시점 이전에 존재하던 페이지 목록
 const PAGES_V1 = ['dashboard','supply','signals','auditlog','stocks','batch','usermgmt'];
 

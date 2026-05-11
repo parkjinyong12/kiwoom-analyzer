@@ -188,6 +188,31 @@ def _ensure_theme_tables():
         cur.execute("ALTER TABLE theme_targets ADD COLUMN IF NOT EXISTS alert_down DECIMAL(6, 2)")
 
 
+def _ensure_cash_assets_table():
+    with get_conn() as conn:
+        conn.cursor().execute("""
+            CREATE TABLE IF NOT EXISTS cash_assets (
+                id          SERIAL PRIMARY KEY,
+                name        VARCHAR(100) NOT NULL,
+                quantity    DECIMAL(20, 4) DEFAULT NULL,
+                unit_price  BIGINT DEFAULT NULL,
+                amount      BIGINT NOT NULL DEFAULT 0,
+                note        TEXT NOT NULL DEFAULT '',
+                updated_at  TIMESTAMP DEFAULT NOW()
+            )
+        """)
+
+
+def _get_total_cash() -> int:
+    """현금성 자산 합계. cash_assets 테이블 우선, 없으면 legacy portfolio_cash_* fallback."""
+    rows = query("SELECT COALESCE(SUM(amount), 0) AS total FROM cash_assets")
+    ca_total = int(rows[0]["total"]) if rows else 0
+    if ca_total > 0:
+        return ca_total
+    settings = _get_app_settings()
+    return sum(int(v or 0) for k, v in settings.items() if k.startswith("portfolio_cash_"))
+
+
 def _ensure_rebalance_targets_table():
     with get_conn() as conn:
         cur = conn.cursor()
@@ -1029,12 +1054,8 @@ def api_rebalance():
         ORDER BY ha.stock_name
     """)
 
-    settings = _get_app_settings()
-    total_cash = sum(
-        int(v or 0)
-        for k, v in settings.items()
-        if k.startswith("portfolio_cash_")
-    )
+    settings          = _get_app_settings()
+    total_cash        = _get_total_cash()
     alert_up          = float(settings.get("rebalance_alert_up",   30))
     alert_down        = float(settings.get("rebalance_alert_down", 25))
     cash_target_ratio = float(settings.get("cash_target_ratio",    0))
@@ -1141,12 +1162,8 @@ def api_theme_rebalance():
         ORDER BY ha.stock_name
     """)
 
-    settings = _get_app_settings()
-    total_cash = sum(
-        int(v or 0)
-        for k, v in settings.items()
-        if k.startswith("portfolio_cash_")
-    )
+    settings   = _get_app_settings()
+    total_cash = _get_total_cash()
     alert_up   = float(settings.get("rebalance_alert_up",   30))
     alert_down = float(settings.get("rebalance_alert_down", 25))
 
@@ -1296,6 +1313,89 @@ def api_theme_rebalance_theme_alert():
 
 
 # ---------------------------------------------------------------------------
+# API — 현금성 자산 관리
+# ---------------------------------------------------------------------------
+
+def _parse_cash_asset_body(data: dict):
+    """Request body → (name, quantity, unit_price, amount, note) or raise ValueError."""
+    name = (data.get("name") or "").strip()
+    if not name:
+        raise ValueError("자산명 필수")
+    raw_qty = data.get("quantity")
+    raw_up  = data.get("unit_price")
+    qty_val = float(raw_qty) if raw_qty not in (None, "") else None
+    up_val  = int(raw_up)   if raw_up  not in (None, "") else None
+    if qty_val is not None and up_val is not None:
+        amount = round(qty_val * up_val)
+    else:
+        try:
+            amount = int(str(data.get("amount") or 0).replace(",", ""))
+        except (ValueError, TypeError):
+            raise ValueError("평가금액 오류")
+    note = (data.get("note") or "").strip()
+    return name, qty_val, up_val, amount, note
+
+
+@app.route("/api/cash_assets")
+def api_cash_assets_list():
+    rows = query("""
+        SELECT id, name, quantity, unit_price, amount, note,
+               TO_CHAR(updated_at, 'YYYY-MM-DD HH24:MI') AS updated_at
+        FROM cash_assets ORDER BY id
+    """)
+    items = []
+    total = 0
+    for r in rows:
+        amt = int(r["amount"])
+        total += amt
+        items.append({
+            "id":         r["id"],
+            "name":       r["name"],
+            "quantity":   float(r["quantity"])   if r["quantity"]   is not None else None,
+            "unit_price": int(r["unit_price"])   if r["unit_price"] is not None else None,
+            "amount":     amt,
+            "note":       r["note"] or "",
+            "updated_at": r["updated_at"],
+        })
+    return jsonify({"items": items, "total": total})
+
+
+@app.route("/api/cash_assets", methods=["POST"])
+def api_cash_assets_create():
+    try:
+        name, qty, up, amount, note = _parse_cash_asset_body(request.get_json() or {})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    with get_conn() as conn:
+        conn.cursor().execute(
+            "INSERT INTO cash_assets (name, quantity, unit_price, amount, note) VALUES (%s,%s,%s,%s,%s)",
+            (name, qty, up, amount, note),
+        )
+    return jsonify({"ok": True})
+
+
+@app.route("/api/cash_assets/<int:aid>", methods=["PUT"])
+def api_cash_assets_update(aid):
+    try:
+        name, qty, up, amount, note = _parse_cash_asset_body(request.get_json() or {})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    with get_conn() as conn:
+        conn.cursor().execute(
+            "UPDATE cash_assets SET name=%s, quantity=%s, unit_price=%s, amount=%s, note=%s, updated_at=NOW() WHERE id=%s",
+            (name, qty, up, amount, note, aid),
+        )
+    return jsonify({"ok": True})
+
+
+@app.route("/api/cash_assets/<int:aid>", methods=["DELETE"])
+def api_cash_assets_delete(aid):
+    with get_conn() as conn:
+        conn.cursor().execute("DELETE FROM cash_assets WHERE id=%s", (aid,))
+    return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------------------
 # API — 정성 점수 관리
 # ---------------------------------------------------------------------------
 
@@ -1437,7 +1537,7 @@ def api_qualitative_scores_delete(score_id: int):
 # API — 사용자 관리
 # ---------------------------------------------------------------------------
 
-ALL_MENUS = ["dashboard", "supply", "divergence", "signals", "report", "ext-holdings", "price-mgmt", "rebalance", "theme-rebalance", "qualitative", "auditlog", "stocks", "batch", "common-codes", "usermgmt"]
+ALL_MENUS = ["dashboard", "supply", "divergence", "signals", "report", "ext-holdings", "price-mgmt", "cash-assets", "rebalance", "theme-rebalance", "qualitative", "auditlog", "stocks", "batch", "common-codes", "usermgmt"]
 
 @app.route("/api/users")
 def api_users():
@@ -1795,6 +1895,11 @@ except Exception:
 
 try:
     _ensure_qualitative_tables()
+except Exception:
+    pass
+
+try:
+    _ensure_cash_assets_table()
 except Exception:
     pass
 
