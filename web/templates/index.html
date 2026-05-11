@@ -1491,15 +1491,26 @@ canvas { max-height: 220px; }
             </label>
           </div>
           <div id="ca-link-stock" style="display:none">
-            <div style="font-size:11px;color:#64748b;margin-bottom:4px">종목코드 (supply_demand에 등록된 ETF)</div>
-            <input type="text" id="ca-modal-stock-code" placeholder="예: 473130 (금현물ETF)" maxlength="20"
-                   style="width:100%;padding:7px 10px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#60a5fa;font-size:13px;outline:none;font-family:monospace"/>
+            <div style="font-size:11px;color:#64748b;margin-bottom:4px">종목 검색 (코드 또는 이름)</div>
+            <div style="position:relative">
+              <input type="text" id="ca-stock-search" placeholder="예: 473130 또는 금현물ETF" autocomplete="off"
+                     style="width:100%;padding:7px 10px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#60a5fa;font-size:13px;outline:none"
+                     oninput="caStockSearchInput(this.value)" onfocus="caStockSearchInput(this.value)"/>
+              <div id="ca-stock-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:#161b27;border:1px solid #334155;border-radius:5px;max-height:160px;overflow-y:auto;z-index:2000;margin-top:2px"></div>
+            </div>
+            <input type="hidden" id="ca-modal-stock-code"/>
+            <div id="ca-stock-selected" style="display:none;margin-top:5px;font-size:11px;color:#60a5fa;background:#0a1628;padding:4px 8px;border-radius:4px"></div>
           </div>
           <div id="ca-link-macro" style="display:none">
-            <div style="font-size:11px;color:#64748b;margin-bottom:4px">매크로 지표</div>
-            <select id="ca-modal-macro-key"
-                    style="width:100%;padding:7px 10px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#f59e0b;font-size:13px;outline:none">
-            </select>
+            <div style="font-size:11px;color:#64748b;margin-bottom:4px">매크로 지표 검색</div>
+            <div style="position:relative">
+              <input type="text" id="ca-macro-search" placeholder="지표명 또는 키 검색..." autocomplete="off"
+                     style="width:100%;padding:7px 10px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#f59e0b;font-size:13px;outline:none"
+                     oninput="caMacroSearchInput(this.value)" onfocus="caMacroSearchInput(this.value)"/>
+              <div id="ca-macro-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:#161b27;border:1px solid #334155;border-radius:5px;max-height:160px;overflow-y:auto;z-index:2000;margin-top:2px"></div>
+            </div>
+            <input type="hidden" id="ca-modal-macro-key"/>
+            <div id="ca-macro-selected" style="display:none;margin-top:5px;font-size:11px;color:#f59e0b;background:#1a1200;padding:4px 8px;border-radius:4px"></div>
           </div>
         </div>
 
@@ -5571,7 +5582,7 @@ function caOnLinkTypeChange() {
   document.getElementById('ca-link-macro').style.display = lt === 'macro' ? 'block' : 'none';
   const hint = document.getElementById('ca-price-hint');
   if (lt === 'none')  hint.textContent = '';
-  if (lt === 'stock') hint.textContent = '(동기화 후 자동 업데이트)';
+  if (lt === 'stock') { hint.textContent = '(동기화 후 자동 업데이트)'; caLoadStockList(); }
   if (lt === 'macro') hint.textContent = '(동기화 후 자동 업데이트)';
 }
 
@@ -5590,17 +5601,97 @@ function caAutoCalc() {
   }
 }
 
-function caPopulateMacroSelect() {
-  const sel = document.getElementById('ca-modal-macro-key');
-  sel.innerHTML = caMacroList.map(m =>
-    `<option value="${m.key}">${m.name} (${m.key})</option>`
-  ).join('') || '<option value="">매크로 지표 없음</option>';
+let caStockList = [];
+
+async function caLoadStockList() {
+  if (caStockList.length > 0) return;
+  try {
+    const res = await fetch('/api/supply_demand/stocks');
+    caStockList = await res.json();
+  } catch(e) {}
+}
+
+function caStockSearchInput(q) {
+  const dd = document.getElementById('ca-stock-dropdown');
+  const trimmed = (q || '').trim();
+  const filtered = trimmed
+    ? caStockList.filter(s =>
+        s.stock_code.includes(trimmed) ||
+        (s.stock_name || '').toLowerCase().includes(trimmed.toLowerCase())
+      ).slice(0, 20)
+    : caStockList.slice(0, 20);
+  if (!filtered.length) {
+    dd.innerHTML = '<div style="padding:8px 10px;color:#64748b;font-size:12px">검색 결과 없음 (현재가 관리에서 동기화 필요)</div>';
+  } else {
+    dd.innerHTML = filtered.map(s =>
+      `<div onmousedown="caSelectStock('${s.stock_code}','${(s.stock_name||'').replace(/'/g,"\\'")}')"
+            style="padding:7px 10px;cursor:pointer;font-size:12px;display:flex;justify-content:space-between;align-items:center;gap:8px"
+            onmouseover="this.style.background='#1e2535'" onmouseout="this.style.background=''">
+         <span style="color:#60a5fa;font-family:monospace;flex-shrink:0">${s.stock_code}</span>
+         <span style="color:#94a3b8;text-align:right">${s.stock_name || '-'}</span>
+       </div>`
+    ).join('');
+  }
+  dd.style.display = 'block';
+}
+
+function caSelectStock(code, name) {
+  document.getElementById('ca-modal-stock-code').value = code;
+  document.getElementById('ca-stock-search').value = name ? `${code} ${name}` : code;
+  document.getElementById('ca-stock-dropdown').style.display = 'none';
+  const sel = document.getElementById('ca-stock-selected');
+  sel.textContent = `선택됨: ${code}${name ? ' — ' + name : ''}`;
+  sel.style.display = 'block';
+}
+
+function caMacroSearchInput(q) {
+  const dd = document.getElementById('ca-macro-dropdown');
+  const trimmed = (q || '').trim();
+  const filtered = trimmed
+    ? caMacroList.filter(m =>
+        m.key.toLowerCase().includes(trimmed.toLowerCase()) ||
+        (m.name || '').toLowerCase().includes(trimmed.toLowerCase())
+      )
+    : caMacroList;
+  if (!filtered.length) {
+    dd.innerHTML = '<div style="padding:8px 10px;color:#64748b;font-size:12px">검색 결과 없음 (매크로 관리에서 추가 필요)</div>';
+  } else {
+    dd.innerHTML = filtered.map(m =>
+      `<div onmousedown="caSelectMacro('${m.key}','${(m.name||'').replace(/'/g,"\\'")}')"
+            style="padding:7px 10px;cursor:pointer;font-size:12px;display:flex;justify-content:space-between;align-items:center;gap:8px"
+            onmouseover="this.style.background='#1e2535'" onmouseout="this.style.background=''">
+         <span style="color:#f59e0b;font-family:monospace;flex-shrink:0">${m.key}</span>
+         <span style="color:#94a3b8;text-align:right">${m.name || ''}</span>
+       </div>`
+    ).join('');
+  }
+  dd.style.display = 'block';
+}
+
+function caSelectMacro(key, name) {
+  document.getElementById('ca-modal-macro-key').value = key;
+  document.getElementById('ca-macro-search').value = name ? `${key} — ${name}` : key;
+  document.getElementById('ca-macro-dropdown').style.display = 'none';
+  const sel = document.getElementById('ca-macro-selected');
+  sel.textContent = `선택됨: ${name ? name + ' (' + key + ')' : key}`;
+  sel.style.display = 'block';
+}
+
+function caResetSearchFields() {
+  document.getElementById('ca-stock-search').value = '';
+  document.getElementById('ca-modal-stock-code').value = '';
+  document.getElementById('ca-stock-selected').style.display = 'none';
+  document.getElementById('ca-stock-dropdown').style.display = 'none';
+  document.getElementById('ca-macro-search').value = '';
+  document.getElementById('ca-modal-macro-key').value = '';
+  document.getElementById('ca-macro-selected').style.display = 'none';
+  document.getElementById('ca-macro-dropdown').style.display = 'none';
 }
 
 function caOpenModal(id) {
   const modal = document.getElementById('ca-modal');
   document.getElementById('ca-modal-err').style.display = 'none';
-  caPopulateMacroSelect();
+  caResetSearchFields();
   if (id) {
     const item = (caData.items || []).find(r => r.id === id);
     if (!item) return;
@@ -5611,11 +5702,29 @@ function caOpenModal(id) {
     document.getElementById('ca-modal-price').value       = item.unit_price ?? '';
     document.getElementById('ca-modal-amount').value      = item.amount;
     document.getElementById('ca-modal-note').value        = item.note || '';
-    // link type
     const lt = item.link_type || 'none';
     document.querySelector(`input[name="ca-link-type"][value="${lt}"]`).checked = true;
-    document.getElementById('ca-modal-stock-code').value = lt === 'stock' ? item.link_key : '';
-    if (lt === 'macro') document.getElementById('ca-modal-macro-key').value = item.link_key;
+    if (lt === 'stock' && item.link_key) {
+      document.getElementById('ca-modal-stock-code').value = item.link_key;
+      document.getElementById('ca-stock-search').value = item.link_key;
+      document.getElementById('ca-stock-selected').textContent = `선택됨: ${item.link_key}`;
+      document.getElementById('ca-stock-selected').style.display = 'block';
+      caLoadStockList().then(() => {
+        const found = caStockList.find(s => s.stock_code === item.link_key);
+        if (found) {
+          document.getElementById('ca-stock-search').value = `${found.stock_code} ${found.stock_name || ''}`.trim();
+          document.getElementById('ca-stock-selected').textContent = `선택됨: ${found.stock_code}${found.stock_name ? ' — ' + found.stock_name : ''}`;
+        }
+      });
+    }
+    if (lt === 'macro' && item.link_key) {
+      document.getElementById('ca-modal-macro-key').value = item.link_key;
+      const found = caMacroList.find(m => m.key === item.link_key);
+      const label = found ? `${item.link_key} — ${found.name}` : item.link_key;
+      document.getElementById('ca-macro-search').value = label;
+      document.getElementById('ca-macro-selected').textContent = `선택됨: ${found ? found.name + ' (' + item.link_key + ')' : item.link_key}`;
+      document.getElementById('ca-macro-selected').style.display = 'block';
+    }
     caOnLinkTypeChange();
     caAutoCalc();
   } else {
@@ -5626,10 +5735,9 @@ function caOpenModal(id) {
     document.getElementById('ca-modal-price').value       = '';
     document.getElementById('ca-modal-amount').value      = '';
     document.getElementById('ca-modal-note').value        = '';
-    document.querySelector('input[name="ca-link-type"][value="none"]').checked = true;
-    document.getElementById('ca-modal-stock-code').value = '';
     document.getElementById('ca-amount-hint').textContent = '';
     document.getElementById('ca-modal-amount').style.color = '#e2e8f0';
+    document.querySelector('input[name="ca-link-type"][value="none"]').checked = true;
     caOnLinkTypeChange();
   }
   modal.style.display = 'flex';
@@ -5655,8 +5763,8 @@ async function caSave() {
               : '';
 
   if (!name) { errEl.textContent = '자산명을 입력해주세요'; errEl.style.display = 'block'; return; }
-  if (lt === 'stock' && !lk) { errEl.textContent = '종목코드를 입력해주세요'; errEl.style.display = 'block'; return; }
-  if (lt === 'macro' && !lk) { errEl.textContent = '매크로 지표를 선택해주세요'; errEl.style.display = 'block'; return; }
+  if (lt === 'stock' && !lk) { errEl.textContent = '종목을 검색하여 선택해주세요'; errEl.style.display = 'block'; return; }
+  if (lt === 'macro' && !lk) { errEl.textContent = '매크로 지표를 검색하여 선택해주세요'; errEl.style.display = 'block'; return; }
 
   const payload = {
     name,
