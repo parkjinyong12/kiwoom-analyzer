@@ -1084,6 +1084,7 @@ def api_rebalance():
     alert_up          = float(settings.get("rebalance_alert_up",   30))
     alert_down        = float(settings.get("rebalance_alert_down", 25))
     cash_target_ratio = float(settings.get("cash_target_ratio",    0))
+    margin_rate       = float(settings.get("margin_rate",          45))
 
     result = []
     stock_total = 0
@@ -1118,10 +1119,12 @@ def api_rebalance():
     return jsonify({
         "holdings":          result,
         "portfolio_total":   round(portfolio_total),
+        "stock_total":       round(stock_total),
         "total_cash":        total_cash,
         "alert_up":          alert_up,
         "alert_down":        alert_down,
         "cash_target_ratio": cash_target_ratio,
+        "margin_rate":       margin_rate,
     })
 
 

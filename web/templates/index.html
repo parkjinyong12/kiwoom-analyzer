@@ -1652,7 +1652,71 @@ canvas { max-height: 220px; }
           <span style="font-size:12px;color:#64748b">% 이하 →</span>
           <span style="font-size:12px;color:#60a5fa;font-weight:500">추가매수 검토</span>
         </div>
+        <div style="width:1px;height:28px;background:#1e2535"></div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:12px;color:#f59e0b">신용 보증금율</span>
+          <input type="number" id="rb-margin-rate" value="45" min="1" max="100" step="1"
+                 style="width:58px;padding:5px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#f59e0b;font-size:13px;text-align:center;outline:none"/>
+          <span style="font-size:12px;color:#64748b">% (신용매수 담보 기준)</span>
+        </div>
         <button class="btn btn-primary" style="font-size:12px;padding:6px 14px" onclick="rbSaveThresholds()">기준 저장</button>
+      </div>
+    </div>
+
+    <!-- 신용 담보 & 주식:현금 비율 패널 -->
+    <div class="panel" style="margin-bottom:12px" id="rb-margin-panel">
+      <div class="panel-header" style="cursor:default">신용 담보 현황 <span style="font-size:11px;color:#64748b;font-weight:normal">· 전 종목 신용매수 기준</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;padding:0">
+        <!-- 좌: 담보 계산 -->
+        <div style="padding:16px;border-right:1px solid #1e2535">
+          <div style="font-size:11px;color:#64748b;margin-bottom:10px;font-weight:600;letter-spacing:0.5px">담보 금액 계산</div>
+          <div style="display:flex;flex-direction:column;gap:6px;font-size:13px">
+            <div style="display:flex;justify-content:space-between">
+              <span style="color:#64748b">주식 평가금액</span>
+              <span id="rb-m-stock-eval" style="color:#e2e8f0;font-weight:500">-</span>
+            </div>
+            <div style="display:flex;justify-content:space-between">
+              <span style="color:#64748b">필요 담보금 <span id="rb-m-rate-label" style="color:#f59e0b">(×45%)</span></span>
+              <span id="rb-m-required" style="color:#f59e0b;font-weight:600">-</span>
+            </div>
+            <div style="display:flex;justify-content:space-between">
+              <span style="color:#64748b">현재 현금성 자산</span>
+              <span id="rb-m-cash" style="color:#94a3b8">-</span>
+            </div>
+            <div style="border-top:1px solid #1e2535;margin-top:4px;padding-top:8px;display:flex;justify-content:space-between;align-items:center">
+              <span style="color:#94a3b8;font-weight:600">담보 여유액</span>
+              <span id="rb-m-surplus" style="font-weight:700;font-size:15px">-</span>
+            </div>
+          </div>
+          <div id="rb-m-status" style="margin-top:10px;padding:8px 12px;border-radius:6px;font-size:12px;font-weight:600;text-align:center">-</div>
+        </div>
+        <!-- 우: 주식:현금 비율 -->
+        <div style="padding:16px">
+          <div style="font-size:11px;color:#64748b;margin-bottom:10px;font-weight:600;letter-spacing:0.5px">주식 : 현금 비율 현황</div>
+          <div style="display:flex;flex-direction:column;gap:6px;font-size:13px">
+            <div style="display:flex;justify-content:space-between">
+              <span style="color:#64748b">현재 주식 비율</span>
+              <span id="rb-sc-stock-cur" style="color:#60a5fa;font-weight:600">-</span>
+            </div>
+            <div style="display:flex;justify-content:space-between">
+              <span style="color:#64748b">현재 현금 비율</span>
+              <span id="rb-sc-cash-cur" style="color:#94a3b8;font-weight:500">-</span>
+            </div>
+            <div style="border-top:1px solid #1e2535;margin-top:4px;padding-top:8px;display:flex;justify-content:space-between">
+              <span style="color:#64748b">목표 주식 비율</span>
+              <span id="rb-sc-stock-tgt" style="color:#64748b">-</span>
+            </div>
+            <div style="display:flex;justify-content:space-between">
+              <span style="color:#64748b">목표 현금 비율</span>
+              <span id="rb-sc-cash-tgt" style="color:#64748b">-</span>
+            </div>
+            <div style="border-top:1px solid #1e2535;margin-top:4px;padding-top:8px;display:flex;justify-content:space-between;align-items:center">
+              <span style="color:#94a3b8;font-weight:600">현금 편차</span>
+              <span id="rb-sc-deviation" style="font-weight:700;font-size:14px">-</span>
+            </div>
+          </div>
+          <div id="rb-sc-action" style="margin-top:10px;padding:8px 12px;border-radius:6px;font-size:12px;font-weight:600;text-align:center;line-height:1.6">-</div>
+        </div>
       </div>
     </div>
 
@@ -4618,8 +4682,10 @@ let rbData = [];
 let rbAlertUp        = 30;
 let rbAlertDown      = 25;
 let rbPortfolioTotal = 0;
+let rbStockTotal     = 0;
 let rbTotalCash      = 0;
 let rbCashTargetRatio = 0;
+let rbMarginRate     = 45;
 
 async function loadRebalance() {
   document.getElementById('rb-tbody').innerHTML =
@@ -4636,13 +4702,17 @@ async function loadRebalance() {
     rbAlertUp         = json.alert_up          ?? 30;
     rbAlertDown       = json.alert_down        ?? 25;
     rbPortfolioTotal  = json.portfolio_total   || 0;
+    rbStockTotal      = json.stock_total       || 0;
     rbTotalCash       = json.total_cash        || 0;
     rbCashTargetRatio = json.cash_target_ratio || 0;
+    rbMarginRate      = json.margin_rate       ?? 45;
 
     document.getElementById('rb-threshold-up').value   = rbAlertUp;
     document.getElementById('rb-threshold-down').value = rbAlertDown;
+    document.getElementById('rb-margin-rate').value    = rbMarginRate;
 
     rbUpdateSummary(json);
+    rbRenderMarginPanel();
     rbRender();
     if (rbRecVisible) rbRenderRecommendation();
   } catch(e) {
@@ -4689,6 +4759,90 @@ function rbUpdateSummary(json) {
   alertEl.style.color = alertCnt > 0 ? '#f59e0b' : '#4ade80';
   document.getElementById('rb-alert-note').textContent = alertCnt > 0 ? '즉시 검토 필요' : '이상 없음';
   document.getElementById('rb-unset-cnt').textContent = unsetCnt;
+}
+
+function rbRenderMarginPanel() {
+  const stockEval   = rbStockTotal;
+  const cash        = rbTotalCash;
+  const mr          = rbMarginRate;
+  const required    = stockEval * mr / 100;      // 필요 담보금
+  const surplus     = cash - required;           // 담보 여유(+) / 부족(-)
+  const cashRatio   = rbPortfolioTotal > 0 ? cash / rbPortfolioTotal * 100 : 0;
+  const stockRatio  = rbPortfolioTotal > 0 ? stockEval / rbPortfolioTotal * 100 : 0;
+  const cashTgt     = rbCashTargetRatio;
+  const stockTgt    = cashTgt > 0 ? 100 - cashTgt : 0;
+
+  // ── 담보 영역 ──
+  document.getElementById('rb-m-rate-label').textContent = `(×${mr}%)`;
+  document.getElementById('rb-m-stock-eval').textContent = stockEval.toLocaleString() + '원';
+  document.getElementById('rb-m-required').textContent   = Math.round(required).toLocaleString() + '원';
+  document.getElementById('rb-m-cash').textContent       = cash.toLocaleString() + '원';
+  const surplusEl = document.getElementById('rb-m-surplus');
+  const statusEl  = document.getElementById('rb-m-status');
+  if (stockEval === 0) {
+    surplusEl.textContent = '-';
+    statusEl.textContent  = '주식 없음';
+    statusEl.style.cssText = 'margin-top:10px;padding:8px 12px;border-radius:6px;font-size:12px;font-weight:600;text-align:center;background:rgba(100,116,139,0.1);color:#64748b';
+  } else {
+    const sign = surplus >= 0 ? '+' : '';
+    surplusEl.textContent = sign + Math.abs(Math.round(surplus)).toLocaleString() + '원';
+    // 담보 비율: 여유 / 필요담보 × 100
+    const bufferPct = required > 0 ? surplus / required * 100 : 0;
+    if (surplus < 0) {
+      surplusEl.style.color = '#f87171';
+      statusEl.innerHTML    = '🚨 담보 부족 — 반대매매 위험';
+      statusEl.style.cssText = 'margin-top:10px;padding:8px 12px;border-radius:6px;font-size:12px;font-weight:600;text-align:center;background:rgba(248,113,113,0.15);color:#f87171;border:1px solid rgba(248,113,113,0.3)';
+    } else if (bufferPct < 20) {
+      surplusEl.style.color = '#f59e0b';
+      statusEl.innerHTML    = `⚠️ 담보 주의 (여유 ${bufferPct.toFixed(0)}%)`;
+      statusEl.style.cssText = 'margin-top:10px;padding:8px 12px;border-radius:6px;font-size:12px;font-weight:600;text-align:center;background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.3)';
+    } else {
+      surplusEl.style.color = '#4ade80';
+      statusEl.innerHTML    = `✅ 담보 안전 (여유 ${bufferPct.toFixed(0)}%)`;
+      statusEl.style.cssText = 'margin-top:10px;padding:8px 12px;border-radius:6px;font-size:12px;font-weight:600;text-align:center;background:rgba(74,222,128,0.1);color:#4ade80';
+    }
+  }
+
+  // ── 주식:현금 비율 영역 ──
+  document.getElementById('rb-sc-stock-cur').textContent =
+    stockRatio.toFixed(1) + '% (' + Math.round(stockEval).toLocaleString() + '원)';
+  document.getElementById('rb-sc-cash-cur').textContent  =
+    cashRatio.toFixed(1) + '% (' + Math.round(cash).toLocaleString() + '원)';
+
+  const scActionEl = document.getElementById('rb-sc-action');
+  if (cashTgt <= 0) {
+    document.getElementById('rb-sc-stock-tgt').textContent = '미설정 (현금 목표비율을 입력하세요)';
+    document.getElementById('rb-sc-cash-tgt').textContent  = '-';
+    document.getElementById('rb-sc-deviation').textContent = '-';
+    document.getElementById('rb-sc-deviation').style.color = '#64748b';
+    scActionEl.innerHTML   = '목표 비율 미설정 — CASH 행에서 현금 목표비율을 입력하세요';
+    scActionEl.style.cssText = 'margin-top:10px;padding:8px 12px;border-radius:6px;font-size:12px;font-weight:600;text-align:center;background:rgba(100,116,139,0.1);color:#64748b';
+  } else {
+    document.getElementById('rb-sc-stock-tgt').textContent = stockTgt.toFixed(1) + '%';
+    document.getElementById('rb-sc-cash-tgt').textContent  = cashTgt.toFixed(1) + '%';
+    // 현금 편차 = (현재현금비율 - 목표현금비율) / 목표현금비율 × 100
+    const cashDevRel = cashTgt > 0 ? (cashRatio - cashTgt) / cashTgt * 100 : 0;
+    const cashDevPP  = cashRatio - cashTgt;
+    const devEl = document.getElementById('rb-sc-deviation');
+    const sign = cashDevRel >= 0 ? '+' : '';
+    devEl.textContent = `${sign}${cashDevRel.toFixed(1)}% (${cashDevPP >= 0 ? '+' : ''}${cashDevPP.toFixed(2)}pp)`;
+
+    if (cashDevRel > rbAlertUp) {
+      devEl.style.color = '#f87171';
+      const sellAmt = Math.round((cashRatio - cashTgt) / 100 * rbPortfolioTotal);
+      scActionEl.innerHTML = `🔴 현금 과다 — 주식 약 <strong>${sellAmt.toLocaleString()}원</strong> 매수 검토<br><span style="font-size:11px;opacity:0.7">현재 현금 ${cashRatio.toFixed(1)}% → 목표 ${cashTgt.toFixed(1)}%</span>`;
+      scActionEl.style.cssText = 'margin-top:10px;padding:8px 12px;border-radius:6px;font-size:12px;font-weight:600;text-align:center;background:rgba(248,113,113,0.1);color:#f87171;border:1px solid rgba(248,113,113,0.3);line-height:1.7';
+    } else if (cashDevRel < -rbAlertDown) {
+      devEl.style.color = '#60a5fa';
+      const buyAmt = Math.round((cashTgt - cashRatio) / 100 * rbPortfolioTotal);
+      scActionEl.innerHTML = `🔵 현금 부족 — 주식 약 <strong>${buyAmt.toLocaleString()}원</strong> 매도 검토<br><span style="font-size:11px;opacity:0.7">현재 현금 ${cashRatio.toFixed(1)}% → 목표 ${cashTgt.toFixed(1)}%</span>`;
+      scActionEl.style.cssText = 'margin-top:10px;padding:8px 12px;border-radius:6px;font-size:12px;font-weight:600;text-align:center;background:rgba(96,165,250,0.1);color:#60a5fa;border:1px solid rgba(96,165,250,0.3);line-height:1.7';
+    } else {
+      devEl.style.color = '#4ade80';
+      scActionEl.innerHTML = `✅ 주식:현금 비율 정상 범위`;
+      scActionEl.style.cssText = 'margin-top:10px;padding:8px 12px;border-radius:6px;font-size:12px;font-weight:600;text-align:center;background:rgba(74,222,128,0.1);color:#4ade80';
+    }
+  }
 }
 
 function rbRender() {
@@ -4873,17 +5027,17 @@ async function rbSaveCashTarget(inputEl) {
 }
 
 async function rbSaveThresholds() {
-  rbAlertUp   = parseFloat(document.getElementById('rb-threshold-up').value)   || 30;
-  rbAlertDown = parseFloat(document.getElementById('rb-threshold-down').value) || 25;
+  rbAlertUp    = parseFloat(document.getElementById('rb-threshold-up').value)   || 30;
+  rbAlertDown  = parseFloat(document.getElementById('rb-threshold-down').value) || 25;
+  rbMarginRate = parseFloat(document.getElementById('rb-margin-rate').value)    || 45;
   await Promise.all([
     fetch('/api/settings', { method: 'PUT', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ key: 'rebalance_alert_up', value: String(rbAlertUp) }) }),
     fetch('/api/settings', { method: 'PUT', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ key: 'rebalance_alert_down', value: String(rbAlertDown) }) }),
+    fetch('/api/settings', { method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ key: 'margin_rate', value: String(rbMarginRate) }) }),
   ]);
-  rbRender();
-  // 카드 재계산
-  rbUpdateSummary({ portfolio_total: 0, total_cash: 0 }); // 재로드로 갱신
   await loadRebalance();
 }
 
