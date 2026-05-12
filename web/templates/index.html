@@ -1708,7 +1708,7 @@ canvas { max-height: 220px; }
       <div class="panel" style="margin-bottom:12px">
         <div class="panel-header">
           <span>매매 추천 내역</span>
-          <span style="font-size:11px;color:#64748b">목표 비율 달성 기준 · 수량은 1주 단위 절사</span>
+          <span style="font-size:11px;color:#64748b">과다/부족 기준 초과 종목만 표시 · 수량은 1주 단위 절사</span>
         </div>
         <div style="overflow-x:auto">
           <table class="data-table">
@@ -4914,6 +4914,9 @@ function rbRenderRecommendation() {
   for (const r of rbData) {
     if (!r.target_ratio) continue;
     if (r.current_price == null) { noPriceCnt++; continue; }
+    // 정상 범위 종목은 추천 제외 (신호 기준 초과 종목만)
+    const relDev = r.deviation_rel;
+    if (relDev === null || (relDev <= rbAlertUp && relDev >= -rbAlertDown)) continue;
 
     const targetEval = rbPortfolioTotal * r.target_ratio / 100;
     const diff       = targetEval - r.eval_amt;
