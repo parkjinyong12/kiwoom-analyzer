@@ -1410,7 +1410,15 @@ _NAVER_REUTERS_MAP: dict[str, str] = {
 
 @app.route("/api/macro_rates/<int:mid>/sync_naver", methods=["POST"])
 def api_macro_rates_sync_naver(mid):
-    """네이버 금융에서 환율을 조회해 macro_rates 값 업데이트."""
+    """네이버 금융 HTML에서 환율을 파싱해 macro_rates 값 업데이트.
+
+    finance.naver.com 환율 페이지는 EUC-KR 인코딩이며,
+    환율 숫자가 <span class='no4'>4</span> 형태로 자리별로 분산되어 있음.
+    class='noX' → 숫자 X, class='shim' → ',', class='jum' → '.'
+    """
+    import re as _re
+    import requests as _req
+
     row = query_one("SELECT key FROM macro_rates WHERE id = %s", (mid,))
     if not row:
         return jsonify({"error": "지표 없음"}), 404
@@ -1421,23 +1429,44 @@ def api_macro_rates_sync_naver(mid):
         return jsonify({"error": f"'{key}'는 네이버 자동 동기화를 지원하지 않습니다"}), 400
 
     try:
-        import requests as _req
+        url = f"https://finance.naver.com/marketindex/exchangeDetail.nhn?marketindexCd={reuters_code}"
         headers = {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/124.0.0.0 Safari/537.36"
             ),
-            "Referer": f"https://stock.naver.com/marketindex/exchange/{reuters_code}/price",
         }
-        resp = _req.get(
-            f"https://api.stock.naver.com/marketindex/{reuters_code}/basic",
-            headers=headers,
-            timeout=10,
-        )
+        resp = _req.get(url, headers=headers, timeout=10)
         resp.raise_for_status()
-        data = resp.json()
-        close_price = float(str(data["closePrice"]).replace(",", ""))
+        resp.encoding = "euc-kr"
+        html = resp.text
+
+        # 현재가 블록 추출 (no_today … txt_won)
+        block_m = _re.search(
+            r"class=[\"']no_today[\"'].*?class=[\"']txt_won[\"']",
+            html, _re.DOTALL,
+        )
+        if not block_m:
+            raise ValueError("환율 블록을 찾을 수 없습니다")
+        block = block_m.group(0)
+
+        # no[숫자] → 해당 숫자, shim → ',', jum → '.' 순서대로 조립
+        price_str = ""
+        for m in _re.finditer(r"class=[\"'](no\d|shim|jum)[\"']", block):
+            cls = m.group(1)
+            if cls.startswith("no"):
+                price_str += cls[2]   # 'no4' → '4'
+            elif cls == "shim":
+                price_str += ","
+            else:
+                price_str += "."
+
+        if not price_str:
+            raise ValueError("환율 숫자를 파싱하지 못했습니다")
+
+        close_price = float(price_str.replace(",", ""))
+
     except Exception as e:
         logging.exception("네이버 환율 조회 실패: %s", key)
         return jsonify({"error": f"네이버 조회 실패: {e}"}), 502
