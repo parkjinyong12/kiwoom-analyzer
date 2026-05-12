@@ -1445,6 +1445,7 @@ canvas { max-height: 220px; }
         <table class="data-table">
           <thead>
             <tr>
+              <th>증권사</th>
               <th>자산명 / 연동</th>
               <th style="text-align:right">수량</th>
               <th style="text-align:right">단가(원)</th>
@@ -1470,10 +1471,19 @@ canvas { max-height: 220px; }
       <h3 id="ca-modal-title">현금성 자산 추가</h3>
       <input type="hidden" id="ca-modal-id"/>
       <div style="display:grid;gap:14px;margin-top:8px">
-        <div>
-          <div style="font-size:12px;color:#64748b;margin-bottom:4px">자산명 <span style="color:#f87171">*</span></div>
-          <input type="text" id="ca-modal-name" placeholder="예: 현금, 달러, 금현물ETF, CD ETF" maxlength="100"
-                 style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div>
+            <div style="font-size:12px;color:#64748b;margin-bottom:4px">자산명 <span style="color:#f87171">*</span></div>
+            <input type="text" id="ca-modal-name" placeholder="예: 현금, 달러, 금현물ETF" maxlength="100"
+                   style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
+          </div>
+          <div>
+            <div style="font-size:12px;color:#64748b;margin-bottom:4px">증권사 <span style="font-size:10px;color:#475569">(신용담보금 계산용)</span></div>
+            <select id="ca-modal-brokerage"
+                    style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none">
+              <option value="">전체/공통</option>
+            </select>
+          </div>
         </div>
 
         <!-- 가격 연동 설정 -->
@@ -1665,57 +1675,54 @@ canvas { max-height: 220px; }
 
     <!-- 신용 담보 & 주식:현금 비율 패널 -->
     <div class="panel" style="margin-bottom:12px" id="rb-margin-panel">
-      <div class="panel-header" style="cursor:default">신용 담보 현황 <span style="font-size:11px;color:#64748b;font-weight:normal">· 전 종목 신용매수 기준</span></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;padding:0">
-        <!-- 좌: 담보 계산 -->
-        <div style="padding:16px;border-right:1px solid #1e2535">
-          <div style="font-size:11px;color:#64748b;margin-bottom:10px;font-weight:600;letter-spacing:0.5px">담보 금액 계산</div>
-          <div style="display:flex;flex-direction:column;gap:6px;font-size:13px">
+      <div class="panel-header" style="cursor:default">신용 담보 현황 <span style="font-size:11px;color:#64748b;font-weight:normal">· 증권사별 · 전 종목 신용매수 기준</span></div>
+      <!-- 증권사별 담보 테이블 -->
+      <div style="overflow-x:auto;border-bottom:1px solid #1e2535">
+        <table class="data-table" style="margin:0">
+          <thead>
+            <tr>
+              <th>증권사</th>
+              <th style="text-align:right">주식 평가금</th>
+              <th style="text-align:right" id="rb-m-rate-label">필요 담보금 (×45%)</th>
+              <th style="text-align:right">현금성 자산</th>
+              <th style="text-align:right">담보 여유/부족</th>
+              <th style="text-align:center">상태</th>
+            </tr>
+          </thead>
+          <tbody id="rb-broker-tbody">
+            <tr><td colspan="6" class="loading">로딩 중...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <!-- 주식:현금 비율 요약 -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0">
+        <div style="padding:14px 16px;border-right:1px solid #1e2535">
+          <div style="font-size:11px;color:#64748b;margin-bottom:8px;font-weight:600">전체 주식 : 현금 비율</div>
+          <div style="display:flex;flex-direction:column;gap:5px;font-size:13px">
             <div style="display:flex;justify-content:space-between">
-              <span style="color:#64748b">주식 평가금액</span>
-              <span id="rb-m-stock-eval" style="color:#e2e8f0;font-weight:500">-</span>
-            </div>
-            <div style="display:flex;justify-content:space-between">
-              <span style="color:#64748b">필요 담보금 <span id="rb-m-rate-label" style="color:#f59e0b">(×45%)</span></span>
-              <span id="rb-m-required" style="color:#f59e0b;font-weight:600">-</span>
-            </div>
-            <div style="display:flex;justify-content:space-between">
-              <span style="color:#64748b">현재 현금성 자산</span>
-              <span id="rb-m-cash" style="color:#94a3b8">-</span>
-            </div>
-            <div style="border-top:1px solid #1e2535;margin-top:4px;padding-top:8px;display:flex;justify-content:space-between;align-items:center">
-              <span style="color:#94a3b8;font-weight:600">담보 여유액</span>
-              <span id="rb-m-surplus" style="font-weight:700;font-size:15px">-</span>
-            </div>
-          </div>
-          <div id="rb-m-status" style="margin-top:10px;padding:8px 12px;border-radius:6px;font-size:12px;font-weight:600;text-align:center">-</div>
-        </div>
-        <!-- 우: 주식:현금 비율 -->
-        <div style="padding:16px">
-          <div style="font-size:11px;color:#64748b;margin-bottom:10px;font-weight:600;letter-spacing:0.5px">주식 : 현금 비율 현황</div>
-          <div style="display:flex;flex-direction:column;gap:6px;font-size:13px">
-            <div style="display:flex;justify-content:space-between">
-              <span style="color:#64748b">현재 주식 비율</span>
+              <span style="color:#64748b">현재 주식</span>
               <span id="rb-sc-stock-cur" style="color:#60a5fa;font-weight:600">-</span>
             </div>
             <div style="display:flex;justify-content:space-between">
-              <span style="color:#64748b">현재 현금 비율</span>
-              <span id="rb-sc-cash-cur" style="color:#94a3b8;font-weight:500">-</span>
+              <span style="color:#64748b">현재 현금</span>
+              <span id="rb-sc-cash-cur" style="color:#94a3b8">-</span>
             </div>
-            <div style="border-top:1px solid #1e2535;margin-top:4px;padding-top:8px;display:flex;justify-content:space-between">
-              <span style="color:#64748b">목표 주식 비율</span>
+            <div style="border-top:1px solid #1e2535;margin-top:3px;padding-top:6px;display:flex;justify-content:space-between">
+              <span style="color:#64748b">목표 주식</span>
               <span id="rb-sc-stock-tgt" style="color:#64748b">-</span>
             </div>
             <div style="display:flex;justify-content:space-between">
-              <span style="color:#64748b">목표 현금 비율</span>
+              <span style="color:#64748b">목표 현금</span>
               <span id="rb-sc-cash-tgt" style="color:#64748b">-</span>
             </div>
-            <div style="border-top:1px solid #1e2535;margin-top:4px;padding-top:8px;display:flex;justify-content:space-between;align-items:center">
+            <div style="border-top:1px solid #1e2535;margin-top:3px;padding-top:6px;display:flex;justify-content:space-between">
               <span style="color:#94a3b8;font-weight:600">현금 편차</span>
-              <span id="rb-sc-deviation" style="font-weight:700;font-size:14px">-</span>
+              <span id="rb-sc-deviation" style="font-weight:700">-</span>
             </div>
           </div>
-          <div id="rb-sc-action" style="margin-top:10px;padding:8px 12px;border-radius:6px;font-size:12px;font-weight:600;text-align:center;line-height:1.6">-</div>
+        </div>
+        <div style="padding:14px 16px;display:flex;align-items:center">
+          <div id="rb-sc-action" style="width:100%;padding:10px 14px;border-radius:6px;font-size:13px;font-weight:600;text-align:center;line-height:1.7">-</div>
         </div>
       </div>
     </div>
@@ -4706,11 +4713,19 @@ async function loadRebalance() {
     rbTotalCash       = json.total_cash        || 0;
     rbCashTargetRatio = json.cash_target_ratio || 0;
     rbMarginRate      = json.margin_rate       ?? 45;
+    rbBrokerSummary   = json.broker_summary    || [];
 
     document.getElementById('rb-threshold-up').value   = rbAlertUp;
     document.getElementById('rb-threshold-down').value = rbAlertDown;
     document.getElementById('rb-margin-rate').value    = rbMarginRate;
 
+    // caBrokerMap이 비어있으면 로드 후 렌더
+    if (!Object.keys(caBrokerMap).length) {
+      fetch('/api/common_codes?group=BROKERAGE').then(r => r.json()).then(list => {
+        list.forEach(b => { caBrokerMap[b.code] = b.name; });
+        rbRenderMarginPanel();
+      });
+    }
     rbUpdateSummary(json);
     rbRenderMarginPanel();
     rbRender();
@@ -4761,86 +4776,108 @@ function rbUpdateSummary(json) {
   document.getElementById('rb-unset-cnt').textContent = unsetCnt;
 }
 
-function rbRenderMarginPanel() {
-  const stockEval   = rbStockTotal;
-  const cash        = rbTotalCash;
-  const mr          = rbMarginRate;
-  const required    = stockEval * mr / 100;      // 필요 담보금
-  const surplus     = cash - required;           // 담보 여유(+) / 부족(-)
-  const cashRatio   = rbPortfolioTotal > 0 ? cash / rbPortfolioTotal * 100 : 0;
-  const stockRatio  = rbPortfolioTotal > 0 ? stockEval / rbPortfolioTotal * 100 : 0;
-  const cashTgt     = rbCashTargetRatio;
-  const stockTgt    = cashTgt > 0 ? 100 - cashTgt : 0;
+let rbBrokerSummary = [];
 
-  // ── 담보 영역 ──
-  document.getElementById('rb-m-rate-label').textContent = `(×${mr}%)`;
-  document.getElementById('rb-m-stock-eval').textContent = stockEval.toLocaleString() + '원';
-  document.getElementById('rb-m-required').textContent   = Math.round(required).toLocaleString() + '원';
-  document.getElementById('rb-m-cash').textContent       = cash.toLocaleString() + '원';
-  const surplusEl = document.getElementById('rb-m-surplus');
-  const statusEl  = document.getElementById('rb-m-status');
-  if (stockEval === 0) {
-    surplusEl.textContent = '-';
-    statusEl.textContent  = '주식 없음';
-    statusEl.style.cssText = 'margin-top:10px;padding:8px 12px;border-radius:6px;font-size:12px;font-weight:600;text-align:center;background:rgba(100,116,139,0.1);color:#64748b';
+function rbRenderMarginPanel() {
+  const mr       = rbMarginRate;
+  const cash     = rbTotalCash;
+  const stockEval = rbStockTotal;
+  const cashRatio  = rbPortfolioTotal > 0 ? cash / rbPortfolioTotal * 100 : 0;
+  const stockRatio = rbPortfolioTotal > 0 ? stockEval / rbPortfolioTotal * 100 : 0;
+  const cashTgt    = rbCashTargetRatio;
+  const stockTgt   = cashTgt > 0 ? 100 - cashTgt : 0;
+
+  // ── 헤더 보증금율 표시 ──
+  document.getElementById('rb-m-rate-label').textContent = `필요 담보금 (×${mr}%)`;
+
+  // ── 증권사별 테이블 ──
+  const tbody = document.getElementById('rb-broker-tbody');
+  if (!rbBrokerSummary.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;color:#475569">데이터 없음 — 현금성 자산에서 증권사를 지정하세요</td></tr>';
   } else {
-    const sign = surplus >= 0 ? '+' : '';
-    surplusEl.textContent = sign + Math.abs(Math.round(surplus)).toLocaleString() + '원';
-    // 담보 비율: 여유 / 필요담보 × 100
-    const bufferPct = required > 0 ? surplus / required * 100 : 0;
-    if (surplus < 0) {
-      surplusEl.style.color = '#f87171';
-      statusEl.innerHTML    = '🚨 담보 부족 — 반대매매 위험';
-      statusEl.style.cssText = 'margin-top:10px;padding:8px 12px;border-radius:6px;font-size:12px;font-weight:600;text-align:center;background:rgba(248,113,113,0.15);color:#f87171;border:1px solid rgba(248,113,113,0.3)';
-    } else if (bufferPct < 20) {
-      surplusEl.style.color = '#f59e0b';
-      statusEl.innerHTML    = `⚠️ 담보 주의 (여유 ${bufferPct.toFixed(0)}%)`;
-      statusEl.style.cssText = 'margin-top:10px;padding:8px 12px;border-radius:6px;font-size:12px;font-weight:600;text-align:center;background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.3)';
-    } else {
-      surplusEl.style.color = '#4ade80';
-      statusEl.innerHTML    = `✅ 담보 안전 (여유 ${bufferPct.toFixed(0)}%)`;
-      statusEl.style.cssText = 'margin-top:10px;padding:8px 12px;border-radius:6px;font-size:12px;font-weight:600;text-align:center;background:rgba(74,222,128,0.1);color:#4ade80';
-    }
+    let totalStockEval = 0, totalRequired = 0, totalCash = 0;
+    tbody.innerHTML = rbBrokerSummary.map(b => {
+      totalStockEval += b.stock_eval;
+      totalRequired  += b.required_collateral;
+      totalCash      += b.cash;
+      const surplus   = b.surplus;
+      const bufferPct = b.required_collateral > 0 ? surplus / b.required_collateral * 100 : null;
+      const sign      = surplus >= 0 ? '+' : '';
+      let surplusColor, statusHtml;
+      if (b.stock_eval === 0) {
+        surplusColor = '#64748b';
+        statusHtml   = '<span style="color:#64748b">주식 없음</span>';
+      } else if (surplus < 0) {
+        surplusColor = '#f87171';
+        statusHtml   = '<span style="color:#f87171;font-weight:700">🚨 담보 부족</span>';
+      } else if (bufferPct !== null && bufferPct < 20) {
+        surplusColor = '#f59e0b';
+        statusHtml   = `<span style="color:#f59e0b;font-weight:600">⚠️ 주의 (${bufferPct.toFixed(0)}%)</span>`;
+      } else {
+        surplusColor = '#4ade80';
+        statusHtml   = `<span style="color:#4ade80">✅ 안전${bufferPct !== null ? ' (' + bufferPct.toFixed(0) + '%)' : ''}</span>`;
+      }
+      const brokerName = caBrokerMap[b.brokerage] || b.brokerage || '미지정';
+      return `<tr>
+        <td style="font-weight:600">${brokerName}</td>
+        <td class="num">${b.stock_eval.toLocaleString()}원</td>
+        <td class="num" style="color:#f59e0b">${b.required_collateral.toLocaleString()}원</td>
+        <td class="num" style="color:#94a3b8">${b.cash.toLocaleString()}원</td>
+        <td class="num" style="color:${surplusColor};font-weight:700">${sign}${Math.abs(surplus).toLocaleString()}원</td>
+        <td class="center">${statusHtml}</td>
+      </tr>`;
+    }).join('') + (() => {
+      const totalSurplus  = totalCash - totalRequired;
+      const totalBufPct   = totalRequired > 0 ? totalSurplus / totalRequired * 100 : null;
+      const totalSign     = totalSurplus >= 0 ? '+' : '';
+      const totalColor    = totalSurplus < 0 ? '#f87171' : (totalBufPct !== null && totalBufPct < 20) ? '#f59e0b' : '#4ade80';
+      return `<tr style="border-top:2px solid #334155;background:rgba(148,163,184,0.06);font-weight:700">
+        <td style="color:#94a3b8">합계</td>
+        <td class="num">${totalStockEval.toLocaleString()}원</td>
+        <td class="num" style="color:#f59e0b">${totalRequired.toLocaleString()}원</td>
+        <td class="num" style="color:#94a3b8">${totalCash.toLocaleString()}원</td>
+        <td class="num" style="color:${totalColor}">${totalSign}${Math.abs(totalSurplus).toLocaleString()}원</td>
+        <td class="center" style="color:${totalColor}">${totalSurplus < 0 ? '🚨 전체 부족' : (totalBufPct !== null && totalBufPct < 20) ? '⚠️ 전체 주의' : '✅ 전체 안전'}</td>
+      </tr>`;
+    })();
   }
 
   // ── 주식:현금 비율 영역 ──
   document.getElementById('rb-sc-stock-cur').textContent =
     stockRatio.toFixed(1) + '% (' + Math.round(stockEval).toLocaleString() + '원)';
   document.getElementById('rb-sc-cash-cur').textContent  =
-    cashRatio.toFixed(1) + '% (' + Math.round(cash).toLocaleString() + '원)';
+    cashRatio.toFixed(1)  + '% (' + Math.round(cash).toLocaleString() + '원)';
 
   const scActionEl = document.getElementById('rb-sc-action');
   if (cashTgt <= 0) {
-    document.getElementById('rb-sc-stock-tgt').textContent = '미설정 (현금 목표비율을 입력하세요)';
-    document.getElementById('rb-sc-cash-tgt').textContent  = '-';
+    document.getElementById('rb-sc-stock-tgt').textContent = '미설정';
+    document.getElementById('rb-sc-cash-tgt').textContent  = '미설정';
     document.getElementById('rb-sc-deviation').textContent = '-';
     document.getElementById('rb-sc-deviation').style.color = '#64748b';
-    scActionEl.innerHTML   = '목표 비율 미설정 — CASH 행에서 현금 목표비율을 입력하세요';
-    scActionEl.style.cssText = 'margin-top:10px;padding:8px 12px;border-radius:6px;font-size:12px;font-weight:600;text-align:center;background:rgba(100,116,139,0.1);color:#64748b';
+    scActionEl.innerHTML   = '목표 비율 미설정<br><span style="font-size:11px;font-weight:400">CASH 행에서 현금 목표비율을 입력하세요</span>';
+    scActionEl.style.cssText = 'width:100%;padding:10px 14px;border-radius:6px;font-size:13px;font-weight:600;text-align:center;line-height:1.7;background:rgba(100,116,139,0.1);color:#64748b';
   } else {
     document.getElementById('rb-sc-stock-tgt').textContent = stockTgt.toFixed(1) + '%';
-    document.getElementById('rb-sc-cash-tgt').textContent  = cashTgt.toFixed(1) + '%';
-    // 현금 편차 = (현재현금비율 - 목표현금비율) / 목표현금비율 × 100
-    const cashDevRel = cashTgt > 0 ? (cashRatio - cashTgt) / cashTgt * 100 : 0;
+    document.getElementById('rb-sc-cash-tgt').textContent  = cashTgt.toFixed(1)  + '%';
+    const cashDevRel = (cashRatio - cashTgt) / cashTgt * 100;
     const cashDevPP  = cashRatio - cashTgt;
-    const devEl = document.getElementById('rb-sc-deviation');
-    const sign = cashDevRel >= 0 ? '+' : '';
+    const devEl      = document.getElementById('rb-sc-deviation');
+    const sign       = cashDevRel >= 0 ? '+' : '';
     devEl.textContent = `${sign}${cashDevRel.toFixed(1)}% (${cashDevPP >= 0 ? '+' : ''}${cashDevPP.toFixed(2)}pp)`;
-
     if (cashDevRel > rbAlertUp) {
       devEl.style.color = '#f87171';
-      const sellAmt = Math.round((cashRatio - cashTgt) / 100 * rbPortfolioTotal);
-      scActionEl.innerHTML = `🔴 현금 과다 — 주식 약 <strong>${sellAmt.toLocaleString()}원</strong> 매수 검토<br><span style="font-size:11px;opacity:0.7">현재 현금 ${cashRatio.toFixed(1)}% → 목표 ${cashTgt.toFixed(1)}%</span>`;
-      scActionEl.style.cssText = 'margin-top:10px;padding:8px 12px;border-radius:6px;font-size:12px;font-weight:600;text-align:center;background:rgba(248,113,113,0.1);color:#f87171;border:1px solid rgba(248,113,113,0.3);line-height:1.7';
+      const amt = Math.round((cashRatio - cashTgt) / 100 * rbPortfolioTotal);
+      scActionEl.innerHTML = `🔴 현금 과다<br>주식 약 <strong>${amt.toLocaleString()}원</strong> 매수 검토<br><span style="font-size:11px;font-weight:400">현금 ${cashRatio.toFixed(1)}% → 목표 ${cashTgt.toFixed(1)}%</span>`;
+      scActionEl.style.cssText = 'width:100%;padding:10px 14px;border-radius:6px;font-size:13px;font-weight:600;text-align:center;line-height:1.7;background:rgba(248,113,113,0.1);color:#f87171;border:1px solid rgba(248,113,113,0.3)';
     } else if (cashDevRel < -rbAlertDown) {
       devEl.style.color = '#60a5fa';
-      const buyAmt = Math.round((cashTgt - cashRatio) / 100 * rbPortfolioTotal);
-      scActionEl.innerHTML = `🔵 현금 부족 — 주식 약 <strong>${buyAmt.toLocaleString()}원</strong> 매도 검토<br><span style="font-size:11px;opacity:0.7">현재 현금 ${cashRatio.toFixed(1)}% → 목표 ${cashTgt.toFixed(1)}%</span>`;
-      scActionEl.style.cssText = 'margin-top:10px;padding:8px 12px;border-radius:6px;font-size:12px;font-weight:600;text-align:center;background:rgba(96,165,250,0.1);color:#60a5fa;border:1px solid rgba(96,165,250,0.3);line-height:1.7';
+      const amt = Math.round((cashTgt - cashRatio) / 100 * rbPortfolioTotal);
+      scActionEl.innerHTML = `🔵 현금 부족<br>주식 약 <strong>${amt.toLocaleString()}원</strong> 매도 검토<br><span style="font-size:11px;font-weight:400">현금 ${cashRatio.toFixed(1)}% → 목표 ${cashTgt.toFixed(1)}%</span>`;
+      scActionEl.style.cssText = 'width:100%;padding:10px 14px;border-radius:6px;font-size:13px;font-weight:600;text-align:center;line-height:1.7;background:rgba(96,165,250,0.1);color:#60a5fa;border:1px solid rgba(96,165,250,0.3)';
     } else {
       devEl.style.color = '#4ade80';
       scActionEl.innerHTML = `✅ 주식:현금 비율 정상 범위`;
-      scActionEl.style.cssText = 'margin-top:10px;padding:8px 12px;border-radius:6px;font-size:12px;font-weight:600;text-align:center;background:rgba(74,222,128,0.1);color:#4ade80';
+      scActionEl.style.cssText = 'width:100%;padding:10px 14px;border-radius:6px;font-size:13px;font-weight:600;text-align:center;line-height:1.7;background:rgba(74,222,128,0.1);color:#4ade80';
     }
   }
 }
@@ -5846,7 +5883,7 @@ let caMacroList = [];   // 매크로 지표 목록 (연동 드롭다운용)
 
 async function loadCashAssets() {
   document.getElementById('ca-tbody').innerHTML =
-    '<tr><td colspan="9" class="loading">로딩 중...</td></tr>';
+    '<tr><td colspan="10" class="loading">로딩 중...</td></tr>';
   try {
     const [caRes, rbRes, macroRes] = await Promise.all([
       fetch('/api/cash_assets'),
@@ -5859,9 +5896,10 @@ async function loadCashAssets() {
     const stockTotal = (rb.portfolio_total || 0) - (rb.total_cash || 0);
     caRenderSummary(stockTotal);
     caRenderTable();
+    caPopulateBrokerageSelect();
   } catch(e) {
     document.getElementById('ca-tbody').innerHTML =
-      '<tr><td colspan="9" style="text-align:center;color:#f87171;padding:32px">로드 실패</td></tr>';
+      '<tr><td colspan="10" style="text-align:center;color:#f87171;padding:32px">로드 실패</td></tr>';
   }
 }
 
@@ -5892,13 +5930,38 @@ function caLinkBadge(r) {
   return '';
 }
 
+let caBrokerMap = {};  // code → name (공통코드에서 로드)
+
+async function caPopulateBrokerageSelect() {
+  const sel = document.getElementById('ca-modal-brokerage');
+  if (!sel) return;
+  try {
+    const res  = await fetch('/api/common_codes?group=BROKERAGE');
+    const list = await res.json();
+    caBrokerMap = {};
+    list.forEach(b => { caBrokerMap[b.code] = b.name; });
+    const opts = list.map(b =>
+      `<option value="${b.code}">${b.name} (${b.code})</option>`
+    ).join('');
+    sel.innerHTML = '<option value="">전체/공통</option>' + opts;
+  } catch(e) {}
+}
+
+function caBrokerLabel(code) {
+  if (!code) return '<span style="color:#475569">-</span>';
+  const name = caBrokerMap[code];
+  return name
+    ? `<span style="font-size:11px;background:#1a2535;color:#94a3b8;padding:1px 7px;border-radius:8px">${name}</span>`
+    : `<span style="font-size:11px;color:#64748b">${code}</span>`;
+}
+
 function caRenderTable() {
   const tbody = document.getElementById('ca-tbody');
   const items = caData.items || [];
   const total = caData.total || 0;
 
   if (!items.length) {
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:40px;color:#475569">' +
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px;color:#475569">' +
       '등록된 자산이 없습니다. <button class="btn btn-primary" style="font-size:12px;margin-left:8px" onclick="caOpenModal()">+ 자산 추가</button></td></tr>';
     return;
   }
@@ -5913,6 +5976,7 @@ function caRenderTable() {
                  onclick="caSync(${r.id})">🔄</button>`
       : '';
     return `<tr>
+      <td style="text-align:center">${caBrokerLabel(r.brokerage)}</td>
       <td style="font-weight:600">${r.name}<br>${caLinkBadge(r)}</td>
       <td class="num" style="color:#94a3b8">${qtyStr}</td>
       <td class="num" style="color:#94a3b8">${priceStr}</td>
@@ -5929,7 +5993,7 @@ function caRenderTable() {
       </td>
     </tr>`;
   }).join('') + `<tr style="border-top:2px solid #334155;background:rgba(148,163,184,0.06)">
-    <td colspan="3" style="font-weight:600;color:#94a3b8;padding:10px 12px">합계</td>
+    <td colspan="4" style="font-weight:600;color:#94a3b8;padding:10px 12px">합계</td>
     <td class="num" style="font-weight:700;color:#60a5fa;font-size:15px">${total.toLocaleString()}원</td>
     <td class="num" style="font-weight:600;color:#f59e0b">100%</td>
     <td colspan="4"></td>
@@ -6075,6 +6139,7 @@ function caOpenModal(id) {
     document.getElementById('ca-modal-title').textContent = '현금성 자산 수정';
     document.getElementById('ca-modal-id').value          = id;
     document.getElementById('ca-modal-name').value        = item.name;
+    document.getElementById('ca-modal-brokerage').value   = item.brokerage || '';
     document.getElementById('ca-modal-qty').value         = item.quantity   ?? '';
     document.getElementById('ca-modal-price').value       = item.unit_price ?? '';
     document.getElementById('ca-modal-amount').value      = item.amount;
@@ -6108,6 +6173,7 @@ function caOpenModal(id) {
     document.getElementById('ca-modal-title').textContent = '현금성 자산 추가';
     document.getElementById('ca-modal-id').value          = '';
     document.getElementById('ca-modal-name').value        = '';
+    document.getElementById('ca-modal-brokerage').value   = '';
     document.getElementById('ca-modal-qty').value         = '';
     document.getElementById('ca-modal-price').value       = '';
     document.getElementById('ca-modal-amount').value      = '';
@@ -6128,16 +6194,17 @@ function caCloseModal() {
 async function caSave() {
   const errEl = document.getElementById('ca-modal-err');
   errEl.style.display = 'none';
-  const id    = document.getElementById('ca-modal-id').value;
-  const name  = document.getElementById('ca-modal-name').value.trim();
-  const qty   = document.getElementById('ca-modal-qty').value;
-  const price = document.getElementById('ca-modal-price').value;
-  const amt   = document.getElementById('ca-modal-amount').value;
-  const note  = document.getElementById('ca-modal-note').value.trim();
-  const lt    = document.querySelector('input[name="ca-link-type"]:checked')?.value || 'none';
-  const lk    = lt === 'stock' ? document.getElementById('ca-modal-stock-code').value.trim()
-              : lt === 'macro' ? document.getElementById('ca-modal-macro-key').value
-              : '';
+  const id        = document.getElementById('ca-modal-id').value;
+  const name      = document.getElementById('ca-modal-name').value.trim();
+  const brokerage = document.getElementById('ca-modal-brokerage').value;
+  const qty       = document.getElementById('ca-modal-qty').value;
+  const price     = document.getElementById('ca-modal-price').value;
+  const amt       = document.getElementById('ca-modal-amount').value;
+  const note      = document.getElementById('ca-modal-note').value.trim();
+  const lt        = document.querySelector('input[name="ca-link-type"]:checked')?.value || 'none';
+  const lk        = lt === 'stock' ? document.getElementById('ca-modal-stock-code').value.trim()
+                  : lt === 'macro' ? document.getElementById('ca-modal-macro-key').value
+                  : '';
 
   if (!name) { errEl.textContent = '자산명을 입력해주세요'; errEl.style.display = 'block'; return; }
   if (lt === 'stock' && !lk) { errEl.textContent = '종목을 검색하여 선택해주세요'; errEl.style.display = 'block'; return; }
@@ -6145,6 +6212,7 @@ async function caSave() {
 
   const payload = {
     name,
+    brokerage,
     quantity:   qty   !== '' ? parseFloat(qty)   : null,
     unit_price: price !== '' ? parseInt(price)   : null,
     amount:     amt   !== '' ? parseInt(amt.toString().replace(/,/g,'')) : 0,

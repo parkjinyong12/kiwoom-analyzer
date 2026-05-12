@@ -215,6 +215,7 @@ def _ensure_cash_assets_table():
             CREATE TABLE IF NOT EXISTS cash_assets (
                 id          SERIAL PRIMARY KEY,
                 name        VARCHAR(100) NOT NULL,
+                brokerage   VARCHAR(50) NOT NULL DEFAULT '',
                 quantity    DECIMAL(20, 4) DEFAULT NULL,
                 unit_price  BIGINT DEFAULT NULL,
                 amount      BIGINT NOT NULL DEFAULT 0,
@@ -224,8 +225,9 @@ def _ensure_cash_assets_table():
                 updated_at  TIMESTAMP DEFAULT NOW()
             )
         """)
-        cur.execute("ALTER TABLE cash_assets ADD COLUMN IF NOT EXISTS link_type VARCHAR(20) NOT NULL DEFAULT 'none'")
-        cur.execute("ALTER TABLE cash_assets ADD COLUMN IF NOT EXISTS link_key  VARCHAR(50) NOT NULL DEFAULT ''")
+        cur.execute("ALTER TABLE cash_assets ADD COLUMN IF NOT EXISTS link_type  VARCHAR(20) NOT NULL DEFAULT 'none'")
+        cur.execute("ALTER TABLE cash_assets ADD COLUMN IF NOT EXISTS link_key   VARCHAR(50) NOT NULL DEFAULT ''")
+        cur.execute("ALTER TABLE cash_assets ADD COLUMN IF NOT EXISTS brokerage  VARCHAR(50) NOT NULL DEFAULT ''")
 
 
 def _get_total_cash() -> int:
@@ -1116,6 +1118,62 @@ def api_rebalance():
         r["deviation_pp"]   = deviation_pp
         r["deviation_rel"]  = deviation_rel
 
+    # ── 증권사별 담보 현황 ────────────────────────────────
+    broker_stock_rows = query("""
+        WITH latest_close AS (
+            SELECT DISTINCT ON (stock_code) stock_code, close_price
+            FROM supply_demand
+            WHERE close_price IS NOT NULL AND close_price > 0
+            ORDER BY stock_code, date DESC
+        )
+        SELECT
+            mh.brokerage,
+            SUM(mh.quantity * COALESCE(
+                lc.close_price,
+                CASE WHEN st.last_price ~ '^[0-9]+$' THEN st.last_price::BIGINT ELSE NULL END,
+                mh.avg_price,
+                0
+            )) AS stock_eval
+        FROM manual_holdings mh
+        LEFT JOIN latest_close lc ON lc.stock_code = mh.stock_code
+        LEFT JOIN stocks st ON st.stock_code = mh.stock_code
+        GROUP BY mh.brokerage
+        ORDER BY mh.brokerage
+    """)
+    broker_cash_rows = query("""
+        SELECT brokerage, COALESCE(SUM(amount), 0) AS cash_total
+        FROM cash_assets
+        WHERE brokerage IS NOT NULL AND brokerage != ''
+        GROUP BY brokerage
+        ORDER BY brokerage
+    """)
+    cash_by_broker = {r["brokerage"]: int(r["cash_total"]) for r in broker_cash_rows}
+
+    broker_summary = []
+    seen = set()
+    for br in broker_stock_rows:
+        b = br["brokerage"] or ""
+        seen.add(b)
+        stock_eval = float(br["stock_eval"] or 0)
+        cash = cash_by_broker.get(b, 0)
+        required = round(stock_eval * margin_rate / 100)
+        broker_summary.append({
+            "brokerage":           b or "미지정",
+            "stock_eval":          round(stock_eval),
+            "required_collateral": required,
+            "cash":                cash,
+            "surplus":             cash - required,
+        })
+    for b, cash in cash_by_broker.items():
+        if b not in seen:
+            broker_summary.append({
+                "brokerage":           b or "미지정",
+                "stock_eval":          0,
+                "required_collateral": 0,
+                "cash":                cash,
+                "surplus":             cash,
+            })
+
     return jsonify({
         "holdings":          result,
         "portfolio_total":   round(portfolio_total),
@@ -1125,6 +1183,7 @@ def api_rebalance():
         "alert_down":        alert_down,
         "cash_target_ratio": cash_target_ratio,
         "margin_rate":       margin_rate,
+        "broker_summary":    broker_summary,
     })
 
 
@@ -1487,10 +1546,11 @@ def api_macro_rates_sync_naver(mid):
 # ---------------------------------------------------------------------------
 
 def _parse_cash_asset_body(data: dict):
-    """Request body → (name, qty, up, amount, link_type, link_key, note)."""
+    """Request body → (name, brokerage, qty, up, amount, link_type, link_key, note)."""
     name = (data.get("name") or "").strip()
     if not name:
         raise ValueError("자산명 필수")
+    brokerage = (data.get("brokerage") or "").strip()
     raw_qty = data.get("quantity")
     raw_up  = data.get("unit_price")
     qty_val = float(raw_qty) if raw_qty not in (None, "") else None
@@ -1505,7 +1565,7 @@ def _parse_cash_asset_body(data: dict):
     link_type = (data.get("link_type") or "none").strip()
     link_key  = (data.get("link_key")  or "").strip()
     note = (data.get("note") or "").strip()
-    return name, qty_val, up_val, amount, link_type, link_key, note
+    return name, brokerage, qty_val, up_val, amount, link_type, link_key, note
 
 
 def _resolve_linked_price(link_type: str, link_key: str):
@@ -1531,9 +1591,9 @@ def _resolve_linked_price(link_type: str, link_key: str):
 @app.route("/api/cash_assets")
 def api_cash_assets_list():
     rows = query("""
-        SELECT id, name, quantity, unit_price, amount, link_type, link_key, note,
+        SELECT id, name, brokerage, quantity, unit_price, amount, link_type, link_key, note,
                TO_CHAR(updated_at, 'YYYY-MM-DD HH24:MI') AS updated_at
-        FROM cash_assets ORDER BY id
+        FROM cash_assets ORDER BY brokerage, id
     """)
     items = []
     total = 0
@@ -1543,6 +1603,7 @@ def api_cash_assets_list():
         items.append({
             "id":         r["id"],
             "name":       r["name"],
+            "brokerage":  r["brokerage"] or "",
             "quantity":   float(r["quantity"])   if r["quantity"]   is not None else None,
             "unit_price": int(r["unit_price"])   if r["unit_price"] is not None else None,
             "amount":     amt,
@@ -1557,13 +1618,13 @@ def api_cash_assets_list():
 @app.route("/api/cash_assets", methods=["POST"])
 def api_cash_assets_create():
     try:
-        name, qty, up, amount, lt, lk, note = _parse_cash_asset_body(request.get_json() or {})
+        name, brokerage, qty, up, amount, lt, lk, note = _parse_cash_asset_body(request.get_json() or {})
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     with get_conn() as conn:
         conn.cursor().execute(
-            "INSERT INTO cash_assets (name, quantity, unit_price, amount, link_type, link_key, note) VALUES (%s,%s,%s,%s,%s,%s,%s)",
-            (name, qty, up, amount, lt, lk, note),
+            "INSERT INTO cash_assets (name, brokerage, quantity, unit_price, amount, link_type, link_key, note) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+            (name, brokerage, qty, up, amount, lt, lk, note),
         )
     return jsonify({"ok": True})
 
@@ -1571,13 +1632,13 @@ def api_cash_assets_create():
 @app.route("/api/cash_assets/<int:aid>", methods=["PUT"])
 def api_cash_assets_update(aid):
     try:
-        name, qty, up, amount, lt, lk, note = _parse_cash_asset_body(request.get_json() or {})
+        name, brokerage, qty, up, amount, lt, lk, note = _parse_cash_asset_body(request.get_json() or {})
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     with get_conn() as conn:
         conn.cursor().execute(
-            "UPDATE cash_assets SET name=%s, quantity=%s, unit_price=%s, amount=%s, link_type=%s, link_key=%s, note=%s, updated_at=NOW() WHERE id=%s",
-            (name, qty, up, amount, lt, lk, note, aid),
+            "UPDATE cash_assets SET name=%s, brokerage=%s, quantity=%s, unit_price=%s, amount=%s, link_type=%s, link_key=%s, note=%s, updated_at=NOW() WHERE id=%s",
+            (name, brokerage, qty, up, amount, lt, lk, note, aid),
         )
     return jsonify({"ok": True})
 
