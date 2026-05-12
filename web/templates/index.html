@@ -4721,7 +4721,7 @@ async function loadRebalance() {
 
     // caBrokerMap이 비어있으면 로드 후 렌더
     if (!Object.keys(caBrokerMap).length) {
-      fetch('/api/common_codes?group=BROKERAGE').then(r => r.json()).then(list => {
+      fetch('/api/common_codes/BROKERAGE').then(r => r.json()).then(list => {
         list.forEach(b => { caBrokerMap[b.code] = b.name; });
         rbRenderMarginPanel();
       });
@@ -5936,7 +5936,7 @@ async function caPopulateBrokerageSelect() {
   const sel = document.getElementById('ca-modal-brokerage');
   if (!sel) return;
   try {
-    const res  = await fetch('/api/common_codes?group=BROKERAGE');
+    const res  = await fetch('/api/common_codes/BROKERAGE');
     const list = await res.json();
     caBrokerMap = {};
     list.forEach(b => { caBrokerMap[b.code] = b.name; });
