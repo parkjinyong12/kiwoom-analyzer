@@ -225,10 +225,24 @@ def _ensure_cash_assets_table():
                 updated_at  TIMESTAMP DEFAULT NOW()
             )
         """)
-        cur.execute("ALTER TABLE cash_assets ADD COLUMN IF NOT EXISTS link_type    VARCHAR(20) NOT NULL DEFAULT 'none'")
-        cur.execute("ALTER TABLE cash_assets ADD COLUMN IF NOT EXISTS link_key     VARCHAR(50) NOT NULL DEFAULT ''")
-        cur.execute("ALTER TABLE cash_assets ADD COLUMN IF NOT EXISTS brokerage    VARCHAR(50) NOT NULL DEFAULT ''")
-        cur.execute("ALTER TABLE cash_assets ADD COLUMN IF NOT EXISTS loan_amount  BIGINT DEFAULT NULL")
+        cur.execute("ALTER TABLE cash_assets ADD COLUMN IF NOT EXISTS link_type  VARCHAR(20) NOT NULL DEFAULT 'none'")
+        cur.execute("ALTER TABLE cash_assets ADD COLUMN IF NOT EXISTS link_key   VARCHAR(50) NOT NULL DEFAULT ''")
+        cur.execute("ALTER TABLE cash_assets ADD COLUMN IF NOT EXISTS brokerage  VARCHAR(50) NOT NULL DEFAULT ''")
+
+
+def _ensure_credit_positions_table():
+    """신용 포지션 충당금 관리 테이블."""
+    with get_conn() as conn:
+        conn.cursor().execute("""
+            CREATE TABLE IF NOT EXISTS credit_positions (
+                id              SERIAL PRIMARY KEY,
+                name            VARCHAR(100) NOT NULL,
+                purchase_amount BIGINT NOT NULL DEFAULT 0,
+                loan_amount     BIGINT NOT NULL DEFAULT 0,
+                note            TEXT NOT NULL DEFAULT '',
+                updated_at      TIMESTAMP DEFAULT NOW()
+            )
+        """)
 
 
 def _get_total_cash() -> int:
@@ -1152,6 +1166,74 @@ def api_rebalance_target():
 
 
 # ---------------------------------------------------------------------------
+# API — 신용 포지션 충당금 관리
+# ---------------------------------------------------------------------------
+
+@app.route("/api/credit_positions")
+def api_credit_positions_list():
+    rows = query("""
+        SELECT id, name, purchase_amount, loan_amount, note,
+               TO_CHAR(updated_at, 'YYYY-MM-DD HH24:MI') AS updated_at
+        FROM credit_positions ORDER BY id
+    """)
+    return jsonify([{
+        "id":              r["id"],
+        "name":            r["name"],
+        "purchase_amount": int(r["purchase_amount"]),
+        "loan_amount":     int(r["loan_amount"]),
+        "note":            r["note"] or "",
+        "updated_at":      r["updated_at"],
+    } for r in rows])
+
+
+@app.route("/api/credit_positions", methods=["POST"])
+def api_credit_positions_create():
+    data = request.get_json() or {}
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "이름 필수"}), 400
+    try:
+        purchase = int(str(data.get("purchase_amount") or 0).replace(",", ""))
+        loan     = int(str(data.get("loan_amount")     or 0).replace(",", ""))
+    except (ValueError, TypeError):
+        return jsonify({"error": "금액 오류"}), 400
+    note = (data.get("note") or "").strip()
+    with get_conn() as conn:
+        conn.cursor().execute(
+            "INSERT INTO credit_positions (name, purchase_amount, loan_amount, note) VALUES (%s,%s,%s,%s)",
+            (name, purchase, loan, note),
+        )
+    return jsonify({"ok": True})
+
+
+@app.route("/api/credit_positions/<int:pid>", methods=["PUT"])
+def api_credit_positions_update(pid: int):
+    data = request.get_json() or {}
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "이름 필수"}), 400
+    try:
+        purchase = int(str(data.get("purchase_amount") or 0).replace(",", ""))
+        loan     = int(str(data.get("loan_amount")     or 0).replace(",", ""))
+    except (ValueError, TypeError):
+        return jsonify({"error": "금액 오류"}), 400
+    note = (data.get("note") or "").strip()
+    with get_conn() as conn:
+        conn.cursor().execute(
+            "UPDATE credit_positions SET name=%s, purchase_amount=%s, loan_amount=%s, note=%s, updated_at=NOW() WHERE id=%s",
+            (name, purchase, loan, note, pid),
+        )
+    return jsonify({"ok": True})
+
+
+@app.route("/api/credit_positions/<int:pid>", methods=["DELETE"])
+def api_credit_positions_delete(pid: int):
+    with get_conn() as conn:
+        conn.cursor().execute("DELETE FROM credit_positions WHERE id=%s", (pid,))
+    return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------------------
 # API — 테마 리밸런싱
 # ---------------------------------------------------------------------------
 
@@ -1488,7 +1570,7 @@ def api_macro_rates_sync_naver(mid):
 # ---------------------------------------------------------------------------
 
 def _parse_cash_asset_body(data: dict):
-    """Request body → (name, brokerage, qty, up, amount, link_type, link_key, note, loan_amount)."""
+    """Request body → (name, brokerage, qty, up, amount, link_type, link_key, note)."""
     name = (data.get("name") or "").strip()
     if not name:
         raise ValueError("자산명 필수")
@@ -1507,9 +1589,7 @@ def _parse_cash_asset_body(data: dict):
     link_type = (data.get("link_type") or "none").strip()
     link_key  = (data.get("link_key")  or "").strip()
     note = (data.get("note") or "").strip()
-    raw_loan = data.get("loan_amount")
-    loan_amount = int(str(raw_loan).replace(",", "")) if raw_loan not in (None, "") else None
-    return name, brokerage, qty_val, up_val, amount, link_type, link_key, note, loan_amount
+    return name, brokerage, qty_val, up_val, amount, link_type, link_key, note
 
 
 def _resolve_linked_price(link_type: str, link_key: str):
@@ -1535,7 +1615,7 @@ def _resolve_linked_price(link_type: str, link_key: str):
 @app.route("/api/cash_assets")
 def api_cash_assets_list():
     rows = query("""
-        SELECT id, name, brokerage, quantity, unit_price, amount, link_type, link_key, note, loan_amount,
+        SELECT id, name, brokerage, quantity, unit_price, amount, link_type, link_key, note,
                TO_CHAR(updated_at, 'YYYY-MM-DD HH24:MI') AS updated_at
         FROM cash_assets ORDER BY brokerage, id
     """)
@@ -1545,17 +1625,16 @@ def api_cash_assets_list():
         amt = int(r["amount"])
         total += amt
         items.append({
-            "id":           r["id"],
-            "name":         r["name"],
-            "brokerage":    r["brokerage"] or "",
-            "quantity":     float(r["quantity"])   if r["quantity"]   is not None else None,
-            "unit_price":   int(r["unit_price"])   if r["unit_price"] is not None else None,
-            "amount":       amt,
-            "link_type":    r["link_type"] or "none",
-            "link_key":     r["link_key"]  or "",
-            "note":         r["note"] or "",
-            "loan_amount":  int(r["loan_amount"]) if r["loan_amount"] is not None else None,
-            "updated_at":   r["updated_at"],
+            "id":         r["id"],
+            "name":       r["name"],
+            "brokerage":  r["brokerage"] or "",
+            "quantity":   float(r["quantity"])   if r["quantity"]   is not None else None,
+            "unit_price": int(r["unit_price"])   if r["unit_price"] is not None else None,
+            "amount":     amt,
+            "link_type":  r["link_type"] or "none",
+            "link_key":   r["link_key"]  or "",
+            "note":       r["note"] or "",
+            "updated_at": r["updated_at"],
         })
     return jsonify({"items": items, "total": total})
 
@@ -1563,13 +1642,13 @@ def api_cash_assets_list():
 @app.route("/api/cash_assets", methods=["POST"])
 def api_cash_assets_create():
     try:
-        name, brokerage, qty, up, amount, lt, lk, note, loan = _parse_cash_asset_body(request.get_json() or {})
+        name, brokerage, qty, up, amount, lt, lk, note = _parse_cash_asset_body(request.get_json() or {})
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     with get_conn() as conn:
         conn.cursor().execute(
-            "INSERT INTO cash_assets (name, brokerage, quantity, unit_price, amount, link_type, link_key, note, loan_amount) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-            (name, brokerage, qty, up, amount, lt, lk, note, loan),
+            "INSERT INTO cash_assets (name, brokerage, quantity, unit_price, amount, link_type, link_key, note) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+            (name, brokerage, qty, up, amount, lt, lk, note),
         )
     return jsonify({"ok": True})
 
@@ -1577,13 +1656,13 @@ def api_cash_assets_create():
 @app.route("/api/cash_assets/<int:aid>", methods=["PUT"])
 def api_cash_assets_update(aid):
     try:
-        name, brokerage, qty, up, amount, lt, lk, note, loan = _parse_cash_asset_body(request.get_json() or {})
+        name, brokerage, qty, up, amount, lt, lk, note = _parse_cash_asset_body(request.get_json() or {})
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     with get_conn() as conn:
         conn.cursor().execute(
-            "UPDATE cash_assets SET name=%s, brokerage=%s, quantity=%s, unit_price=%s, amount=%s, link_type=%s, link_key=%s, note=%s, loan_amount=%s, updated_at=NOW() WHERE id=%s",
-            (name, brokerage, qty, up, amount, lt, lk, note, loan, aid),
+            "UPDATE cash_assets SET name=%s, brokerage=%s, quantity=%s, unit_price=%s, amount=%s, link_type=%s, link_key=%s, note=%s, updated_at=NOW() WHERE id=%s",
+            (name, brokerage, qty, up, amount, lt, lk, note, aid),
         )
     return jsonify({"ok": True})
 
@@ -2149,6 +2228,11 @@ except Exception:
 
 try:
     _ensure_cash_assets_table()
+except Exception:
+    pass
+
+try:
+    _ensure_credit_positions_table()
 except Exception:
     pass
 

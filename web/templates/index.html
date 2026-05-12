@@ -1486,22 +1486,6 @@ canvas { max-height: 220px; }
           </div>
         </div>
 
-        <!-- 신용 대출금 / 충당비율 -->
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-          <div>
-            <div style="font-size:12px;color:#64748b;margin-bottom:4px">대출금(원) <span style="font-size:10px;color:#475569">신용거래 대출</span></div>
-            <input type="number" id="ca-modal-loan" placeholder="없으면 비워두세요" min="0" step="1"
-                   style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"
-                   oninput="caCalcLoanRatio()"/>
-          </div>
-          <div>
-            <div style="font-size:12px;color:#64748b;margin-bottom:4px">충당비율</div>
-            <div id="ca-loan-ratio-display"
-                 style="padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0a0f1a;color:#f59e0b;font-size:13px;font-weight:600;min-height:37px;display:flex;align-items:center">
-              —
-            </div>
-          </div>
-        </div>
 
         <!-- 가격 연동 설정 -->
         <div style="background:#0a0f1a;border-radius:8px;padding:12px;border:1px solid #1e2535">
@@ -1715,6 +1699,77 @@ canvas { max-height: 220px; }
         </div>
         <div style="padding:14px 16px;display:flex;align-items:center">
           <div id="rb-sc-action" style="width:100%;padding:10px 14px;border-radius:6px;font-size:13px;font-weight:600;text-align:center;line-height:1.7">-</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 신용 포지션 충당금 관리 패널 -->
+    <div class="panel" style="margin-bottom:12px">
+      <div class="panel-header">
+        <span>신용 포지션 관리 <span style="font-size:11px;color:#64748b;font-weight:normal">· 매입금액 − 대출금 = 충당금</span></span>
+        <button class="btn btn-primary" style="font-size:12px;padding:4px 12px" onclick="cpOpenModal()">+ 추가</button>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>이름</th>
+              <th style="text-align:right">매입금액</th>
+              <th style="text-align:right">대출금</th>
+              <th style="text-align:right">충당금</th>
+              <th style="text-align:right">충당비율</th>
+              <th>메모</th>
+              <th style="text-align:center;width:80px">수정일</th>
+              <th style="text-align:center;width:80px">관리</th>
+            </tr>
+          </thead>
+          <tbody id="cp-tbody">
+            <tr><td colspan="8" class="loading">로딩 중...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 신용 포지션 추가/수정 모달 -->
+    <div class="modal-overlay" id="cp-modal" style="display:none">
+      <div class="modal" style="width:420px">
+        <h3 id="cp-modal-title">신용 포지션 추가</h3>
+        <input type="hidden" id="cp-modal-id"/>
+        <div style="display:grid;gap:14px;margin-top:8px">
+          <div>
+            <div style="font-size:12px;color:#64748b;margin-bottom:4px">이름 <span style="color:#f87171">*</span></div>
+            <input type="text" id="cp-modal-name" placeholder="예: 삼성전자 신용" maxlength="100"
+                   style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div>
+              <div style="font-size:12px;color:#64748b;margin-bottom:4px">매입금액(원) <span style="color:#f87171">*</span></div>
+              <input type="number" id="cp-modal-purchase" placeholder="예: 10000000" min="0" step="1"
+                     style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"
+                     oninput="cpCalc()"/>
+            </div>
+            <div>
+              <div style="font-size:12px;color:#64748b;margin-bottom:4px">대출금(원) <span style="color:#f87171">*</span></div>
+              <input type="number" id="cp-modal-loan" placeholder="예: 7000000" min="0" step="1"
+                     style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"
+                     oninput="cpCalc()"/>
+            </div>
+          </div>
+          <div style="background:#0a0f1a;border-radius:6px;padding:10px 14px;border:1px solid #1e2535;display:flex;justify-content:space-between;align-items:center">
+            <span style="font-size:12px;color:#64748b">충당금 / 충당비율</span>
+            <span id="cp-calc-display" style="font-size:14px;font-weight:700;color:#64748b">—</span>
+          </div>
+          <div>
+            <div style="font-size:12px;color:#64748b;margin-bottom:4px">메모</div>
+            <input type="text" id="cp-modal-note" placeholder="참고사항" maxlength="200"
+                   style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"
+                   onkeydown="if(event.key==='Enter'&&!event.isComposing)cpSave()"/>
+          </div>
+          <div id="cp-modal-err" style="color:#f87171;font-size:12px;display:none"></div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" onclick="cpCloseModal()">취소</button>
+          <button class="btn btn-primary" onclick="cpSave()">저장</button>
         </div>
       </div>
     </div>
@@ -4688,12 +4743,15 @@ async function loadRebalance() {
   document.getElementById('rb-tbody').innerHTML =
     '<tr><td colspan="10" class="loading">로딩 중...</td></tr>';
   try {
-    const [dataRes, settRes] = await Promise.all([
+    const [dataRes, settRes, cpRes] = await Promise.all([
       fetch('/api/rebalance'),
       fetch('/api/settings'),
+      fetch('/api/credit_positions'),
     ]);
     const json     = await dataRes.json();
     const settings = await settRes.json();
+    const cpData   = await cpRes.json();
+    cpRenderTable(cpData);
 
     rbData            = json.holdings || [];
     rbAlertUp         = json.alert_up          ?? 30;
@@ -5877,17 +5935,6 @@ function caBrokerLabel(broker) {
   return `<span style="font-size:11px;background:#1a2535;color:#94a3b8;padding:1px 7px;border-radius:8px">${broker}</span>`;
 }
 
-function caCalcLoanRatio() {
-  const loan = parseFloat(document.getElementById('ca-modal-loan').value);
-  const amt  = parseFloat(document.getElementById('ca-modal-amount').value);
-  const el   = document.getElementById('ca-loan-ratio-display');
-  if (!loan || loan <= 0) { el.textContent = '—'; el.style.color = '#64748b'; return; }
-  const충당금 = amt - loan;
-  const ratio = (충당금 / loan * 100).toFixed(1);
-  el.textContent = `${ratio}%  (충당금 ${Math.round(충당금).toLocaleString()}원)`;
-  el.style.color = 충당금 >= 0 ? '#4ade80' : '#f87171';
-}
-
 function caRenderTable() {
   const tbody = document.getElementById('ca-tbody');
   const items = caData.items || [];
@@ -5908,19 +5955,12 @@ function caRenderTable() {
       ? `<button class="btn btn-ghost" style="font-size:11px;padding:2px 6px;margin-right:2px"
                  onclick="caSync(${r.id})">🔄</button>`
       : '';
-    let amtSubline = '';
-    if (r.loan_amount != null && r.loan_amount > 0) {
-      const 충당금 = r.amount - r.loan_amount;
-      const 충당비율 = (충당금 / r.loan_amount * 100).toFixed(1);
-      const color = 충당금 >= 0 ? '#4ade80' : '#f87171';
-      amtSubline = `<br><span style="font-size:10px;color:#64748b">대출 ${r.loan_amount.toLocaleString()}원 / <span style="color:${color}">충당 ${충당비율}%</span></span>`;
-    }
     return `<tr>
       <td style="text-align:center">${caBrokerLabel(r.brokerage)}</td>
       <td style="font-weight:600">${r.name}<br>${caLinkBadge(r)}</td>
       <td class="num" style="color:#94a3b8">${qtyStr}</td>
       <td class="num" style="color:#94a3b8">${priceStr}</td>
-      <td class="num" style="font-weight:600">${r.amount.toLocaleString()}원${amtSubline}</td>
+      <td class="num" style="font-weight:600">${r.amount.toLocaleString()}원</td>
       <td class="num" style="color:#f59e0b">${pct}%</td>
       <td style="font-size:11px;color:#64748b;max-width:120px">${r.note || '-'}</td>
       <td class="center" style="font-size:11px;color:#64748b;white-space:nowrap">${r.updated_at || '-'}</td>
@@ -6083,9 +6123,7 @@ function caOpenModal(id) {
     document.getElementById('ca-modal-qty').value         = item.quantity   ?? '';
     document.getElementById('ca-modal-price').value       = item.unit_price ?? '';
     document.getElementById('ca-modal-amount').value      = item.amount;
-    document.getElementById('ca-modal-loan').value        = item.loan_amount ?? '';
     document.getElementById('ca-modal-note').value        = item.note || '';
-    caCalcLoanRatio();
     const lt = item.link_type || 'none';
     document.querySelector(`input[name="ca-link-type"][value="${lt}"]`).checked = true;
     if (lt === 'stock' && item.link_key) {
@@ -6119,12 +6157,9 @@ function caOpenModal(id) {
     document.getElementById('ca-modal-qty').value         = '';
     document.getElementById('ca-modal-price').value       = '';
     document.getElementById('ca-modal-amount').value      = '';
-    document.getElementById('ca-modal-loan').value        = '';
     document.getElementById('ca-modal-note').value        = '';
     document.getElementById('ca-amount-hint').textContent = '';
     document.getElementById('ca-modal-amount').style.color = '#e2e8f0';
-    document.getElementById('ca-loan-ratio-display').textContent = '—';
-    document.getElementById('ca-loan-ratio-display').style.color = '#64748b';
     document.querySelector('input[name="ca-link-type"][value="none"]').checked = true;
     caOnLinkTypeChange();
   }
@@ -6155,16 +6190,14 @@ async function caSave() {
   if (lt === 'stock' && !lk) { errEl.textContent = '종목을 검색하여 선택해주세요'; errEl.style.display = 'block'; return; }
   if (lt === 'macro' && !lk) { errEl.textContent = '매크로 지표를 검색하여 선택해주세요'; errEl.style.display = 'block'; return; }
 
-  const loanRaw = document.getElementById('ca-modal-loan').value;
   const payload = {
     name,
     brokerage,
-    quantity:    qty     !== '' ? parseFloat(qty)   : null,
-    unit_price:  price   !== '' ? parseInt(price)   : null,
-    amount:      amt     !== '' ? parseInt(amt.toString().replace(/,/g,'')) : 0,
-    loan_amount: loanRaw !== '' ? parseInt(loanRaw) : null,
-    link_type:   lt,
-    link_key:    lk,
+    quantity:   qty   !== '' ? parseFloat(qty)   : null,
+    unit_price: price !== '' ? parseInt(price)   : null,
+    amount:     amt   !== '' ? parseInt(amt.toString().replace(/,/g,'')) : 0,
+    link_type:  lt,
+    link_key:   lk,
     note,
   };
 
@@ -6294,6 +6327,120 @@ async function macroDelete(id, name) {
   if (!confirm(`"${name}" 지표를 삭제하시겠습니까?`)) return;
   await fetch(`/api/macro_rates/${id}`, { method: 'DELETE' });
   await loadMacro();
+}
+
+// ─── 신용 포지션 충당금 관리 ─────────────────────────
+let cpEditId = null;
+
+function cpRenderTable(data) {
+  const tbody = document.getElementById('cp-tbody');
+  if (!data || !data.length) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:24px;color:#475569">등록된 신용 포지션이 없습니다.</td></tr>';
+    return;
+  }
+  let totalPurchase = 0, totalLoan = 0;
+  const rows = data.map(r => {
+    const 충당금  = r.purchase_amount - r.loan_amount;
+    const 충당비율 = r.loan_amount > 0 ? (충당금 / r.loan_amount * 100).toFixed(1) : '—';
+    const color   = 충당금 >= 0 ? '#4ade80' : '#f87171';
+    totalPurchase += r.purchase_amount;
+    totalLoan     += r.loan_amount;
+    return `<tr>
+      <td style="font-weight:600">${r.name}</td>
+      <td class="num">${r.purchase_amount.toLocaleString()}원</td>
+      <td class="num" style="color:#f87171">${r.loan_amount.toLocaleString()}원</td>
+      <td class="num" style="color:${color};font-weight:600">${충당금.toLocaleString()}원</td>
+      <td class="num" style="color:${color};font-weight:600">${충당비율}${충당비율 !== '—' ? '%' : ''}</td>
+      <td style="color:#94a3b8;font-size:12px">${r.note || '-'}</td>
+      <td class="center" style="font-size:11px;color:#64748b">${(r.updated_at || '').substring(0, 10)}</td>
+      <td class="center">
+        <button class="btn btn-ghost" style="font-size:11px;padding:3px 8px;margin-right:3px"
+                onclick="cpOpenModal(${r.id})">수정</button>
+        <button class="btn btn-danger" style="font-size:11px;padding:3px 8px"
+                onclick="cpDelete(${r.id},'${r.name.replace(/'/g,"\\'")}')">삭제</button>
+      </td>
+    </tr>`;
+  });
+  const total충당금  = totalPurchase - totalLoan;
+  const total충당비율 = totalLoan > 0 ? (total충당금 / totalLoan * 100).toFixed(1) : '—';
+  const totalColor  = total충당금 >= 0 ? '#4ade80' : '#f87171';
+  tbody.innerHTML = rows.join('') + `<tr style="border-top:2px solid #334155;background:rgba(148,163,184,0.06);font-weight:700">
+    <td style="color:#94a3b8">합계</td>
+    <td class="num">${totalPurchase.toLocaleString()}원</td>
+    <td class="num" style="color:#f87171">${totalLoan.toLocaleString()}원</td>
+    <td class="num" style="color:${totalColor}">${total충당금.toLocaleString()}원</td>
+    <td class="num" style="color:${totalColor}">${total충당비율}${total충당비율 !== '—' ? '%' : ''}</td>
+    <td colspan="3"></td>
+  </tr>`;
+}
+
+function cpCalc() {
+  const purchase = parseFloat(document.getElementById('cp-modal-purchase').value) || 0;
+  const loan     = parseFloat(document.getElementById('cp-modal-loan').value)     || 0;
+  const el       = document.getElementById('cp-calc-display');
+  if (!purchase && !loan) { el.textContent = '—'; el.style.color = '#64748b'; return; }
+  const 충당금  = purchase - loan;
+  const 충당비율 = loan > 0 ? (충당금 / loan * 100).toFixed(1) + '%' : '—';
+  el.textContent = `${충당금.toLocaleString()}원 / ${충당비율}`;
+  el.style.color = 충당금 >= 0 ? '#4ade80' : '#f87171';
+}
+
+function cpOpenModal(id) {
+  cpEditId = id || null;
+  document.getElementById('cp-modal-err').style.display = 'none';
+  document.getElementById('cp-calc-display').textContent = '—';
+  document.getElementById('cp-calc-display').style.color = '#64748b';
+  if (id) {
+    document.getElementById('cp-modal-title').textContent = '신용 포지션 수정';
+    document.getElementById('cp-modal-id').value = id;
+    fetch('/api/credit_positions').then(r => r.json()).then(data => {
+      const item = data.find(r => r.id === id);
+      if (!item) return;
+      document.getElementById('cp-modal-name').value     = item.name;
+      document.getElementById('cp-modal-purchase').value = item.purchase_amount;
+      document.getElementById('cp-modal-loan').value     = item.loan_amount;
+      document.getElementById('cp-modal-note').value     = item.note || '';
+      cpCalc();
+    });
+  } else {
+    document.getElementById('cp-modal-title').textContent = '신용 포지션 추가';
+    document.getElementById('cp-modal-id').value   = '';
+    document.getElementById('cp-modal-name').value    = '';
+    document.getElementById('cp-modal-purchase').value = '';
+    document.getElementById('cp-modal-loan').value     = '';
+    document.getElementById('cp-modal-note').value     = '';
+  }
+  document.getElementById('cp-modal').style.display = 'flex';
+  document.getElementById('cp-modal-name').focus();
+}
+
+function cpCloseModal() {
+  document.getElementById('cp-modal').style.display = 'none';
+}
+
+async function cpSave() {
+  const errEl    = document.getElementById('cp-modal-err');
+  errEl.style.display = 'none';
+  const id       = document.getElementById('cp-modal-id').value;
+  const name     = document.getElementById('cp-modal-name').value.trim();
+  const purchase = parseInt(document.getElementById('cp-modal-purchase').value) || 0;
+  const loan     = parseInt(document.getElementById('cp-modal-loan').value)     || 0;
+  const note     = document.getElementById('cp-modal-note').value.trim();
+  if (!name) { errEl.textContent = '이름을 입력해주세요'; errEl.style.display = 'block'; return; }
+  const url    = id ? `/api/credit_positions/${id}` : '/api/credit_positions';
+  const method = id ? 'PUT' : 'POST';
+  const res  = await fetch(url, { method, headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ name, purchase_amount: purchase, loan_amount: loan, note }) });
+  const data = await res.json();
+  if (!res.ok) { errEl.textContent = data.error || '저장 실패'; errEl.style.display = 'block'; return; }
+  cpCloseModal();
+  await loadRebalance();
+}
+
+async function cpDelete(id, name) {
+  if (!confirm(`"${name}" 포지션을 삭제하시겠습니까?`)) return;
+  await fetch(`/api/credit_positions/${id}`, { method: 'DELETE' });
+  await loadRebalance();
 }
 
 // ─── 공통코드 관리 ────────────────────────────────────
