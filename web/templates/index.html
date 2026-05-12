@@ -4719,13 +4719,6 @@ async function loadRebalance() {
     document.getElementById('rb-threshold-down').value = rbAlertDown;
     document.getElementById('rb-margin-rate').value    = rbMarginRate;
 
-    // caBrokerMap이 비어있으면 로드 후 렌더
-    if (!Object.keys(caBrokerMap).length) {
-      fetch('/api/common_codes/BROKERAGE').then(r => r.json()).then(list => {
-        list.forEach(b => { caBrokerMap[b.code] = b.name; });
-        rbRenderMarginPanel();
-      });
-    }
     rbUpdateSummary(json);
     rbRenderMarginPanel();
     rbRender();
@@ -4817,7 +4810,7 @@ function rbRenderMarginPanel() {
         surplusColor = '#4ade80';
         statusHtml   = `<span style="color:#4ade80">✅ 안전${bufferPct !== null ? ' (' + bufferPct.toFixed(0) + '%)' : ''}</span>`;
       }
-      const brokerName = caBrokerMap[b.brokerage] || b.brokerage || '미지정';
+      const brokerName = b.brokerage || '미지정';
       return `<tr>
         <td style="font-weight:600">${brokerName}</td>
         <td class="num">${b.stock_eval.toLocaleString()}원</td>
@@ -5930,7 +5923,9 @@ function caLinkBadge(r) {
   return '';
 }
 
-let caBrokerMap = {};  // code → name (공통코드에서 로드)
+// manual_holdings.brokerage = 증권사명(name) 저장 방식과 맞추기 위해
+// ca-modal-brokerage select도 value=name 으로 통일
+let caBrokerMap = {};  // name → name (표시용, ehLoadBrokerages와 동일 방식)
 
 async function caPopulateBrokerageSelect() {
   const sel = document.getElementById('ca-modal-brokerage');
@@ -5939,20 +5934,17 @@ async function caPopulateBrokerageSelect() {
     const res  = await fetch('/api/common_codes/BROKERAGE');
     const list = await res.json();
     caBrokerMap = {};
-    list.forEach(b => { caBrokerMap[b.code] = b.name; });
-    const opts = list.map(b =>
-      `<option value="${b.code}">${b.name} (${b.code})</option>`
+    list.filter(b => b.active !== false).forEach(b => { caBrokerMap[b.name] = b.name; });
+    const opts = list.filter(b => b.active !== false).map(b =>
+      `<option value="${b.name}">${b.name}</option>`
     ).join('');
     sel.innerHTML = '<option value="">전체/공통</option>' + opts;
   } catch(e) {}
 }
 
-function caBrokerLabel(code) {
-  if (!code) return '<span style="color:#475569">-</span>';
-  const name = caBrokerMap[code];
-  return name
-    ? `<span style="font-size:11px;background:#1a2535;color:#94a3b8;padding:1px 7px;border-radius:8px">${name}</span>`
-    : `<span style="font-size:11px;color:#64748b">${code}</span>`;
+function caBrokerLabel(broker) {
+  if (!broker) return '<span style="color:#475569">-</span>';
+  return `<span style="font-size:11px;background:#1a2535;color:#94a3b8;padding:1px 7px;border-radius:8px">${broker}</span>`;
 }
 
 function caRenderTable() {
