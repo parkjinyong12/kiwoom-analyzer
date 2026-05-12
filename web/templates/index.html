@@ -5120,14 +5120,15 @@ async function rbSaveThresholds() {
   rbAlertUp    = parseFloat(document.getElementById('rb-threshold-up').value)   || 30;
   rbAlertDown  = parseFloat(document.getElementById('rb-threshold-down').value) || 25;
   rbMarginRate = parseFloat(document.getElementById('rb-margin-rate').value)    || 45;
-  await Promise.all([
-    fetch('/api/settings', { method: 'PUT', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ key: 'rebalance_alert_up', value: String(rbAlertUp) }) }),
-    fetch('/api/settings', { method: 'PUT', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ key: 'rebalance_alert_down', value: String(rbAlertDown) }) }),
-    fetch('/api/settings', { method: 'PUT', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ key: 'margin_rate', value: String(rbMarginRate) }) }),
-  ]);
+  await fetch('/api/settings', {
+    method: 'PUT',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      rebalance_alert_up:   String(rbAlertUp),
+      rebalance_alert_down: String(rbAlertDown),
+      margin_rate:          String(rbMarginRate),
+    }),
+  });
   await loadRebalance();
 }
 
@@ -5566,12 +5567,14 @@ async function trbSaveThemePopover(stockCode) {
 async function trbSaveThresholds() {
   trbAlertUp   = parseFloat(document.getElementById('trb-threshold-up').value)   || 30;
   trbAlertDown = parseFloat(document.getElementById('trb-threshold-down').value) || 25;
-  await Promise.all([
-    fetch('/api/settings', { method:'PUT', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ key:'rebalance_alert_up',   value:String(trbAlertUp)   }) }),
-    fetch('/api/settings', { method:'PUT', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ key:'rebalance_alert_down', value:String(trbAlertDown) }) }),
-  ]);
+  await fetch('/api/settings', {
+    method: 'PUT',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      rebalance_alert_up:   String(trbAlertUp),
+      rebalance_alert_down: String(trbAlertDown),
+    }),
+  });
   await loadThemeRebalance();
 }
 
