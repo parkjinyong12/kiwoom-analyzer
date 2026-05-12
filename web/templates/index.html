@@ -1628,7 +1628,10 @@ canvas { max-height: 220px; }
         <div class="page-title">리밸런싱</div>
         <div class="page-sub">종목별 목표비율 설정 및 포트폴리오 편차 모니터링</div>
       </div>
-      <button class="btn btn-ghost" style="font-size:12px" onclick="loadRebalance()">새로고침</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost" style="font-size:12px" onclick="loadRebalance()">새로고침</button>
+        <button class="btn btn-primary" id="rb-rec-btn" style="font-size:12px" onclick="rbToggleRecommendation()">💡 매매 추천</button>
+      </div>
     </div>
 
     <!-- 임계치 설정 -->
@@ -1675,6 +1678,62 @@ canvas { max-height: 220px; }
         <div class="card-value" id="rb-unset-cnt" style="font-size:22px;color:#64748b">-</div>
         <div class="card-note">target = 0% 종목</div>
       </div>
+    </div>
+
+    <!-- 매매 추천 패널 (토글) -->
+    <div id="rb-rec-panel" style="display:none;margin-bottom:4px">
+      <div class="cards" style="grid-template-columns:repeat(4,1fr);margin-bottom:12px">
+        <div class="card">
+          <div class="card-label">총 매수 금액</div>
+          <div class="card-value blue" id="rr-total-buy" style="font-size:17px">-</div>
+          <div class="card-note" id="rr-buy-cnt">-</div>
+        </div>
+        <div class="card">
+          <div class="card-label">총 매도 금액</div>
+          <div class="card-value" style="color:#f87171;font-size:17px" id="rr-total-sell">-</div>
+          <div class="card-note" id="rr-sell-cnt">-</div>
+        </div>
+        <div class="card">
+          <div class="card-label">순 현금 변동</div>
+          <div class="card-value" id="rr-net-cash" style="font-size:17px">-</div>
+          <div class="card-note" id="rr-net-note">매도 - 매수</div>
+        </div>
+        <div class="card">
+          <div class="card-label">거래 후 예상 현금</div>
+          <div class="card-value" id="rr-result-cash" style="font-size:17px">-</div>
+          <div class="card-note" id="rr-result-note">-</div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-bottom:12px">
+        <div class="panel-header">
+          <span>매매 추천 내역</span>
+          <span style="font-size:11px;color:#64748b">목표 비율 달성 기준 · 수량은 1주 단위 절사</span>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th style="text-align:center;width:60px">구분</th>
+                <th>종목명</th>
+                <th style="text-align:right">현재가</th>
+                <th style="text-align:right">현재수량</th>
+                <th style="text-align:right">목표수량</th>
+                <th style="text-align:right">조정수량</th>
+                <th style="text-align:right">현재비율</th>
+                <th style="text-align:right">목표비율</th>
+                <th style="text-align:right">거래금액</th>
+              </tr>
+            </thead>
+            <tbody id="rr-tbody">
+              <tr><td colspan="9" class="loading">로딩 중...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="rr-notes" style="background:#0c1220;border:1px solid #1e2535;border-radius:8px;
+           padding:14px 18px;font-size:13px;line-height:2;color:#94a3b8;margin-bottom:16px"></div>
     </div>
 
     <div class="panel">
@@ -4585,6 +4644,7 @@ async function loadRebalance() {
 
     rbUpdateSummary(json);
     rbRender();
+    if (rbRecVisible) rbRenderRecommendation();
   } catch(e) {
     document.getElementById('rb-tbody').innerHTML =
       '<tr><td colspan="10" style="text-align:center;color:#f87171;padding:32px">데이터 로드 실패</td></tr>';
@@ -4825,6 +4885,166 @@ async function rbSaveThresholds() {
   // 카드 재계산
   rbUpdateSummary({ portfolio_total: 0, total_cash: 0 }); // 재로드로 갱신
   await loadRebalance();
+}
+
+// ─── 매매 추천 ────────────────────────────────────────
+let rbRecVisible = false;
+
+function rbToggleRecommendation() {
+  rbRecVisible = !rbRecVisible;
+  const panel = document.getElementById('rb-rec-panel');
+  const btn   = document.getElementById('rb-rec-btn');
+  if (rbRecVisible) {
+    panel.style.display = 'block';
+    btn.style.background = '#1d3a5f';
+    btn.style.borderColor = '#3b82f6';
+    rbRenderRecommendation();
+  } else {
+    panel.style.display = 'none';
+    btn.style.background = '';
+    btn.style.borderColor = '';
+  }
+}
+
+function rbRenderRecommendation() {
+  const items = [];
+  let totalBuy = 0, totalSell = 0;
+  let noPriceCnt = 0;
+
+  for (const r of rbData) {
+    if (!r.target_ratio) continue;
+    if (r.current_price == null) { noPriceCnt++; continue; }
+
+    const targetEval = rbPortfolioTotal * r.target_ratio / 100;
+    const diff       = targetEval - r.eval_amt;
+    let adjQty, adjAmt;
+
+    if (diff > 0) {
+      adjQty = Math.floor(diff / r.current_price);
+      adjAmt = adjQty * r.current_price;
+      totalBuy += adjAmt;
+    } else {
+      adjQty = -Math.floor(Math.abs(diff) / r.current_price);
+      adjAmt = Math.abs(adjQty) * r.current_price;
+      totalSell += adjAmt;
+    }
+
+    const targetQty = Math.floor(targetEval / r.current_price);
+    items.push({
+      type: adjQty > 0 ? 'buy' : adjQty < 0 ? 'sell' : 'hold',
+      stock_code: r.stock_code,
+      stock_name: r.stock_name || r.stock_code,
+      current_price: r.current_price,
+      current_qty: r.total_qty,
+      target_qty: targetQty,
+      adj_qty: adjQty,
+      adj_amt: adjAmt,
+      current_ratio: r.current_ratio,
+      target_ratio: r.target_ratio,
+    });
+  }
+
+  // 매도 → 매수 → 유지 순, 같은 구분 내 거래금액 큰 순
+  const typeOrder = { sell: 0, buy: 1, hold: 2 };
+  items.sort((a, b) => typeOrder[a.type] - typeOrder[b.type] || b.adj_amt - a.adj_amt);
+
+  const netCashChange = totalSell - totalBuy;
+  const resultCash    = rbTotalCash + netCashChange;
+  const buyCnt        = items.filter(i => i.type === 'buy').length;
+  const sellCnt       = items.filter(i => i.type === 'sell').length;
+
+  // ── 요약 카드 ──
+  document.getElementById('rr-total-buy').textContent  = totalBuy.toLocaleString() + '원';
+  document.getElementById('rr-buy-cnt').textContent    = buyCnt + '종목';
+  document.getElementById('rr-total-sell').textContent = totalSell.toLocaleString() + '원';
+  document.getElementById('rr-sell-cnt').textContent   = sellCnt + '종목';
+
+  const netEl   = document.getElementById('rr-net-cash');
+  const netNote = document.getElementById('rr-net-note');
+  netEl.textContent  = (netCashChange >= 0 ? '+' : '') + netCashChange.toLocaleString() + '원';
+  netEl.style.color  = netCashChange >= 0 ? '#4ade80' : '#f87171';
+  netNote.textContent = netCashChange >= 0 ? '현금 증가 (매도 우세)' : '현금 감소 (매수 우세)';
+
+  const resEl   = document.getElementById('rr-result-cash');
+  const resNote = document.getElementById('rr-result-note');
+  resEl.textContent = Math.max(0, resultCash).toLocaleString() + '원';
+  if (resultCash < 0) {
+    resEl.style.color  = '#f87171';
+    resNote.textContent = '⚠️ 현금 부족';
+  } else {
+    resEl.style.color  = '#e2e8f0';
+    const ratio = rbPortfolioTotal > 0 ? resultCash / rbPortfolioTotal * 100 : 0;
+    resNote.textContent = '포트폴리오 ' + ratio.toFixed(1) + '%';
+  }
+
+  // ── 추천 테이블 ──
+  const tbody = document.getElementById('rr-tbody');
+  if (!items.length) {
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:28px;color:#475569">목표 비율·현재가가 설정된 종목 없음</td></tr>';
+  } else {
+    tbody.innerHTML = items.map(r => {
+      const isHold  = r.type === 'hold';
+      const isBuy   = r.type === 'buy';
+      const label   = isBuy ? '매수' : isHold ? '유지' : '매도';
+      const color   = isBuy ? '#60a5fa' : isHold ? '#4ade80' : '#f87171';
+      const rowBg   = isBuy ? 'rgba(96,165,250,0.06)' : isHold ? '' : 'rgba(248,113,113,0.06)';
+      const adjSign = r.adj_qty > 0 ? '+' : '';
+      const amtSign = isBuy ? '-' : isHold ? '' : '+';
+      return `<tr style="background:${rowBg}">
+        <td class="center"><span style="color:${color};font-weight:700;font-size:13px">${label}</span></td>
+        <td style="font-weight:500">${r.stock_name}</td>
+        <td class="num">${r.current_price.toLocaleString()}원</td>
+        <td class="num">${Number(r.current_qty).toLocaleString()}주</td>
+        <td class="num">${r.target_qty.toLocaleString()}주</td>
+        <td class="num" style="color:${color};font-weight:600">${isHold ? '—' : adjSign + r.adj_qty.toLocaleString() + '주'}</td>
+        <td class="num" style="font-size:12px;color:#94a3b8">${r.current_ratio.toFixed(2)}%</td>
+        <td class="num" style="font-size:12px;color:#94a3b8">${r.target_ratio.toFixed(1)}%</td>
+        <td class="num" style="color:${color};font-weight:500">${isHold ? '—' : amtSign + r.adj_amt.toLocaleString() + '원'}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  // ── 안내 메시지 ──
+  const notes = [];
+  if (totalBuy === 0 && totalSell === 0) {
+    notes.push('✅ 모든 종목이 목표 비율에 근접해 있습니다. 추가 거래가 필요하지 않습니다.');
+  } else if (totalBuy > 0 && totalSell === 0) {
+    // 매수만 필요
+    if (rbTotalCash >= totalBuy) {
+      notes.push(`✅ 매수 ${totalBuy.toLocaleString()}원 전액 보유 현금으로 충당 가능합니다. 거래 후 현금 ${resultCash.toLocaleString()}원 남습니다.`);
+    } else {
+      const short = totalBuy - rbTotalCash;
+      notes.push(`⚠️ 매수 필요금액 ${totalBuy.toLocaleString()}원 중 현금 ${rbTotalCash.toLocaleString()}원 보유 — <b style="color:#f87171">${short.toLocaleString()}원 부족</b>합니다. 일부 매수를 포기하거나 현금을 추가 입금해주세요.`);
+    }
+  } else if (totalSell > 0 && totalBuy === 0) {
+    // 매도만 필요
+    notes.push(`📌 매도 후 현금 ${totalSell.toLocaleString()}원이 추가됩니다. 거래 후 현금 ${resultCash.toLocaleString()}원 (포트폴리오의 ${(rbPortfolioTotal > 0 ? resultCash / rbPortfolioTotal * 100 : 0).toFixed(1)}%).`);
+  } else {
+    // 매도 + 매수 혼합
+    if (netCashChange >= 0) {
+      notes.push(`✅ 매도 대금(${totalSell.toLocaleString()}원)으로 매수(${totalBuy.toLocaleString()}원)를 충당하고 ${netCashChange.toLocaleString()}원이 남습니다.`);
+    } else {
+      const need = Math.abs(netCashChange);
+      if (rbTotalCash >= need) {
+        notes.push(`✅ 매도 대금 외 ${need.toLocaleString()}원이 추가 필요하지만, 보유 현금 ${rbTotalCash.toLocaleString()}원으로 충당 가능합니다.`);
+      } else {
+        const short = need - rbTotalCash;
+        notes.push(`⚠️ 매도 대금 외 ${need.toLocaleString()}원 추가 필요. 현금 ${rbTotalCash.toLocaleString()}원으로 부족분 <b style="color:#f87171">${short.toLocaleString()}원</b>을 추가 입금해주세요.`);
+      }
+    }
+  }
+
+  if (rbCashTargetRatio > 0) {
+    const afterRatio = rbPortfolioTotal > 0 ? resultCash / rbPortfolioTotal * 100 : 0;
+    const diff = afterRatio - rbCashTargetRatio;
+    const sign = diff >= 0 ? '+' : '';
+    notes.push(`💰 거래 후 현금 비율 ${afterRatio.toFixed(1)}% (목표 ${rbCashTargetRatio}%, 차이 ${sign}${diff.toFixed(1)}pp)`);
+  }
+  if (noPriceCnt > 0) {
+    notes.push(`⚠️ 현재가 미입력 종목 ${noPriceCnt}개는 추천에서 제외되었습니다. 현재가 관리 화면에서 가격을 입력해주세요.`);
+  }
+
+  document.getElementById('rr-notes').innerHTML = notes.join('<br>');
 }
 
 // ─── 테마 리밸런싱 ───────────────────────────────────
