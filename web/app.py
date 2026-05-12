@@ -208,6 +208,20 @@ def _ensure_macro_rates_table():
         """)
 
 
+def _ensure_credit_collateral_table():
+    """증권사별 신용담보금 테이블."""
+    with get_conn() as conn:
+        conn.cursor().execute("""
+            CREATE TABLE IF NOT EXISTS credit_collateral (
+                id         SERIAL PRIMARY KEY,
+                brokerage  VARCHAR(50) NOT NULL UNIQUE,
+                amount     BIGINT NOT NULL DEFAULT 0,
+                note       TEXT NOT NULL DEFAULT '',
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+
+
 def _ensure_cash_assets_table():
     with get_conn() as conn:
         cur = conn.cursor()
@@ -1118,7 +1132,7 @@ def api_rebalance():
         r["deviation_pp"]   = deviation_pp
         r["deviation_rel"]  = deviation_rel
 
-    # ── 증권사별 담보 현황 ────────────────────────────────
+    # ── 증권사별 담보 현황 (신용담보금 테이블 사용) ──────────
     broker_stock_rows = query("""
         WITH latest_close AS (
             SELECT DISTINCT ON (stock_code) stock_code, close_price
@@ -1140,14 +1154,10 @@ def api_rebalance():
         GROUP BY mh.brokerage
         ORDER BY mh.brokerage
     """)
-    broker_cash_rows = query("""
-        SELECT brokerage, COALESCE(SUM(amount), 0) AS cash_total
-        FROM cash_assets
-        WHERE brokerage IS NOT NULL AND brokerage != ''
-        GROUP BY brokerage
-        ORDER BY brokerage
+    collateral_rows = query("""
+        SELECT brokerage, amount FROM credit_collateral ORDER BY brokerage
     """)
-    cash_by_broker = {r["brokerage"]: int(r["cash_total"]) for r in broker_cash_rows}
+    collateral_by_broker = {r["brokerage"]: int(r["amount"]) for r in collateral_rows}
 
     broker_summary = []
     seen = set()
@@ -1155,23 +1165,23 @@ def api_rebalance():
         b = br["brokerage"] or ""
         seen.add(b)
         stock_eval = float(br["stock_eval"] or 0)
-        cash = cash_by_broker.get(b, 0)
-        required = round(stock_eval * margin_rate / 100)
+        collateral  = collateral_by_broker.get(b, 0)
+        required    = round(stock_eval * margin_rate / 100)
         broker_summary.append({
             "brokerage":           b or "미지정",
             "stock_eval":          round(stock_eval),
             "required_collateral": required,
-            "cash":                cash,
-            "surplus":             cash - required,
+            "collateral":          collateral,
+            "surplus":             collateral - required,
         })
-    for b, cash in cash_by_broker.items():
+    for b, collateral in collateral_by_broker.items():
         if b not in seen:
             broker_summary.append({
                 "brokerage":           b or "미지정",
                 "stock_eval":          0,
                 "required_collateral": 0,
-                "cash":                cash,
-                "surplus":             cash,
+                "collateral":          collateral,
+                "surplus":             collateral,
             })
 
     return jsonify({
@@ -1206,6 +1216,71 @@ def api_rebalance_target():
             ON CONFLICT (stock_code)
             DO UPDATE SET target_ratio = EXCLUDED.target_ratio, updated_at = NOW()
         """, (stock_code, target_ratio))
+    return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------------------
+# API — 신용담보금 (증권사별)
+# ---------------------------------------------------------------------------
+
+@app.route("/api/credit_collateral")
+def api_credit_collateral_list():
+    rows = query("""
+        SELECT id, brokerage, amount, note,
+               TO_CHAR(updated_at, 'YYYY-MM-DD HH24:MI') AS updated_at
+        FROM credit_collateral
+        ORDER BY brokerage
+    """)
+    return jsonify([{
+        "id":         r["id"],
+        "brokerage":  r["brokerage"],
+        "amount":     int(r["amount"]),
+        "note":       r["note"] or "",
+        "updated_at": r["updated_at"],
+    } for r in rows])
+
+
+@app.route("/api/credit_collateral", methods=["POST"])
+def api_credit_collateral_create():
+    data      = request.get_json() or {}
+    brokerage = (data.get("brokerage") or "").strip()
+    if not brokerage:
+        return jsonify({"error": "증권사 필수"}), 400
+    try:
+        amount = int(str(data.get("amount") or 0).replace(",", ""))
+    except (ValueError, TypeError):
+        return jsonify({"error": "금액 오류"}), 400
+    note = (data.get("note") or "").strip()
+    with get_conn() as conn:
+        conn.cursor().execute("""
+            INSERT INTO credit_collateral (brokerage, amount, note, updated_at)
+            VALUES (%s, %s, %s, NOW())
+            ON CONFLICT (brokerage)
+            DO UPDATE SET amount = EXCLUDED.amount, note = EXCLUDED.note, updated_at = NOW()
+        """, (brokerage, amount, note))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/credit_collateral/<int:cid>", methods=["PUT"])
+def api_credit_collateral_update(cid: int):
+    data = request.get_json() or {}
+    try:
+        amount = int(str(data.get("amount") or 0).replace(",", ""))
+    except (ValueError, TypeError):
+        return jsonify({"error": "금액 오류"}), 400
+    note = (data.get("note") or "").strip()
+    with get_conn() as conn:
+        conn.cursor().execute(
+            "UPDATE credit_collateral SET amount=%s, note=%s, updated_at=NOW() WHERE id=%s",
+            (amount, note, cid),
+        )
+    return jsonify({"ok": True})
+
+
+@app.route("/api/credit_collateral/<int:cid>", methods=["DELETE"])
+def api_credit_collateral_delete(cid: int):
+    with get_conn() as conn:
+        conn.cursor().execute("DELETE FROM credit_collateral WHERE id=%s", (cid,))
     return jsonify({"ok": True})
 
 
@@ -2204,6 +2279,11 @@ except Exception:
 
 try:
     _ensure_cash_assets_table()
+except Exception:
+    pass
+
+try:
+    _ensure_credit_collateral_table()
 except Exception:
     pass
 

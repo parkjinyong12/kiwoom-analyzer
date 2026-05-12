@@ -1673,6 +1673,63 @@ canvas { max-height: 220px; }
       </div>
     </div>
 
+    <!-- 신용담보금 관리 패널 -->
+    <div class="panel" style="margin-bottom:12px">
+      <div class="panel-header">
+        <span>신용담보금 관리 <span style="font-size:11px;color:#64748b;font-weight:normal">· 증권사별 신용대출 담보금 입력</span></span>
+        <button class="btn btn-primary" style="font-size:12px;padding:4px 12px" onclick="ccOpenAddModal()">+ 증권사 추가</button>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>증권사</th>
+              <th style="text-align:right">신용담보금</th>
+              <th>메모</th>
+              <th style="text-align:center;width:80px">최근수정</th>
+              <th style="text-align:center;width:80px">관리</th>
+            </tr>
+          </thead>
+          <tbody id="crcol-tbody">
+            <tr><td colspan="5" class="loading">로딩 중...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 신용담보금 추가/수정 모달 -->
+    <div class="modal-overlay" id="cc-modal" style="display:none">
+      <div class="modal" style="width:380px">
+        <h3 id="cc-modal-title">신용담보금 추가</h3>
+        <input type="hidden" id="cc-modal-id"/>
+        <div style="display:grid;gap:14px;margin-top:8px">
+          <div>
+            <div style="font-size:12px;color:#64748b;margin-bottom:4px">증권사 <span style="color:#f87171">*</span></div>
+            <select id="cc-modal-brokerage"
+                    style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none">
+              <option value="">-- 선택 --</option>
+            </select>
+          </div>
+          <div>
+            <div style="font-size:12px;color:#64748b;margin-bottom:4px">신용담보금(원) <span style="color:#f87171">*</span></div>
+            <input type="number" id="cc-modal-amount" placeholder="예: 15000000" min="0" step="1"
+                   style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
+          </div>
+          <div>
+            <div style="font-size:12px;color:#64748b;margin-bottom:4px">메모</div>
+            <input type="text" id="cc-modal-note" placeholder="예: 신용한도 3,000만 중 담보" maxlength="100"
+                   style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"
+                   onkeydown="if(event.key==='Enter'&&!event.isComposing)ccSave()"/>
+          </div>
+          <div id="cc-modal-err" style="color:#f87171;font-size:12px;display:none"></div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" onclick="ccCloseModal()">취소</button>
+          <button class="btn btn-primary" onclick="ccSave()">저장</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 신용 담보 & 주식:현금 비율 패널 -->
     <div class="panel" style="margin-bottom:12px" id="rb-margin-panel">
       <div class="panel-header" style="cursor:default">신용 담보 현황 <span style="font-size:11px;color:#64748b;font-weight:normal">· 증권사별 · 전 종목 신용매수 기준</span></div>
@@ -1684,8 +1741,8 @@ canvas { max-height: 220px; }
               <th>증권사</th>
               <th style="text-align:right">주식 평가금</th>
               <th style="text-align:right" id="rb-m-rate-label">필요 담보금 (×45%)</th>
-              <th style="text-align:right">현금성 자산</th>
-              <th style="text-align:right">담보 여유/부족</th>
+              <th style="text-align:right">신용담보금</th>
+              <th style="text-align:right">여유/부족</th>
               <th style="text-align:center">상태</th>
             </tr>
           </thead>
@@ -4698,12 +4755,14 @@ async function loadRebalance() {
   document.getElementById('rb-tbody').innerHTML =
     '<tr><td colspan="10" class="loading">로딩 중...</td></tr>';
   try {
-    const [dataRes, settRes] = await Promise.all([
+    const [dataRes, settRes, crcolRes] = await Promise.all([
       fetch('/api/rebalance'),
       fetch('/api/settings'),
+      fetch('/api/credit_collateral'),
     ]);
     const json    = await dataRes.json();
     const settings = await settRes.json();
+    const crcolData = await crcolRes.json();
 
     rbData            = json.holdings || [];
     rbAlertUp         = json.alert_up          ?? 30;
@@ -4719,6 +4778,7 @@ async function loadRebalance() {
     document.getElementById('rb-threshold-down').value = rbAlertDown;
     document.getElementById('rb-margin-rate').value    = rbMarginRate;
 
+    crcolRenderTable(crcolData);
     rbUpdateSummary(json);
     rbRenderMarginPanel();
     rbRender();
@@ -4786,13 +4846,13 @@ function rbRenderMarginPanel() {
   // ── 증권사별 테이블 ──
   const tbody = document.getElementById('rb-broker-tbody');
   if (!rbBrokerSummary.length) {
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;color:#475569">데이터 없음 — 현금성 자산에서 증권사를 지정하세요</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;color:#475569">데이터 없음 — 신용담보금 관리에서 증권사를 추가하세요</td></tr>';
   } else {
-    let totalStockEval = 0, totalRequired = 0, totalCash = 0;
+    const totalStockEval = rbBrokerSummary.reduce((s, b) => s + b.stock_eval, 0);
+    const totalRequired  = rbBrokerSummary.reduce((s, b) => s + b.required_collateral, 0);
+    const totalCollat    = rbBrokerSummary.reduce((s, b) => s + (b.collateral ?? 0), 0);
     tbody.innerHTML = rbBrokerSummary.map(b => {
-      totalStockEval += b.stock_eval;
-      totalRequired  += b.required_collateral;
-      totalCash      += b.cash;
+      const collat    = b.collateral ?? 0;
       const surplus   = b.surplus;
       const bufferPct = b.required_collateral > 0 ? surplus / b.required_collateral * 100 : null;
       const sign      = surplus >= 0 ? '+' : '';
@@ -4815,20 +4875,20 @@ function rbRenderMarginPanel() {
         <td style="font-weight:600">${brokerName}</td>
         <td class="num">${b.stock_eval.toLocaleString()}원</td>
         <td class="num" style="color:#f59e0b">${b.required_collateral.toLocaleString()}원</td>
-        <td class="num" style="color:#94a3b8">${b.cash.toLocaleString()}원</td>
+        <td class="num" style="color:#94a3b8">${collat.toLocaleString()}원</td>
         <td class="num" style="color:${surplusColor};font-weight:700">${sign}${Math.abs(surplus).toLocaleString()}원</td>
         <td class="center">${statusHtml}</td>
       </tr>`;
     }).join('') + (() => {
-      const totalSurplus  = totalCash - totalRequired;
-      const totalBufPct   = totalRequired > 0 ? totalSurplus / totalRequired * 100 : null;
-      const totalSign     = totalSurplus >= 0 ? '+' : '';
-      const totalColor    = totalSurplus < 0 ? '#f87171' : (totalBufPct !== null && totalBufPct < 20) ? '#f59e0b' : '#4ade80';
+      const totalSurplus = totalCollat - totalRequired;
+      const totalBufPct  = totalRequired > 0 ? totalSurplus / totalRequired * 100 : null;
+      const totalSign    = totalSurplus >= 0 ? '+' : '';
+      const totalColor   = totalSurplus < 0 ? '#f87171' : (totalBufPct !== null && totalBufPct < 20) ? '#f59e0b' : '#4ade80';
       return `<tr style="border-top:2px solid #334155;background:rgba(148,163,184,0.06);font-weight:700">
         <td style="color:#94a3b8">합계</td>
         <td class="num">${totalStockEval.toLocaleString()}원</td>
         <td class="num" style="color:#f59e0b">${totalRequired.toLocaleString()}원</td>
-        <td class="num" style="color:#94a3b8">${totalCash.toLocaleString()}원</td>
+        <td class="num" style="color:#94a3b8">${totalCollat.toLocaleString()}원</td>
         <td class="num" style="color:${totalColor}">${totalSign}${Math.abs(totalSurplus).toLocaleString()}원</td>
         <td class="center" style="color:${totalColor}">${totalSurplus < 0 ? '🚨 전체 부족' : (totalBufPct !== null && totalBufPct < 20) ? '⚠️ 전체 주의' : '✅ 전체 안전'}</td>
       </tr>`;
@@ -6339,6 +6399,111 @@ async function macroDelete(id, name) {
   if (!confirm(`"${name}" 지표를 삭제하시겠습니까?`)) return;
   await fetch(`/api/macro_rates/${id}`, { method: 'DELETE' });
   await loadMacro();
+}
+
+// ─── 신용담보금 관리 (rebalancing panel) ──────────────
+let crcolEditId = null;
+
+function crcolRenderTable(data) {
+  const tbody = document.getElementById('crcol-tbody');
+  if (!data || !data.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:24px;color:#475569">등록된 신용담보금이 없습니다.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = data.map(r => `<tr>
+    <td style="font-weight:600">${r.brokerage}</td>
+    <td class="num">${r.amount.toLocaleString()}원</td>
+    <td style="color:#94a3b8;font-size:12px">${r.note || '-'}</td>
+    <td class="center" style="font-size:11px;color:#64748b">${(r.updated_at || '').substring(0, 10)}</td>
+    <td class="center">
+      <button class="btn btn-ghost" style="font-size:11px;padding:3px 9px;margin-right:4px"
+              onclick="crcolOpenEdit(${r.id},'${r.brokerage.replace(/'/g,"\\'")}',${r.amount},'${r.note.replace(/'/g,"\\'")}')">수정</button>
+      <button class="btn btn-danger" style="font-size:11px;padding:3px 9px"
+              onclick="crcolDelete(${r.id},'${r.brokerage.replace(/'/g,"\\'")}')">삭제</button>
+    </td>
+  </tr>`).join('');
+}
+
+async function crcolLoadBrokerages() {
+  const sel = document.getElementById('cc-modal-brokerage');
+  sel.innerHTML = '<option value="">-- 선택 --</option>';
+  try {
+    const res = await fetch('/api/common_codes/BROKERAGE');
+    const list = await res.json();
+    list.forEach(b => {
+      const opt = document.createElement('option');
+      opt.value = b.name;
+      opt.textContent = b.name;
+      sel.appendChild(opt);
+    });
+  } catch(e) {}
+}
+
+function ccOpenAddModal() {
+  crcolEditId = null;
+  document.getElementById('cc-modal-title').textContent = '신용담보금 추가';
+  document.getElementById('cc-modal-id').value  = '';
+  document.getElementById('cc-modal-amount').value = '';
+  document.getElementById('cc-modal-note').value   = '';
+  document.getElementById('cc-modal-err').style.display = 'none';
+  document.getElementById('cc-modal-brokerage').disabled = false;
+  crcolLoadBrokerages().then(() => {
+    document.getElementById('cc-modal-brokerage').value = '';
+  });
+  document.getElementById('cc-modal').style.display = 'flex';
+}
+
+function crcolOpenEdit(id, brokerage, amount, note) {
+  crcolEditId = id;
+  document.getElementById('cc-modal-title').textContent = '신용담보금 수정';
+  document.getElementById('cc-modal-id').value = id;
+  document.getElementById('cc-modal-amount').value = amount;
+  document.getElementById('cc-modal-note').value   = note || '';
+  document.getElementById('cc-modal-err').style.display = 'none';
+  document.getElementById('cc-modal-brokerage').disabled = true;
+  crcolLoadBrokerages().then(() => {
+    document.getElementById('cc-modal-brokerage').value = brokerage;
+  });
+  document.getElementById('cc-modal').style.display = 'flex';
+}
+
+function ccCloseModal() {
+  document.getElementById('cc-modal').style.display = 'none';
+}
+
+async function ccSave() {
+  const brokerage = document.getElementById('cc-modal-brokerage').value.trim();
+  const amount    = parseInt(document.getElementById('cc-modal-amount').value) || 0;
+  const note      = document.getElementById('cc-modal-note').value.trim();
+  const errEl     = document.getElementById('cc-modal-err');
+  errEl.style.display = 'none';
+  if (!crcolEditId && !brokerage) { errEl.textContent = '증권사를 선택하세요'; errEl.style.display = 'block'; return; }
+  if (amount < 0) { errEl.textContent = '금액은 0 이상이어야 합니다'; errEl.style.display = 'block'; return; }
+
+  let res;
+  if (crcolEditId) {
+    res = await fetch(`/api/credit_collateral/${crcolEditId}`, {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ amount, note }),
+    });
+  } else {
+    res = await fetch('/api/credit_collateral', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ brokerage, amount, note }),
+    });
+  }
+  const data = await res.json();
+  if (!res.ok) { errEl.textContent = data.error || '저장 실패'; errEl.style.display = 'block'; return; }
+  ccCloseModal();
+  await loadRebalance();
+}
+
+async function crcolDelete(id, name) {
+  if (!confirm(`"${name}" 신용담보금을 삭제하시겠습니까?`)) return;
+  await fetch(`/api/credit_collateral/${id}`, { method: 'DELETE' });
+  await loadRebalance();
 }
 
 // ─── 공통코드 관리 ────────────────────────────────────
