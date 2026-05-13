@@ -6403,9 +6403,7 @@ async function loadCredit() {
     const settings = await settRes.json();
     const cpData   = await cpRes.json();
 
-    rbCollateralTarget   = parseFloat(settings.collateral_target_ratio   ?? 40);
     rbCollateralRequired = parseFloat(settings.collateral_required_ratio ?? 140);
-    document.getElementById('cr-collateral-target').value   = rbCollateralTarget;
     document.getElementById('cr-collateral-required').value = rbCollateralRequired;
 
     cpRenderTable(cpData);
@@ -6416,7 +6414,6 @@ async function loadCredit() {
 }
 
 async function crSaveSettings() {
-  rbCollateralTarget   = parseFloat(document.getElementById('cr-collateral-target').value)   ?? 40;
   rbCollateralRequired = parseFloat(document.getElementById('cr-collateral-required').value) ?? 140;
   await fetch('/api/settings', {
     method: 'PUT',
