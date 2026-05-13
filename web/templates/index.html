@@ -5237,14 +5237,23 @@ function rbRenderRecommendation() {
   let totalBuy = 0, totalSell = 0;
   let noPriceCnt = 0;
 
+  // 주식 간 리밸런싱: 주식 총액 기준 100%로 정규화
+  const stockTargetSum = rbData.reduce((s, r) => s + (r.target_ratio || 0), 0);
+
   for (const r of rbData) {
     if (!r.target_ratio) continue;
     if (r.current_price == null) { noPriceCnt++; continue; }
-    // 정상 범위 종목은 추천 제외 (신호 기준 초과 종목만)
-    const relDev = r.deviation_rel;
+
+    // 정규화된 비율 계산
+    const cur    = rbStockTotal > 0 ? r.eval_amt / rbStockTotal * 100 : r.current_ratio;
+    const tgt    = stockTargetSum > 0 ? r.target_ratio / stockTargetSum * 100 : r.target_ratio;
+    const absDev = parseFloat((cur - tgt).toFixed(2));
+    const relDev = tgt > 0 ? parseFloat(((cur - tgt) / tgt * 100).toFixed(1)) : null;
+
+    // 정상 범위 종목은 추천 제외
     if (relDev === null || (relDev <= rbAlertUp && relDev >= -rbAlertDown)) continue;
 
-    const targetEval = rbPortfolioTotal * r.target_ratio / 100;
+    const targetEval = rbStockTotal * tgt / 100;
     const diff       = targetEval - r.eval_amt;
     let adjQty, adjAmt;
 
@@ -5268,8 +5277,8 @@ function rbRenderRecommendation() {
       target_qty: targetQty,
       adj_qty: adjQty,
       adj_amt: adjAmt,
-      current_ratio: r.current_ratio,
-      target_ratio: r.target_ratio,
+      current_ratio: cur,
+      target_ratio: tgt,
     });
   }
 
