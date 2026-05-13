@@ -1751,6 +1751,7 @@ canvas { max-height: 220px; }
             <tr>
               <th>증권사</th>
               <th style="text-align:right">주식 평가금</th>
+              <th style="text-align:right">현금성자산</th>
               <th style="text-align:right">매입금액</th>
               <th style="text-align:right">대출금</th>
               <th style="text-align:right">충당금</th>
@@ -1765,7 +1766,7 @@ canvas { max-height: 220px; }
             </tr>
           </thead>
           <tbody id="cp-tbody">
-            <tr><td colspan="13" class="loading">로딩 중...</td></tr>
+            <tr><td colspan="14" class="loading">로딩 중...</td></tr>
           </tbody>
         </table>
       </div>
@@ -6396,7 +6397,7 @@ async function macroDelete(id, name) {
 // ─── 신용 관리 ───────────────────────────────────────
 async function loadCredit() {
   document.getElementById('cp-tbody').innerHTML =
-    '<tr><td colspan="13" class="loading">로딩 중...</td></tr>';
+    '<tr><td colspan="14" class="loading">로딩 중...</td></tr>';
   try {
     const [settRes, cpRes] = await Promise.all([
       fetch('/api/settings'),
@@ -6434,25 +6435,28 @@ async function crSaveSettings() {
 let cpLastData = { positions: [], broker_stock_eval: {} };
 
 function cpRenderTable(data) {
-  cpLastData = data || { positions: [], broker_stock_eval: {} };
-  const positions  = cpLastData.positions        || [];
-  const brokerEval = cpLastData.broker_stock_eval || {};
-  const tbody      = document.getElementById('cp-tbody');
+  cpLastData = data || { positions: [], broker_stock_eval: {}, broker_cash_eval: {} };
+  const positions      = cpLastData.positions        || [];
+  const brokerEval     = cpLastData.broker_stock_eval || {};
+  const brokerCashEval = cpLastData.broker_cash_eval  || {};
+  const tbody          = document.getElementById('cp-tbody');
 
   if (!positions.length) {
-    tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;padding:24px;color:#475569">등록된 신용 포지션이 없습니다.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="14" style="text-align:center;padding:24px;color:#475569">등록된 신용 포지션이 없습니다.</td></tr>';
     return;
   }
 
-  let totalPurchase = 0, totalLoan = 0, totalEval = 0;
+  let totalPurchase = 0, totalLoan = 0, totalEval = 0, totalCash = 0;
   const rows = positions.map(r => {
-    const stockEval = brokerEval[r.brokerage] ?? 0;
+    const stockEval = brokerEval[r.brokerage]     ?? 0;
+    const cashEval  = brokerCashEval[r.brokerage] ?? 0;
+    const 담보자산     = stockEval + cashEval;
     const 충당금       = r.purchase_amount - r.loan_amount;
     const cur충당비율  = r.loan_amount > 0 ? 충당금 / r.loan_amount * 100 : null;
     const 충당비율str  = cur충당비율 !== null ? cur충당비율.toFixed(1) : '—';
-    const cur담보비율  = r.loan_amount > 0 ? stockEval / r.loan_amount * 100 : null;
+    const cur담보비율  = r.loan_amount > 0 ? 담보자산 / r.loan_amount * 100 : null;
     const 담보비율str  = cur담보비율 !== null ? cur담보비율.toFixed(1) : '—';
-    const 담보버퍼금액 = cur담보비율 !== null ? Math.round(stockEval - rbCollateralRequired / 100 * r.loan_amount) : null;
+    const 담보버퍼금액 = cur담보비율 !== null ? Math.round(담보자산 - rbCollateralRequired / 100 * r.loan_amount) : null;
     const 담보버퍼str  = 담보버퍼금액 !== null ? 담보버퍼금액.toLocaleString() : '—';
     const 충당color    = 충당금 >= 0 ? '#4ade80' : '#f87171';
     const 담보color    = cur담보비율 === null ? '#64748b'
@@ -6475,10 +6479,11 @@ function cpRenderTable(data) {
       }
     }
 
-    totalPurchase += r.purchase_amount; totalLoan += r.loan_amount; totalEval += stockEval;
+    totalPurchase += r.purchase_amount; totalLoan += r.loan_amount; totalEval += stockEval; totalCash += cashEval;
     return `<tr>
       <td style="font-weight:600">${r.brokerage || '공통/전체'}</td>
       <td class="num" style="color:#60a5fa;font-weight:600">${stockEval.toLocaleString()}</td>
+      <td class="num" style="color:#34d399">${cashEval > 0 ? cashEval.toLocaleString() : '—'}</td>
       <td class="num">${r.purchase_amount.toLocaleString()}</td>
       <td class="num" style="color:#f87171">${r.loan_amount.toLocaleString()}</td>
       <td class="num" style="color:${충당color};font-weight:600">${충당금.toLocaleString()}</td>
@@ -6501,9 +6506,10 @@ function cpRenderTable(data) {
   const total충당금   = totalPurchase - totalLoan;
   const total충당비율  = totalLoan > 0 ? total충당금 / totalLoan * 100 : null;
   const total충당비율str = total충당비율 !== null ? total충당비율.toFixed(1) : '—';
-  const total담보비율   = totalLoan > 0 ? totalEval / totalLoan * 100 : null;
+  const total담보자산   = totalEval + totalCash;
+  const total담보비율   = totalLoan > 0 ? total담보자산 / totalLoan * 100 : null;
   const total담보비율str = total담보비율 !== null ? total담보비율.toFixed(1) : '—';
-  const total담보버퍼   = total담보비율 !== null ? Math.round(totalEval - rbCollateralRequired / 100 * totalLoan) : null;
+  const total담보버퍼   = total담보비율 !== null ? Math.round(total담보자산 - rbCollateralRequired / 100 * totalLoan) : null;
   const total담보버퍼str = total담보버퍼 !== null ? total담보버퍼.toLocaleString() : '—';
   const total충당color  = total충당금 >= 0 ? '#4ade80' : '#f87171';
   const total담보color  = total담보비율 === null ? '#64748b'
@@ -6526,6 +6532,7 @@ function cpRenderTable(data) {
   tbody.innerHTML = rows.join('') + `<tr style="border-top:2px solid #334155;background:rgba(148,163,184,0.06);font-weight:700">
     <td style="color:#94a3b8">합계</td>
     <td class="num" style="color:#60a5fa">${totalEval.toLocaleString()}</td>
+    <td class="num" style="color:#34d399">${totalCash > 0 ? totalCash.toLocaleString() : '—'}</td>
     <td class="num">${totalPurchase.toLocaleString()}</td>
     <td class="num" style="color:#f87171">${totalLoan.toLocaleString()}</td>
     <td class="num" style="color:${total충당color}">${total충당금.toLocaleString()}</td>
@@ -6534,7 +6541,7 @@ function cpRenderTable(data) {
     <td class="num" style="color:${total버퍼color}">${total담보버퍼str}</td>
     <td class="num" style="color:${total부족color}">${total부족비율str}</td>
     <td class="num" style="color:${total부족color}">${total부족금액str}</td>
-    <td colspan="3"></td>
+    <td colspan="4"></td>
   </tr>`;
 }
 

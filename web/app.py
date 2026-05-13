@@ -1222,7 +1222,15 @@ def api_credit_positions_list():
     """)
     broker_stock_eval = {(r["brokerage"] or ""): round(float(r["stock_eval"] or 0)) for r in broker_rows}
 
-    return jsonify({"positions": positions, "broker_stock_eval": broker_stock_eval})
+    cash_rows = query("""
+        SELECT brokerage, SUM(amount) AS cash_eval
+        FROM cash_assets
+        WHERE brokerage != ''
+        GROUP BY brokerage
+    """)
+    broker_cash_eval = {(r["brokerage"] or ""): round(float(r["cash_eval"] or 0)) for r in cash_rows}
+
+    return jsonify({"positions": positions, "broker_stock_eval": broker_stock_eval, "broker_cash_eval": broker_cash_eval})
 
 
 @app.route("/api/credit_positions", methods=["POST"])
