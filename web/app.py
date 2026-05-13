@@ -230,9 +230,10 @@ def _ensure_cash_assets_table():
                 updated_at  TIMESTAMP DEFAULT NOW()
             )
         """)
-        cur.execute("ALTER TABLE cash_assets ADD COLUMN IF NOT EXISTS link_type  VARCHAR(20) NOT NULL DEFAULT 'none'")
-        cur.execute("ALTER TABLE cash_assets ADD COLUMN IF NOT EXISTS link_key   VARCHAR(50) NOT NULL DEFAULT ''")
-        cur.execute("ALTER TABLE cash_assets ADD COLUMN IF NOT EXISTS brokerage  VARCHAR(50) NOT NULL DEFAULT ''")
+        cur.execute("ALTER TABLE cash_assets ADD COLUMN IF NOT EXISTS link_type      VARCHAR(20) NOT NULL DEFAULT 'none'")
+        cur.execute("ALTER TABLE cash_assets ADD COLUMN IF NOT EXISTS link_key       VARCHAR(50) NOT NULL DEFAULT ''")
+        cur.execute("ALTER TABLE cash_assets ADD COLUMN IF NOT EXISTS brokerage      VARCHAR(50) NOT NULL DEFAULT ''")
+        cur.execute("ALTER TABLE cash_assets ADD COLUMN IF NOT EXISTS purchase_price BIGINT DEFAULT NULL")
 
 
 def _ensure_credit_positions_table():
@@ -1674,15 +1675,17 @@ def api_macro_rates_sync_naver(mid):
 # ---------------------------------------------------------------------------
 
 def _parse_cash_asset_body(data: dict):
-    """Request body → (name, brokerage, qty, up, amount, link_type, link_key, note)."""
+    """Request body → (name, brokerage, qty, up, purchase_price, amount, link_type, link_key, note)."""
     name = (data.get("name") or "").strip()
     if not name:
         raise ValueError("자산명 필수")
     brokerage = (data.get("brokerage") or "").strip()
     raw_qty = data.get("quantity")
     raw_up  = data.get("unit_price")
+    raw_pp  = data.get("purchase_price")
     qty_val = float(raw_qty) if raw_qty not in (None, "") else None
     up_val  = int(raw_up)   if raw_up  not in (None, "") else None
+    pp_val  = int(raw_pp)   if raw_pp  not in (None, "") else None
     if qty_val is not None and up_val is not None:
         amount = round(qty_val * up_val)
     else:
@@ -1693,7 +1696,7 @@ def _parse_cash_asset_body(data: dict):
     link_type = (data.get("link_type") or "none").strip()
     link_key  = (data.get("link_key")  or "").strip()
     note = (data.get("note") or "").strip()
-    return name, brokerage, qty_val, up_val, amount, link_type, link_key, note
+    return name, brokerage, qty_val, up_val, pp_val, amount, link_type, link_key, note
 
 
 def _resolve_linked_price(link_type: str, link_key: str):
@@ -1719,7 +1722,7 @@ def _resolve_linked_price(link_type: str, link_key: str):
 @app.route("/api/cash_assets")
 def api_cash_assets_list():
     rows = query("""
-        SELECT id, name, brokerage, quantity, unit_price, amount, link_type, link_key, note,
+        SELECT id, name, brokerage, quantity, unit_price, purchase_price, amount, link_type, link_key, note,
                TO_CHAR(updated_at, 'YYYY-MM-DD HH24:MI') AS updated_at
         FROM cash_assets ORDER BY brokerage, id
     """)
@@ -1729,16 +1732,17 @@ def api_cash_assets_list():
         amt = int(r["amount"])
         total += amt
         items.append({
-            "id":         r["id"],
-            "name":       r["name"],
-            "brokerage":  r["brokerage"] or "",
-            "quantity":   float(r["quantity"])   if r["quantity"]   is not None else None,
-            "unit_price": int(r["unit_price"])   if r["unit_price"] is not None else None,
-            "amount":     amt,
-            "link_type":  r["link_type"] or "none",
-            "link_key":   r["link_key"]  or "",
-            "note":       r["note"] or "",
-            "updated_at": r["updated_at"],
+            "id":             r["id"],
+            "name":           r["name"],
+            "brokerage":      r["brokerage"] or "",
+            "quantity":       float(r["quantity"])       if r["quantity"]       is not None else None,
+            "unit_price":     int(r["unit_price"])       if r["unit_price"]     is not None else None,
+            "purchase_price": int(r["purchase_price"])   if r["purchase_price"] is not None else None,
+            "amount":         amt,
+            "link_type":      r["link_type"] or "none",
+            "link_key":       r["link_key"]  or "",
+            "note":           r["note"] or "",
+            "updated_at":     r["updated_at"],
         })
     return jsonify({"items": items, "total": total})
 
@@ -1746,13 +1750,13 @@ def api_cash_assets_list():
 @app.route("/api/cash_assets", methods=["POST"])
 def api_cash_assets_create():
     try:
-        name, brokerage, qty, up, amount, lt, lk, note = _parse_cash_asset_body(request.get_json() or {})
+        name, brokerage, qty, up, pp, amount, lt, lk, note = _parse_cash_asset_body(request.get_json() or {})
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     with get_conn() as conn:
         conn.cursor().execute(
-            "INSERT INTO cash_assets (name, brokerage, quantity, unit_price, amount, link_type, link_key, note) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-            (name, brokerage, qty, up, amount, lt, lk, note),
+            "INSERT INTO cash_assets (name, brokerage, quantity, unit_price, purchase_price, amount, link_type, link_key, note) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            (name, brokerage, qty, up, pp, amount, lt, lk, note),
         )
     return jsonify({"ok": True})
 
@@ -1760,13 +1764,13 @@ def api_cash_assets_create():
 @app.route("/api/cash_assets/<int:aid>", methods=["PUT"])
 def api_cash_assets_update(aid):
     try:
-        name, brokerage, qty, up, amount, lt, lk, note = _parse_cash_asset_body(request.get_json() or {})
+        name, brokerage, qty, up, pp, amount, lt, lk, note = _parse_cash_asset_body(request.get_json() or {})
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     with get_conn() as conn:
         conn.cursor().execute(
-            "UPDATE cash_assets SET name=%s, brokerage=%s, quantity=%s, unit_price=%s, amount=%s, link_type=%s, link_key=%s, note=%s, updated_at=NOW() WHERE id=%s",
-            (name, brokerage, qty, up, amount, lt, lk, note, aid),
+            "UPDATE cash_assets SET name=%s, brokerage=%s, quantity=%s, unit_price=%s, purchase_price=%s, amount=%s, link_type=%s, link_key=%s, note=%s, updated_at=NOW() WHERE id=%s",
+            (name, brokerage, qty, up, pp, amount, lt, lk, note, aid),
         )
     return jsonify({"ok": True})
 

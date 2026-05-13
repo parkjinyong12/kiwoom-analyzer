@@ -1455,7 +1455,9 @@ canvas { max-height: 220px; }
               <th>자산명 / 연동</th>
               <th style="text-align:right">수량</th>
               <th style="text-align:right">단가(원)</th>
+              <th style="text-align:right">매수가(원)</th>
               <th style="text-align:right">평가금액(원)</th>
+              <th style="text-align:right">수익</th>
               <th style="text-align:right">비중</th>
               <th>메모</th>
               <th style="text-align:center">최근수정</th>
@@ -1531,7 +1533,7 @@ canvas { max-height: 220px; }
           </div>
         </div>
 
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
           <div>
             <div style="font-size:12px;color:#64748b;margin-bottom:4px">수량</div>
             <input type="number" id="ca-modal-qty" placeholder="예: 1000" step="any" min="0"
@@ -1540,9 +1542,14 @@ canvas { max-height: 220px; }
           </div>
           <div>
             <div style="font-size:12px;color:#64748b;margin-bottom:4px">단가(원) <span style="font-size:10px" id="ca-price-hint"></span></div>
-            <input type="number" id="ca-modal-price" placeholder="자동(동기화 후 업데이트)" step="1" min="0"
+            <input type="number" id="ca-modal-price" placeholder="자동(동기화 후)" step="1" min="0"
                    style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"
                    oninput="caAutoCalc()"/>
+          </div>
+          <div>
+            <div style="font-size:12px;color:#64748b;margin-bottom:4px">매수단가(원)</div>
+            <input type="number" id="ca-modal-purchase-price" placeholder="매수 당시 단가" step="1" min="0"
+                   style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
           </div>
         </div>
         <div>
@@ -1799,28 +1806,6 @@ canvas { max-height: 220px; }
       </div>
     </div>
 
-    <!-- 위험 방지 관리 패널 -->
-    <div class="panel">
-      <div class="panel-header">
-        <span>위험 방지 관리</span>
-        <span style="font-size:11px;color:#64748b;font-weight:normal">목표 신용담보비율 기준 필요 추가 자금</span>
-      </div>
-      <div style="overflow-x:auto">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>증권사</th>
-              <th style="text-align:right">현재 신용담보비율</th>
-              <th style="text-align:right">목표 기준비율</th>
-              <th style="text-align:right">필요추가금액</th>
-            </tr>
-          </thead>
-          <tbody id="cr-risk-tbody">
-            <tr><td colspan="4" class="loading">로딩 중...</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
   </section>
 
   <!-- ===== 주식 간 리밸런싱 페이지 ===== -->
@@ -5933,7 +5918,7 @@ let caMacroList = [];   // 매크로 지표 목록 (연동 드롭다운용)
 
 async function loadCashAssets() {
   document.getElementById('ca-tbody').innerHTML =
-    '<tr><td colspan="10" class="loading">로딩 중...</td></tr>';
+    '<tr><td colspan="12" class="loading">로딩 중...</td></tr>';
   try {
     const [caRes, rbRes, macroRes] = await Promise.all([
       fetch('/api/cash_assets'),
@@ -6010,26 +5995,44 @@ function caRenderTable() {
   const total = caData.total || 0;
 
   if (!items.length) {
-    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px;color:#475569">' +
+    tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;padding:40px;color:#475569">' +
       '등록된 자산이 없습니다. <button class="btn btn-primary" style="font-size:12px;margin-left:8px" onclick="caOpenModal()">+ 자산 추가</button></td></tr>';
     return;
   }
 
-  tbody.innerHTML = items.map(r => {
+  let totalProfit = 0, totalPurchase = 0, hasAnyProfit = false;
+  const rows = items.map(r => {
     const pct      = total > 0 ? (r.amount / total * 100).toFixed(1) : '-';
-    const qtyStr   = r.quantity   != null ? Number(r.quantity).toLocaleString(undefined, {maximumFractionDigits:4}) : '-';
-    const priceStr = r.unit_price != null ? r.unit_price.toLocaleString() + '원' : '-';
+    const qtyStr   = r.quantity      != null ? Number(r.quantity).toLocaleString(undefined, {maximumFractionDigits:4}) : '-';
+    const priceStr = r.unit_price    != null ? r.unit_price.toLocaleString()    : '-';
+    const ppStr    = r.purchase_price != null ? r.purchase_price.toLocaleString() : '-';
     const hasLink  = r.link_type !== 'none' && r.link_key;
     const syncBtn  = hasLink
       ? `<button class="btn btn-ghost" style="font-size:11px;padding:2px 6px;margin-right:2px"
                  onclick="caSync(${r.id})">🔄</button>`
       : '';
+
+    let profitCell = '<td class="num" style="color:#64748b">—</td>';
+    if (r.purchase_price != null && r.quantity != null) {
+      const pa     = Math.round(r.purchase_price * r.quantity);
+      const profit = r.amount - pa;
+      const rate   = pa > 0 ? (profit / pa * 100).toFixed(2) : null;
+      const color  = profit >= 0 ? '#4ade80' : '#f87171';
+      const sign   = profit >= 0 ? '+' : '';
+      profitCell   = `<td class="num" style="color:${color};font-size:12px;line-height:1.6">${sign}${profit.toLocaleString()}<br><span style="font-size:11px;opacity:0.85">${rate !== null ? sign + rate + '%' : '—'}</span></td>`;
+      totalProfit   += profit;
+      totalPurchase += pa;
+      hasAnyProfit   = true;
+    }
+
     return `<tr>
       <td style="text-align:center">${caBrokerLabel(r.brokerage)}</td>
       <td style="font-weight:600">${r.name}<br>${caLinkBadge(r)}</td>
       <td class="num" style="color:#94a3b8">${qtyStr}</td>
       <td class="num" style="color:#94a3b8">${priceStr}</td>
-      <td class="num" style="font-weight:600">${r.amount.toLocaleString()}원</td>
+      <td class="num" style="color:#60a5fa">${ppStr}</td>
+      <td class="num" style="font-weight:600">${r.amount.toLocaleString()}</td>
+      ${profitCell}
       <td class="num" style="color:#f59e0b">${pct}%</td>
       <td style="font-size:11px;color:#64748b;max-width:120px">${r.note || '-'}</td>
       <td class="center" style="font-size:11px;color:#64748b;white-space:nowrap">${r.updated_at || '-'}</td>
@@ -6041,9 +6044,20 @@ function caRenderTable() {
                 onclick="caDelete(${r.id},'${r.name.replace(/'/g,"\\'")}')">삭제</button>
       </td>
     </tr>`;
-  }).join('') + `<tr style="border-top:2px solid #334155;background:rgba(148,163,184,0.06)">
+  });
+
+  const totalProfitColor = totalProfit >= 0 ? '#4ade80' : '#f87171';
+  const totalProfitSign  = totalProfit >= 0 ? '+' : '';
+  const totalRate        = hasAnyProfit && totalPurchase > 0 ? (totalProfit / totalPurchase * 100).toFixed(2) : null;
+  const totalProfitCell  = hasAnyProfit
+    ? `<td class="num" style="color:${totalProfitColor};font-weight:700;font-size:12px;line-height:1.6">${totalProfitSign}${totalProfit.toLocaleString()}<br><span style="font-size:11px;opacity:0.85">${totalRate !== null ? totalProfitSign + totalRate + '%' : '—'}</span></td>`
+    : '<td class="num" style="color:#64748b">—</td>';
+
+  tbody.innerHTML = rows.join('') + `<tr style="border-top:2px solid #334155;background:rgba(148,163,184,0.06)">
     <td colspan="4" style="font-weight:600;color:#94a3b8;padding:10px 12px">합계</td>
-    <td class="num" style="font-weight:700;color:#60a5fa;font-size:15px">${total.toLocaleString()}원</td>
+    <td></td>
+    <td class="num" style="font-weight:700;color:#60a5fa;font-size:15px">${total.toLocaleString()}</td>
+    ${totalProfitCell}
     <td class="num" style="font-weight:600;color:#f59e0b">100%</td>
     <td colspan="4"></td>
   </tr>`;
@@ -6189,9 +6203,10 @@ function caOpenModal(id) {
     document.getElementById('ca-modal-id').value          = id;
     document.getElementById('ca-modal-name').value        = item.name;
     document.getElementById('ca-modal-brokerage').value   = item.brokerage || '';
-    document.getElementById('ca-modal-qty').value         = item.quantity   ?? '';
-    document.getElementById('ca-modal-price').value       = item.unit_price ?? '';
-    document.getElementById('ca-modal-amount').value      = item.amount;
+    document.getElementById('ca-modal-qty').value            = item.quantity       ?? '';
+    document.getElementById('ca-modal-price').value          = item.unit_price     ?? '';
+    document.getElementById('ca-modal-purchase-price').value = item.purchase_price ?? '';
+    document.getElementById('ca-modal-amount').value         = item.amount;
     document.getElementById('ca-modal-note').value        = item.note || '';
     const lt = item.link_type || 'none';
     document.querySelector(`input[name="ca-link-type"][value="${lt}"]`).checked = true;
@@ -6223,9 +6238,10 @@ function caOpenModal(id) {
     document.getElementById('ca-modal-id').value          = '';
     document.getElementById('ca-modal-name').value        = '';
     document.getElementById('ca-modal-brokerage').value   = '';
-    document.getElementById('ca-modal-qty').value         = '';
-    document.getElementById('ca-modal-price').value       = '';
-    document.getElementById('ca-modal-amount').value      = '';
+    document.getElementById('ca-modal-qty').value            = '';
+    document.getElementById('ca-modal-price').value          = '';
+    document.getElementById('ca-modal-purchase-price').value = '';
+    document.getElementById('ca-modal-amount').value         = '';
     document.getElementById('ca-modal-note').value        = '';
     document.getElementById('ca-amount-hint').textContent = '';
     document.getElementById('ca-modal-amount').style.color = '#e2e8f0';
@@ -6246,9 +6262,10 @@ async function caSave() {
   const id        = document.getElementById('ca-modal-id').value;
   const name      = document.getElementById('ca-modal-name').value.trim();
   const brokerage = document.getElementById('ca-modal-brokerage').value;
-  const qty       = document.getElementById('ca-modal-qty').value;
-  const price     = document.getElementById('ca-modal-price').value;
-  const amt       = document.getElementById('ca-modal-amount').value;
+  const qty           = document.getElementById('ca-modal-qty').value;
+  const price         = document.getElementById('ca-modal-price').value;
+  const purchasePrice = document.getElementById('ca-modal-purchase-price').value;
+  const amt           = document.getElementById('ca-modal-amount').value;
   const note      = document.getElementById('ca-modal-note').value.trim();
   const lt        = document.querySelector('input[name="ca-link-type"]:checked')?.value || 'none';
   const lk        = lt === 'stock' ? document.getElementById('ca-modal-stock-code').value.trim()
@@ -6262,9 +6279,10 @@ async function caSave() {
   const payload = {
     name,
     brokerage,
-    quantity:   qty   !== '' ? parseFloat(qty)   : null,
-    unit_price: price !== '' ? parseInt(price)   : null,
-    amount:     amt   !== '' ? parseInt(amt.toString().replace(/,/g,'')) : 0,
+    quantity:       qty           !== '' ? parseFloat(qty)                          : null,
+    unit_price:     price         !== '' ? parseInt(price)                          : null,
+    purchase_price: purchasePrice !== '' ? parseInt(purchasePrice)                  : null,
+    amount:         amt           !== '' ? parseInt(amt.toString().replace(/,/g,'')) : 0,
     link_type:  lt,
     link_key:   lk,
     note,
@@ -6416,7 +6434,6 @@ async function loadCredit() {
     document.getElementById('cr-collateral-required').value = rbCollateralRequired;
 
     cpRenderTable(cpData);
-    crRenderRiskPanel();
   } catch(e) {
     console.error('loadCredit failed', e);
   }
@@ -6434,44 +6451,6 @@ async function crSaveSettings() {
     }),
   });
   cpRenderTable(cpLastData);
-  crRenderRiskPanel();
-}
-
-function crRenderRiskPanel() {
-  const tbody      = document.getElementById('cr-risk-tbody');
-  if (!tbody) return;
-  const positions      = cpLastData.positions        || [];
-  const brokerEval     = cpLastData.broker_stock_eval || {};
-  const brokerCashEval = cpLastData.broker_cash_eval  || {};
-
-  if (!positions.length) {
-    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#64748b;padding:16px">데이터 없음</td></tr>';
-    return;
-  }
-
-  const rows = positions.map(r => {
-    const stockEval = brokerEval[r.brokerage]     ?? 0;
-    const cashEval  = brokerCashEval[r.brokerage] ?? 0;
-    const 담보자산     = stockEval + cashEval;
-    const cur담보비율  = r.loan_amount > 0 ? 담보자산 / r.loan_amount * 100 : null;
-    const 담보비율str  = cur담보비율 !== null ? cur담보비율.toFixed(1) + '%' : '—';
-    const 목표갭       = cur담보비율 !== null ? cur담보비율 - rbCollateralTarget : null;
-    const 목표갭금액   = cur담보비율 !== null ? Math.round(담보자산 - rbCollateralTarget / 100 * r.loan_amount) : null;
-    const 목표갭str    = 목표갭 === null ? '—' : (목표갭 >= 0 ? '+' : '') + 목표갭.toFixed(1) + '%p';
-    const 목표갭금액str = 목표갭금액 === null ? '' : (목표갭금액 >= 0 ? '+' : '') + 목표갭금액.toLocaleString() + '원';
-    const 담보color    = cur담보비율 === null ? '#64748b'
-      : cur담보비율 >= rbCollateralTarget      ? '#4ade80'
-      : cur담보비율 >= rbCollateralRequired    ? '#f59e0b'
-      : '#f87171';
-    const 목표갭color  = 목표갭 === null ? '#64748b' : 목표갭 >= 0 ? '#4ade80' : '#f87171';
-    return `<tr>
-      <td style="font-weight:600">${r.brokerage || '공통/전체'}</td>
-      <td class="num" style="color:${담보color};font-weight:600">${담보비율str}</td>
-      <td class="num" style="color:#94a3b8">${rbCollateralTarget}%</td>
-      <td class="num" style="color:${목표갭color};font-size:12px;line-height:1.6">${목표갭str}<br><span style="font-size:11px;opacity:0.85">${목표갭금액str}</span></td>
-    </tr>`;
-  });
-  tbody.innerHTML = rows.join('');
 }
 
 // ─── 신용 포지션 관리 ─────────────────────────────────
