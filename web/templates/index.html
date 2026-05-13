@@ -1714,7 +1714,6 @@ canvas { max-height: 220px; }
           <thead>
             <tr>
               <th>증권사</th>
-              <th>이름</th>
               <th style="text-align:right">주식 평가금</th>
               <th style="text-align:right">매입금액</th>
               <th style="text-align:right">대출금</th>
@@ -1726,7 +1725,7 @@ canvas { max-height: 220px; }
             </tr>
           </thead>
           <tbody id="cp-tbody">
-            <tr><td colspan="10" class="loading">로딩 중...</td></tr>
+            <tr><td colspan="9" class="loading">로딩 중...</td></tr>
           </tbody>
         </table>
       </div>
@@ -1738,19 +1737,12 @@ canvas { max-height: 220px; }
         <h3 id="cp-modal-title">신용 포지션 추가</h3>
         <input type="hidden" id="cp-modal-id"/>
         <div style="display:grid;gap:14px;margin-top:8px">
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-            <div>
-              <div style="font-size:12px;color:#64748b;margin-bottom:4px">증권사</div>
-              <select id="cp-modal-brokerage"
-                      style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none">
-                <option value="">공통/전체</option>
-              </select>
-            </div>
-            <div>
-              <div style="font-size:12px;color:#64748b;margin-bottom:4px">이름 <span style="color:#f87171">*</span></div>
-              <input type="text" id="cp-modal-name" placeholder="예: 삼성전자 신용" maxlength="100"
-                     style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
-            </div>
+          <div>
+            <div style="font-size:12px;color:#64748b;margin-bottom:4px">증권사 <span style="color:#f87171">*</span></div>
+            <select id="cp-modal-brokerage"
+                    style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none">
+              <option value="">-- 선택 --</option>
+            </select>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
             <div>
@@ -6341,101 +6333,63 @@ async function macroDelete(id, name) {
 }
 
 // ─── 신용 포지션 충당금 관리 ─────────────────────────
-let cpEditId = null;
 let cpLastData = { positions: [], broker_stock_eval: {} };
 
 function cpRenderTable(data) {
   cpLastData = data || { positions: [], broker_stock_eval: {} };
-  const positions     = cpLastData.positions     || [];
-  const brokerEval    = cpLastData.broker_stock_eval || {};
-  const tbody         = document.getElementById('cp-tbody');
+  const positions  = cpLastData.positions        || [];
+  const brokerEval = cpLastData.broker_stock_eval || {};
+  const tbody      = document.getElementById('cp-tbody');
 
   if (!positions.length) {
-    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:24px;color:#475569">등록된 신용 포지션이 없습니다.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:24px;color:#475569">등록된 신용 포지션이 없습니다.</td></tr>';
     return;
   }
 
-  // 증권사별로 그룹핑
-  const groups = {};
-  for (const r of positions) {
-    const b = r.brokerage || '';
-    if (!groups[b]) groups[b] = [];
-    groups[b].push(r);
-  }
-
-  let html = '';
-  let grandPurchase = 0, grandLoan = 0, grandEval = 0;
-
-  for (const [brokerage, items] of Object.entries(groups)) {
-    const stockEval   = brokerEval[brokerage] ?? 0;
-    const grpPurchase = items.reduce((s, r) => s + r.purchase_amount, 0);
-    const grpLoan     = items.reduce((s, r) => s + r.loan_amount, 0);
-    const grp충당금    = grpPurchase - grpLoan;
-    const grp충당비율  = grpLoan > 0 ? (grp충당금 / grpLoan * 100).toFixed(1) + '%' : '—';
-    const grpColor    = grp충당금 >= 0 ? '#4ade80' : '#f87171';
-    grandPurchase += grpPurchase; grandLoan += grpLoan; grandEval += stockEval;
-
-    // 증권사 소계 헤더행
-    html += `<tr style="background:rgba(30,37,53,0.7);border-top:2px solid #334155">
-      <td colspan="2" style="font-weight:700;color:#94a3b8;padding:7px 12px">
-        ${brokerage || '공통/전체'}
-      </td>
+  let totalPurchase = 0, totalLoan = 0, totalEval = 0;
+  const rows = positions.map(r => {
+    const stockEval = brokerEval[r.brokerage] ?? 0;
+    const 충당금    = r.purchase_amount - r.loan_amount;
+    const 충당비율  = r.loan_amount > 0 ? (충당금 / r.loan_amount * 100).toFixed(1) + '%' : '—';
+    const color     = 충당금 >= 0 ? '#4ade80' : '#f87171';
+    totalPurchase += r.purchase_amount; totalLoan += r.loan_amount; totalEval += stockEval;
+    return `<tr>
+      <td style="font-weight:600">${r.brokerage || '공통/전체'}</td>
       <td class="num" style="color:#60a5fa;font-weight:600">${stockEval.toLocaleString()}원</td>
-      <td class="num" style="color:#e2e8f0">${grpPurchase.toLocaleString()}원</td>
-      <td class="num" style="color:#f87171">${grpLoan.toLocaleString()}원</td>
-      <td class="num" style="color:${grpColor};font-weight:700">${grp충당금.toLocaleString()}원</td>
-      <td class="num" style="color:${grpColor};font-weight:700">${grp충당비율}</td>
-      <td colspan="3"></td>
+      <td class="num">${r.purchase_amount.toLocaleString()}원</td>
+      <td class="num" style="color:#f87171">${r.loan_amount.toLocaleString()}원</td>
+      <td class="num" style="color:${color};font-weight:600">${충당금.toLocaleString()}원</td>
+      <td class="num" style="color:${color};font-weight:600">${충당비율}</td>
+      <td style="color:#94a3b8;font-size:12px">${r.note || '-'}</td>
+      <td class="center" style="font-size:11px;color:#64748b">${(r.updated_at || '').substring(0, 10)}</td>
+      <td class="center">
+        <button class="btn btn-ghost" style="font-size:11px;padding:3px 8px;margin-right:3px"
+                onclick="cpOpenModal(${r.id})">수정</button>
+        <button class="btn btn-danger" style="font-size:11px;padding:3px 8px"
+                onclick="cpDelete(${r.id},'${r.brokerage.replace(/'/g,"\\'")}')">삭제</button>
+      </td>
     </tr>`;
+  });
 
-    // 개별 포지션 행
-    for (const r of items) {
-      const 충당금  = r.purchase_amount - r.loan_amount;
-      const 충당비율 = r.loan_amount > 0 ? (충당금 / r.loan_amount * 100).toFixed(1) + '%' : '—';
-      const color   = 충당금 >= 0 ? '#4ade80' : '#f87171';
-      html += `<tr>
-        <td style="color:#64748b;font-size:12px;padding-left:20px">└</td>
-        <td style="font-weight:500">${r.name}</td>
-        <td class="num" style="color:#475569">—</td>
-        <td class="num" style="color:#94a3b8">${r.purchase_amount.toLocaleString()}원</td>
-        <td class="num" style="color:#f87171">${r.loan_amount.toLocaleString()}원</td>
-        <td class="num" style="color:${color}">${충당금.toLocaleString()}원</td>
-        <td class="num" style="color:${color}">${충당비율}</td>
-        <td style="color:#64748b;font-size:12px">${r.note || '-'}</td>
-        <td class="center" style="font-size:11px;color:#64748b">${(r.updated_at || '').substring(0, 10)}</td>
-        <td class="center">
-          <button class="btn btn-ghost" style="font-size:11px;padding:3px 8px;margin-right:3px"
-                  onclick="cpOpenModal(${r.id})">수정</button>
-          <button class="btn btn-danger" style="font-size:11px;padding:3px 8px"
-                  onclick="cpDelete(${r.id},'${r.name.replace(/'/g,"\\'")}')">삭제</button>
-        </td>
-      </tr>`;
-    }
-  }
-
-  // 전체 합계행
-  const grand충당금  = grandPurchase - grandLoan;
-  const grand충당비율 = grandLoan > 0 ? (grand충당금 / grandLoan * 100).toFixed(1) + '%' : '—';
-  const grandColor  = grand충당금 >= 0 ? '#4ade80' : '#f87171';
-  html += `<tr style="border-top:2px solid #475569;background:rgba(148,163,184,0.08);font-weight:700">
-    <td colspan="2" style="color:#94a3b8">전체 합계</td>
-    <td class="num" style="color:#60a5fa">${grandEval.toLocaleString()}원</td>
-    <td class="num">${grandPurchase.toLocaleString()}원</td>
-    <td class="num" style="color:#f87171">${grandLoan.toLocaleString()}원</td>
-    <td class="num" style="color:${grandColor}">${grand충당금.toLocaleString()}원</td>
-    <td class="num" style="color:${grandColor}">${grand충당비율}</td>
+  const total충당금  = totalPurchase - totalLoan;
+  const total충당비율 = totalLoan > 0 ? (total충당금 / totalLoan * 100).toFixed(1) + '%' : '—';
+  const totalColor  = total충당금 >= 0 ? '#4ade80' : '#f87171';
+  tbody.innerHTML = rows.join('') + `<tr style="border-top:2px solid #334155;background:rgba(148,163,184,0.06);font-weight:700">
+    <td style="color:#94a3b8">합계</td>
+    <td class="num" style="color:#60a5fa">${totalEval.toLocaleString()}원</td>
+    <td class="num">${totalPurchase.toLocaleString()}원</td>
+    <td class="num" style="color:#f87171">${totalLoan.toLocaleString()}원</td>
+    <td class="num" style="color:${totalColor}">${total충당금.toLocaleString()}원</td>
+    <td class="num" style="color:${totalColor}">${total충당비율}</td>
     <td colspan="3"></td>
   </tr>`;
-
-  tbody.innerHTML = html;
 }
 
-async function cpLoadBrokerages() {
+async function cpLoadBrokerages(currentVal) {
   const sel = document.getElementById('cp-modal-brokerage');
-  const cur = sel.value;
-  sel.innerHTML = '<option value="">공통/전체</option>';
+  sel.innerHTML = '<option value="">-- 선택 --</option>';
   try {
-    const res = await fetch('/api/common_codes/BROKERAGE');
+    const res  = await fetch('/api/common_codes/BROKERAGE');
     const list = await res.json();
     list.forEach(b => {
       const opt = document.createElement('option');
@@ -6443,7 +6397,7 @@ async function cpLoadBrokerages() {
       sel.appendChild(opt);
     });
   } catch(e) {}
-  sel.value = cur;
+  if (currentVal) sel.value = currentVal;
 }
 
 function cpCalc() {
@@ -6458,35 +6412,27 @@ function cpCalc() {
 }
 
 function cpOpenModal(id) {
-  cpEditId = id || null;
   document.getElementById('cp-modal-err').style.display = 'none';
   document.getElementById('cp-calc-display').textContent = '—';
   document.getElementById('cp-calc-display').style.color = '#64748b';
-  cpLoadBrokerages().then(() => {
-    if (id) {
-      document.getElementById('cp-modal-title').textContent = '신용 포지션 수정';
-      document.getElementById('cp-modal-id').value = id;
-      const item = (cpLastData.positions || []).find(r => r.id === id);
-      if (item) {
-        document.getElementById('cp-modal-brokerage').value = item.brokerage || '';
-        document.getElementById('cp-modal-name').value      = item.name;
-        document.getElementById('cp-modal-purchase').value  = item.purchase_amount;
-        document.getElementById('cp-modal-loan').value      = item.loan_amount;
-        document.getElementById('cp-modal-note').value      = item.note || '';
-        cpCalc();
-      }
-    } else {
-      document.getElementById('cp-modal-title').textContent = '신용 포지션 추가';
-      document.getElementById('cp-modal-id').value      = '';
-      document.getElementById('cp-modal-brokerage').value = '';
-      document.getElementById('cp-modal-name').value    = '';
-      document.getElementById('cp-modal-purchase').value = '';
-      document.getElementById('cp-modal-loan').value     = '';
-      document.getElementById('cp-modal-note').value     = '';
-    }
-  });
+  const item = id ? (cpLastData.positions || []).find(r => r.id === id) : null;
+  if (item) {
+    document.getElementById('cp-modal-title').textContent   = '신용 포지션 수정';
+    document.getElementById('cp-modal-id').value            = item.id;
+    document.getElementById('cp-modal-purchase').value      = item.purchase_amount;
+    document.getElementById('cp-modal-loan').value          = item.loan_amount;
+    document.getElementById('cp-modal-note').value          = item.note || '';
+    cpLoadBrokerages(item.brokerage);
+    cpCalc();
+  } else {
+    document.getElementById('cp-modal-title').textContent = '신용 포지션 추가';
+    document.getElementById('cp-modal-id').value      = '';
+    document.getElementById('cp-modal-purchase').value = '';
+    document.getElementById('cp-modal-loan').value     = '';
+    document.getElementById('cp-modal-note').value     = '';
+    cpLoadBrokerages('');
+  }
   document.getElementById('cp-modal').style.display = 'flex';
-  document.getElementById('cp-modal-name').focus();
 }
 
 function cpCloseModal() {
@@ -6496,25 +6442,24 @@ function cpCloseModal() {
 async function cpSave() {
   const errEl    = document.getElementById('cp-modal-err');
   errEl.style.display = 'none';
-  const id       = document.getElementById('cp-modal-id').value;
+  const id        = document.getElementById('cp-modal-id').value;
   const brokerage = document.getElementById('cp-modal-brokerage').value;
-  const name     = document.getElementById('cp-modal-name').value.trim();
-  const purchase = parseInt(document.getElementById('cp-modal-purchase').value) || 0;
-  const loan     = parseInt(document.getElementById('cp-modal-loan').value)     || 0;
-  const note     = document.getElementById('cp-modal-note').value.trim();
-  if (!name) { errEl.textContent = '이름을 입력해주세요'; errEl.style.display = 'block'; return; }
+  const purchase  = parseInt(document.getElementById('cp-modal-purchase').value) || 0;
+  const loan      = parseInt(document.getElementById('cp-modal-loan').value)     || 0;
+  const note      = document.getElementById('cp-modal-note').value.trim();
+  if (!brokerage) { errEl.textContent = '증권사를 선택해주세요'; errEl.style.display = 'block'; return; }
   const url    = id ? `/api/credit_positions/${id}` : '/api/credit_positions';
   const method = id ? 'PUT' : 'POST';
   const res  = await fetch(url, { method, headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ brokerage, name, purchase_amount: purchase, loan_amount: loan, note }) });
+    body: JSON.stringify({ brokerage, purchase_amount: purchase, loan_amount: loan, note }) });
   const data = await res.json();
   if (!res.ok) { errEl.textContent = data.error || '저장 실패'; errEl.style.display = 'block'; return; }
   cpCloseModal();
   await loadRebalance();
 }
 
-async function cpDelete(id, name) {
-  if (!confirm(`"${name}" 포지션을 삭제하시겠습니까?`)) return;
+async function cpDelete(id, brokerage) {
+  if (!confirm(`"${brokerage}" 포지션을 삭제하시겠습니까?`)) return;
   await fetch(`/api/credit_positions/${id}`, { method: 'DELETE' });
   await loadRebalance();
 }
