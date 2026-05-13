@@ -5069,39 +5069,39 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
   const candidates = rbData.filter(r => r.current_price != null && r.eval_amt > 0);
   if (!candidates.length) return;
 
-  // 배분 기준: 매수 → 목표비율 기준, 매도 → 초과 보유분 우선 (주식간 리밸런싱 고려)
-  const stockTargetSum = candidates.reduce((s, r) => s + (r.target_ratio || 0), 0);
-  const hasTargets     = stockTargetSum > 0;
-
-  // 매도 가중치: 목표 있는 종목은 초과분, 없으면 보유비율
-  const sellWeightMap = new Map();
-  if (!isBuy) {
-    let totalExcess = 0;
-    for (const r of candidates) {
-      let w;
-      if (r.target_ratio > 0 && rbStockTotal > 0) {
-        const curPct = r.eval_amt / rbStockTotal * 100;
-        w = Math.max(0, curPct - r.target_ratio);
-      } else {
-        w = rbStockTotal > 0 ? r.eval_amt / rbStockTotal : 0;
-      }
-      sellWeightMap.set(r.stock_code, w);
-      totalExcess += w;
+  // 매수·매도 모두 주식간 리밸런싱 방향 고려
+  // 매수: 미달분(target% - cur_stock%) 우선 / 매도: 초과분(cur_stock% - target%) 우선
+  const tradeWeightMap = new Map();
+  let totalWeight = 0;
+  for (const r of candidates) {
+    let w = 0;
+    if (r.target_ratio > 0 && rbStockTotal > 0) {
+      const curPct = r.eval_amt / rbStockTotal * 100;
+      w = isBuy
+        ? Math.max(0, r.target_ratio - curPct)   // 미달분
+        : Math.max(0, curPct - r.target_ratio);   // 초과분
+    } else {
+      // 목표 없는 종목: 매수=목표비율 0 제외, 매도=보유비율 기준
+      w = isBuy ? 0 : (rbStockTotal > 0 ? r.eval_amt / rbStockTotal : 0);
     }
-    // 모든 종목이 미달이면 보유비율로 fallback
-    if (totalExcess <= 0) {
-      for (const r of candidates) {
-        sellWeightMap.set(r.stock_code, rbStockTotal > 0 ? r.eval_amt / rbStockTotal : 0);
-      }
+    tradeWeightMap.set(r.stock_code, w);
+    totalWeight += w;
+  }
+  // 가중치 합이 0이면 fallback (매수: 목표비율 기준 / 매도: 보유비율 기준)
+  if (totalWeight <= 0) {
+    const stockTargetSum = candidates.reduce((s, r) => s + (r.target_ratio || 0), 0);
+    for (const r of candidates) {
+      const fb = isBuy
+        ? (stockTargetSum > 0 ? (r.target_ratio || 0) / stockTargetSum : r.eval_amt / rbStockTotal)
+        : (rbStockTotal > 0 ? r.eval_amt / rbStockTotal : 0);
+      tradeWeightMap.set(r.stock_code, fb);
+      totalWeight += fb;
     }
   }
-  const sellWeightTotal = isBuy ? 0 : [...sellWeightMap.values()].reduce((s, w) => s + w, 0);
 
   const items = [];
   for (const r of candidates) {
-    const share = isBuy
-      ? (hasTargets ? (r.target_ratio || 0) / stockTargetSum : r.eval_amt / rbStockTotal)
-      : (sellWeightTotal > 0 ? (sellWeightMap.get(r.stock_code) || 0) / sellWeightTotal : 0);
+    const share = totalWeight > 0 ? (tradeWeightMap.get(r.stock_code) || 0) / totalWeight : 0;
     const alloc   = Math.round(tradeTotal * share);
     const rawQty  = alloc / r.current_price;
     const baseQty = Math.floor(rawQty);
