@@ -1763,7 +1763,7 @@ canvas { max-height: 220px; }
       <div class="panel">
         <div class="panel-header" style="cursor:default">
           <span id="rb-cash-plan-header">거래 계획</span>
-          <span style="font-size:11px;color:#64748b">목표비율 기준 배분 · 1주 단위 절사</span>
+          <span style="font-size:11px;color:#64748b">목표비율 기준 배분 · 비중은 주식총액 대비</span>
         </div>
         <div style="overflow-x:auto">
           <table class="data-table">
@@ -1773,8 +1773,8 @@ canvas { max-height: 220px; }
                 <th style="text-align:right">현재가</th>
                 <th style="text-align:right">추천수량</th>
                 <th style="text-align:right">거래금액</th>
-                <th style="text-align:right">현재비율</th>
-                <th style="text-align:right">거래후 비율</th>
+                <th style="text-align:right">현재 비중<br><span style="font-weight:400;color:#64748b;font-size:10px">주식총액 대비</span></th>
+                <th style="text-align:right">거래 후 비중<br><span style="font-weight:400;color:#64748b;font-size:10px">주식총액 대비</span></th>
               </tr>
             </thead>
             <tbody id="rb-cash-plan-tbody"></tbody>
@@ -5085,12 +5085,10 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
     const qty     = baseQty >= 1 ? Math.round(rawQty) : baseQty;
     if (qty <= 0) continue;
 
-    const tradeAmt   = qty * r.current_price;
-    const curRatio   = r.current_ratio;
-    const finalEval  = isBuy ? r.eval_amt + tradeAmt : r.eval_amt - tradeAmt;
-    const finalRatio = rbPortfolioTotal > 0 ? finalEval / rbPortfolioTotal * 100 : 0;
+    const tradeAmt  = qty * r.current_price;
+    const finalEval = isBuy ? r.eval_amt + tradeAmt : r.eval_amt - tradeAmt;
 
-    items.push({ r, qty, tradeAmt, curRatio, finalRatio });
+    items.push({ r, qty, tradeAmt, finalEval });
   }
   items.sort((a, b) => b.tradeAmt - a.tradeAmt);
 
@@ -5106,18 +5104,23 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
     tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#475569;padding:20px">현재가 있는 종목 없음</td></tr>`;
     return;
   }
-  tbody.innerHTML = items.map(({ r, qty, tradeAmt, curRatio, finalRatio }) => {
-    const adjSign  = isBuy ? '+' : '-';
-    const amtSign  = isBuy ? '-' : '+';
-    const fDiff    = finalRatio - (r.target_ratio || curRatio);
-    const fColor   = r.target_ratio > 0 && Math.abs(fDiff) < 1 ? '#4ade80' : '#94a3b8';
+  // 거래 후 주식총액 기준으로 비중 계산
+  const newStockTotal = isBuy ? rbStockTotal + actualTotal : rbStockTotal - actualTotal;
+
+  tbody.innerHTML = items.map(({ r, qty, tradeAmt, finalEval }) => {
+    const adjSign      = isBuy ? '+' : '-';
+    const amtSign      = isBuy ? '-' : '+';
+    const curStockRatio   = rbStockTotal   > 0 ? r.eval_amt / rbStockTotal   * 100 : 0;
+    const finalStockRatio = newStockTotal  > 0 ? finalEval  / newStockTotal  * 100 : 0;
+    const ratioDiff    = finalStockRatio - curStockRatio;
+    const fColor       = Math.abs(ratioDiff) < 0.3 ? '#94a3b8' : ratioDiff > 0 ? '#4ade80' : '#f87171';
     return `<tr>
       <td style="font-weight:500">${r.stock_name}</td>
       <td class="num">${r.current_price.toLocaleString()}원</td>
       <td class="num" style="color:${color};font-weight:600">${adjSign}${qty.toLocaleString()}주</td>
       <td class="num" style="color:${color};font-weight:500">${amtSign}${tradeAmt.toLocaleString()}원</td>
-      <td class="num" style="font-size:12px;color:#64748b">${curRatio.toFixed(2)}%</td>
-      <td class="num" style="color:${fColor};font-weight:600">${finalRatio.toFixed(2)}%</td>
+      <td class="num" style="font-size:12px;color:#64748b">${curStockRatio.toFixed(2)}%</td>
+      <td class="num" style="color:${fColor};font-weight:600">${finalStockRatio.toFixed(2)}%</td>
     </tr>`;
   }).join('');
 }
