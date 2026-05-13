@@ -1545,8 +1545,7 @@ def _fetch_naver_gold_krx() -> float:
     응답 JSON: {"closePrice": "136,780", ...}
     """
     _NAVER_GOLD_URLS = [
-        "https://api.stock.naver.com/marketindex/M04020000/basic",
-        "https://m.stock.naver.com/api/marketindex/M04020000/prices/latest?category=metals",
+        "https://api.stock.naver.com/marketindex/metals/M04020000",
     ]
     headers = {
         "User-Agent": (
@@ -1565,7 +1564,7 @@ def _fetch_naver_gold_krx() -> float:
             resp.raise_for_status()
             data = resp.json()
             # API 응답 필드명 후보: closePrice, price, currentPrice, close
-            for field in ("closePrice", "price", "currentPrice", "close", "localTradedAt"):
+            for field in ("closePrice", "price", "currentPrice", "close"):
                 raw = data.get(field)
                 if raw is not None:
                     price = float(str(raw).replace(",", ""))
