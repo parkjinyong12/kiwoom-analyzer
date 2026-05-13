@@ -1643,7 +1643,7 @@ canvas { max-height: 220px; }
     <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
       <div>
         <div class="page-title">현금 대 주식 리밸런싱</div>
-        <div class="page-sub">주식·현금 비율 관리 및 신용 포지션 충당금 모니터링</div>
+        <div class="page-sub">주식·현금 비율 목표 설정 및 리밸런싱 현황</div>
       </div>
       <button class="btn btn-ghost" style="font-size:12px" onclick="loadRebalance()">새로고침</button>
     </div>
@@ -1713,7 +1713,7 @@ canvas { max-height: 220px; }
     <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
       <div>
         <div class="page-title">신용 관리</div>
-        <div class="page-sub">신용 포지션 충당금 · 담보비율 관리</div>
+        <div class="page-sub">신용 포지션 · 담보비율 관리 및 위험 방지</div>
       </div>
       <button class="btn btn-ghost" style="font-size:12px" onclick="loadCredit()">새로고침</button>
     </div>
@@ -1722,13 +1722,6 @@ canvas { max-height: 220px; }
     <div class="panel" style="margin-bottom:12px">
       <div class="panel-header" style="cursor:default">신용 기준 설정</div>
       <div style="display:flex;gap:20px;align-items:center;padding:12px 16px;flex-wrap:wrap">
-        <div style="display:flex;align-items:center;gap:8px">
-          <span style="font-size:12px;color:#f59e0b">충당비율 목표</span>
-          <input type="number" id="cr-collateral-target" value="40" min="0" max="500" step="1"
-                 style="width:65px;padding:5px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#f59e0b;font-size:13px;text-align:center;outline:none"/>
-          <span style="font-size:12px;color:#64748b">% 이상 유지</span>
-        </div>
-        <div style="width:1px;height:28px;background:#1e2535"></div>
         <div style="display:flex;align-items:center;gap:8px">
           <span style="font-size:12px;color:#a78bfa">신용담보비율 기준</span>
           <input type="number" id="cr-collateral-required" value="140" min="100" max="500" step="1"
@@ -1742,7 +1735,7 @@ canvas { max-height: 220px; }
     <!-- 신용 포지션 관리 패널 -->
     <div class="panel" style="margin-bottom:12px">
       <div class="panel-header">
-        <span>신용 포지션 관리 <span style="font-size:11px;color:#64748b;font-weight:normal">· 매입금액 − 대출금 = 충당금</span></span>
+        <span>신용 포지션 관리</span>
         <button class="btn btn-primary" style="font-size:12px;padding:4px 12px" onclick="cpOpenModal()">+ 추가</button>
       </div>
       <div style="overflow-x:auto">
@@ -1752,21 +1745,15 @@ canvas { max-height: 220px; }
               <th>증권사</th>
               <th style="text-align:right">주식 평가금</th>
               <th style="text-align:right">현금성자산</th>
-              <th style="text-align:right">매입금액</th>
               <th style="text-align:right">대출금</th>
-              <th style="text-align:right">충당금</th>
-              <th style="text-align:right">충당비율</th>
               <th style="text-align:right">신용담보비율</th>
-              <th style="text-align:right">담보버퍼금액</th>
-              <th style="text-align:right">충당 부족비율</th>
-              <th style="text-align:right">충당 부족금액</th>
               <th>메모</th>
               <th style="text-align:center;width:80px">수정일</th>
               <th style="text-align:center;width:80px">관리</th>
             </tr>
           </thead>
           <tbody id="cp-tbody">
-            <tr><td colspan="14" class="loading">로딩 중...</td></tr>
+            <tr><td colspan="8" class="loading">로딩 중...</td></tr>
           </tbody>
         </table>
       </div>
@@ -1785,23 +1772,10 @@ canvas { max-height: 220px; }
               <option value="">-- 선택 --</option>
             </select>
           </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-            <div>
-              <div style="font-size:12px;color:#64748b;margin-bottom:4px">매입금액(원) <span style="color:#f87171">*</span></div>
-              <input type="number" id="cp-modal-purchase" placeholder="예: 10000000" min="0" step="1"
-                     style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"
-                     oninput="cpCalc()"/>
-            </div>
-            <div>
-              <div style="font-size:12px;color:#64748b;margin-bottom:4px">대출금(원) <span style="color:#f87171">*</span></div>
-              <input type="number" id="cp-modal-loan" placeholder="예: 7000000" min="0" step="1"
-                     style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"
-                     oninput="cpCalc()"/>
-            </div>
-          </div>
-          <div style="background:#0a0f1a;border-radius:6px;padding:10px 14px;border:1px solid #1e2535;display:flex;justify-content:space-between;align-items:center">
-            <span style="font-size:12px;color:#64748b">충당금 / 충당비율</span>
-            <span id="cp-calc-display" style="font-size:14px;font-weight:700;color:#64748b">—</span>
+          <div>
+            <div style="font-size:12px;color:#64748b;margin-bottom:4px">대출금(원) <span style="color:#f87171">*</span></div>
+            <input type="number" id="cp-modal-loan" placeholder="예: 7000000" min="0" step="1"
+                   style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
           </div>
           <div>
             <div style="font-size:12px;color:#64748b;margin-bottom:4px">메모</div>
@@ -1815,6 +1789,29 @@ canvas { max-height: 220px; }
           <button class="btn btn-ghost" onclick="cpCloseModal()">취소</button>
           <button class="btn btn-primary" onclick="cpSave()">저장</button>
         </div>
+      </div>
+    </div>
+
+    <!-- 위험 방지 관리 패널 -->
+    <div class="panel">
+      <div class="panel-header">
+        <span>위험 방지 관리</span>
+        <span style="font-size:11px;color:#64748b;font-weight:normal">목표 신용담보비율 기준 필요 추가 자금</span>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>증권사</th>
+              <th style="text-align:right">현재 신용담보비율</th>
+              <th style="text-align:right">목표 기준비율</th>
+              <th style="text-align:right">필요추가금액</th>
+            </tr>
+          </thead>
+          <tbody id="cr-risk-tbody">
+            <tr><td colspan="4" class="loading">로딩 중...</td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
   </section>
@@ -6397,7 +6394,7 @@ async function macroDelete(id, name) {
 // ─── 신용 관리 ───────────────────────────────────────
 async function loadCredit() {
   document.getElementById('cp-tbody').innerHTML =
-    '<tr><td colspan="14" class="loading">로딩 중...</td></tr>';
+    '<tr><td colspan="8" class="loading">로딩 중...</td></tr>';
   try {
     const [settRes, cpRes] = await Promise.all([
       fetch('/api/settings'),
@@ -6412,6 +6409,7 @@ async function loadCredit() {
     document.getElementById('cr-collateral-required').value = rbCollateralRequired;
 
     cpRenderTable(cpData);
+    crRenderRiskPanel();
   } catch(e) {
     console.error('loadCredit failed', e);
   }
@@ -6429,9 +6427,45 @@ async function crSaveSettings() {
     }),
   });
   cpRenderTable(cpLastData);
+  crRenderRiskPanel();
 }
 
-// ─── 신용 포지션 충당금 관리 ─────────────────────────
+function crRenderRiskPanel() {
+  const tbody      = document.getElementById('cr-risk-tbody');
+  if (!tbody) return;
+  const positions      = cpLastData.positions        || [];
+  const brokerEval     = cpLastData.broker_stock_eval || {};
+  const brokerCashEval = cpLastData.broker_cash_eval  || {};
+
+  if (!positions.length) {
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#64748b;padding:16px">데이터 없음</td></tr>';
+    return;
+  }
+
+  const rows = positions.map(r => {
+    const stockEval = brokerEval[r.brokerage]     ?? 0;
+    const cashEval  = brokerCashEval[r.brokerage] ?? 0;
+    const 담보자산     = stockEval + cashEval;
+    const cur담보비율  = r.loan_amount > 0 ? 담보자산 / r.loan_amount * 100 : null;
+    const 담보비율str  = cur담보비율 !== null ? cur담보비율.toFixed(1) + '%' : '—';
+    const 버퍼         = cur담보비율 !== null ? Math.round(담보자산 - rbCollateralRequired / 100 * r.loan_amount) : null;
+    const 필요추가str  = 버퍼 === null ? '—' : 버퍼 >= 0 ? '충족' : Math.abs(버퍼).toLocaleString() + '원 필요';
+    const 담보color    = cur담보비율 === null ? '#64748b'
+      : cur담보비율 >= rbCollateralRequired + 10 ? '#4ade80'
+      : cur담보비율 >= rbCollateralRequired       ? '#f59e0b'
+      : '#f87171';
+    const 버퍼color    = 버퍼 === null ? '#64748b' : 버퍼 >= 0 ? '#4ade80' : '#f87171';
+    return `<tr>
+      <td style="font-weight:600">${r.brokerage || '공통/전체'}</td>
+      <td class="num" style="color:${담보color};font-weight:600">${담보비율str}</td>
+      <td class="num" style="color:#94a3b8">${rbCollateralRequired}%</td>
+      <td class="num" style="color:${버퍼color};font-weight:600">${필요추가str}</td>
+    </tr>`;
+  });
+  tbody.innerHTML = rows.join('');
+}
+
+// ─── 신용 포지션 관리 ─────────────────────────────────
 let cpLastData = { positions: [], broker_stock_eval: {} };
 
 function cpRenderTable(data) {
@@ -6442,56 +6476,29 @@ function cpRenderTable(data) {
   const tbody          = document.getElementById('cp-tbody');
 
   if (!positions.length) {
-    tbody.innerHTML = '<tr><td colspan="14" style="text-align:center;padding:24px;color:#475569">등록된 신용 포지션이 없습니다.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:24px;color:#475569">등록된 신용 포지션이 없습니다.</td></tr>';
     return;
   }
 
-  let totalPurchase = 0, totalLoan = 0, totalEval = 0, totalCash = 0;
+  let totalLoan = 0, totalEval = 0, totalCash = 0;
   const rows = positions.map(r => {
     const stockEval = brokerEval[r.brokerage]     ?? 0;
     const cashEval  = brokerCashEval[r.brokerage] ?? 0;
     const 담보자산     = stockEval + cashEval;
-    const 충당금       = r.purchase_amount - r.loan_amount;
-    const cur충당비율  = r.loan_amount > 0 ? 충당금 / r.loan_amount * 100 : null;
-    const 충당비율str  = cur충당비율 !== null ? cur충당비율.toFixed(1) : '—';
     const cur담보비율  = r.loan_amount > 0 ? 담보자산 / r.loan_amount * 100 : null;
     const 담보비율str  = cur담보비율 !== null ? cur담보비율.toFixed(1) : '—';
-    const 담보버퍼금액 = cur담보비율 !== null ? Math.round(담보자산 - rbCollateralRequired / 100 * r.loan_amount) : null;
-    const 담보버퍼str  = 담보버퍼금액 !== null ? 담보버퍼금액.toLocaleString() : '—';
-    const 충당color    = 충당금 >= 0 ? '#4ade80' : '#f87171';
     const 담보color    = cur담보비율 === null ? '#64748b'
       : cur담보비율 >= rbCollateralRequired + 10 ? '#4ade80'
       : cur담보비율 >= rbCollateralRequired       ? '#f59e0b'
       : '#f87171';
-    const 버퍼color    = 담보버퍼금액 === null ? '#64748b' : 담보버퍼금액 >= 0 ? '#4ade80' : '#f87171';
 
-    // 충당비율 목표 대비 부족
-    let 부족비율str = '—', 부족금액str = '—', 부족color = '#64748b';
-    if (cur충당비율 !== null) {
-      const gap = rbCollateralTarget - cur충당비율;
-      if (gap <= 0) {
-        부족비율str = '충족'; 부족금액str = '충족'; 부족color = '#4ade80';
-      } else {
-        const 부족금액 = Math.round(gap / 100 * r.loan_amount);
-        부족비율str = '+' + gap.toFixed(1);
-        부족금액str = 부족금액.toLocaleString();
-        부족color   = '#f87171';
-      }
-    }
-
-    totalPurchase += r.purchase_amount; totalLoan += r.loan_amount; totalEval += stockEval; totalCash += cashEval;
+    totalLoan += r.loan_amount; totalEval += stockEval; totalCash += cashEval;
     return `<tr>
       <td style="font-weight:600">${r.brokerage || '공통/전체'}</td>
       <td class="num" style="color:#60a5fa;font-weight:600">${stockEval.toLocaleString()}</td>
       <td class="num" style="color:#34d399">${cashEval > 0 ? cashEval.toLocaleString() : '—'}</td>
-      <td class="num">${r.purchase_amount.toLocaleString()}</td>
       <td class="num" style="color:#f87171">${r.loan_amount.toLocaleString()}</td>
-      <td class="num" style="color:${충당color};font-weight:600">${충당금.toLocaleString()}</td>
-      <td class="num" style="color:${충당color};font-weight:600">${충당비율str}</td>
       <td class="num" style="color:${담보color};font-weight:600">${담보비율str}</td>
-      <td class="num" style="color:${버퍼color};font-weight:600">${담보버퍼str}</td>
-      <td class="num" style="color:${부족color};font-weight:600">${부족비율str}</td>
-      <td class="num" style="color:${부족color};font-weight:600">${부족금액str}</td>
       <td style="color:#94a3b8;font-size:12px">${r.note || '-'}</td>
       <td class="center" style="font-size:11px;color:#64748b">${(r.updated_at || '').substring(0, 10)}</td>
       <td class="center">
@@ -6503,45 +6510,20 @@ function cpRenderTable(data) {
     </tr>`;
   });
 
-  const total충당금   = totalPurchase - totalLoan;
-  const total충당비율  = totalLoan > 0 ? total충당금 / totalLoan * 100 : null;
-  const total충당비율str = total충당비율 !== null ? total충당비율.toFixed(1) : '—';
   const total담보자산   = totalEval + totalCash;
   const total담보비율   = totalLoan > 0 ? total담보자산 / totalLoan * 100 : null;
   const total담보비율str = total담보비율 !== null ? total담보비율.toFixed(1) : '—';
-  const total담보버퍼   = total담보비율 !== null ? Math.round(total담보자산 - rbCollateralRequired / 100 * totalLoan) : null;
-  const total담보버퍼str = total담보버퍼 !== null ? total담보버퍼.toLocaleString() : '—';
-  const total충당color  = total충당금 >= 0 ? '#4ade80' : '#f87171';
   const total담보color  = total담보비율 === null ? '#64748b'
     : total담보비율 >= rbCollateralRequired + 10 ? '#4ade80'
     : total담보비율 >= rbCollateralRequired       ? '#f59e0b'
     : '#f87171';
-  const total버퍼color  = total담보버퍼 === null ? '#64748b' : total담보버퍼 >= 0 ? '#4ade80' : '#f87171';
-  let total부족비율str = '—', total부족금액str = '—', total부족color = '#64748b';
-  if (total충당비율 !== null) {
-    const gap = rbCollateralTarget - total충당비율;
-    if (gap <= 0) {
-      total부족비율str = '충족'; total부족금액str = '충족'; total부족color = '#4ade80';
-    } else {
-      const 부족금액 = Math.round(gap / 100 * totalLoan);
-      total부족비율str = '+' + gap.toFixed(1);
-      total부족금액str = 부족금액.toLocaleString();
-      total부족color   = '#f87171';
-    }
-  }
   tbody.innerHTML = rows.join('') + `<tr style="border-top:2px solid #334155;background:rgba(148,163,184,0.06);font-weight:700">
     <td style="color:#94a3b8">합계</td>
     <td class="num" style="color:#60a5fa">${totalEval.toLocaleString()}</td>
     <td class="num" style="color:#34d399">${totalCash > 0 ? totalCash.toLocaleString() : '—'}</td>
-    <td class="num">${totalPurchase.toLocaleString()}</td>
     <td class="num" style="color:#f87171">${totalLoan.toLocaleString()}</td>
-    <td class="num" style="color:${total충당color}">${total충당금.toLocaleString()}</td>
-    <td class="num" style="color:${total충당color}">${total충당비율str}</td>
     <td class="num" style="color:${total담보color}">${total담보비율str}</td>
-    <td class="num" style="color:${total버퍼color}">${total담보버퍼str}</td>
-    <td class="num" style="color:${total부족color}">${total부족비율str}</td>
-    <td class="num" style="color:${total부족color}">${total부족금액str}</td>
-    <td colspan="4"></td>
+    <td colspan="3"></td>
   </tr>`;
 }
 
@@ -6560,36 +6542,20 @@ async function cpLoadBrokerages(currentVal) {
   if (currentVal) sel.value = currentVal;
 }
 
-function cpCalc() {
-  const purchase = parseFloat(document.getElementById('cp-modal-purchase').value) || 0;
-  const loan     = parseFloat(document.getElementById('cp-modal-loan').value)     || 0;
-  const el       = document.getElementById('cp-calc-display');
-  if (!purchase && !loan) { el.textContent = '—'; el.style.color = '#64748b'; return; }
-  const 충당금  = purchase - loan;
-  const 충당비율 = loan > 0 ? (충당금 / loan * 100).toFixed(1) : '—';
-  el.textContent = `${충당금.toLocaleString()} / ${충당비율}`;
-  el.style.color = 충당금 >= 0 ? '#4ade80' : '#f87171';
-}
-
 function cpOpenModal(id) {
   document.getElementById('cp-modal-err').style.display = 'none';
-  document.getElementById('cp-calc-display').textContent = '—';
-  document.getElementById('cp-calc-display').style.color = '#64748b';
   const item = id ? (cpLastData.positions || []).find(r => r.id === id) : null;
   if (item) {
-    document.getElementById('cp-modal-title').textContent   = '신용 포지션 수정';
-    document.getElementById('cp-modal-id').value            = item.id;
-    document.getElementById('cp-modal-purchase').value      = item.purchase_amount;
-    document.getElementById('cp-modal-loan').value          = item.loan_amount;
-    document.getElementById('cp-modal-note').value          = item.note || '';
+    document.getElementById('cp-modal-title').textContent = '신용 포지션 수정';
+    document.getElementById('cp-modal-id').value          = item.id;
+    document.getElementById('cp-modal-loan').value        = item.loan_amount;
+    document.getElementById('cp-modal-note').value        = item.note || '';
     cpLoadBrokerages(item.brokerage);
-    cpCalc();
   } else {
     document.getElementById('cp-modal-title').textContent = '신용 포지션 추가';
-    document.getElementById('cp-modal-id').value      = '';
-    document.getElementById('cp-modal-purchase').value = '';
-    document.getElementById('cp-modal-loan').value     = '';
-    document.getElementById('cp-modal-note').value     = '';
+    document.getElementById('cp-modal-id').value   = '';
+    document.getElementById('cp-modal-loan').value  = '';
+    document.getElementById('cp-modal-note').value  = '';
     cpLoadBrokerages('');
   }
   document.getElementById('cp-modal').style.display = 'flex';
@@ -6604,24 +6570,23 @@ async function cpSave() {
   errEl.style.display = 'none';
   const id        = document.getElementById('cp-modal-id').value;
   const brokerage = document.getElementById('cp-modal-brokerage').value;
-  const purchase  = parseInt(document.getElementById('cp-modal-purchase').value) || 0;
-  const loan      = parseInt(document.getElementById('cp-modal-loan').value)     || 0;
+  const loan      = parseInt(document.getElementById('cp-modal-loan').value) || 0;
   const note      = document.getElementById('cp-modal-note').value.trim();
   if (!brokerage) { errEl.textContent = '증권사를 선택해주세요'; errEl.style.display = 'block'; return; }
   const url    = id ? `/api/credit_positions/${id}` : '/api/credit_positions';
   const method = id ? 'PUT' : 'POST';
   const res  = await fetch(url, { method, headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ brokerage, purchase_amount: purchase, loan_amount: loan, note }) });
+    body: JSON.stringify({ brokerage, purchase_amount: 0, loan_amount: loan, note }) });
   const data = await res.json();
   if (!res.ok) { errEl.textContent = data.error || '저장 실패'; errEl.style.display = 'block'; return; }
   cpCloseModal();
-  await loadRebalance();
+  await loadCredit();
 }
 
 async function cpDelete(id, brokerage) {
   if (!confirm(`"${brokerage}" 포지션을 삭제하시겠습니까?`)) return;
   await fetch(`/api/credit_positions/${id}`, { method: 'DELETE' });
-  await loadRebalance();
+  await loadCredit();
 }
 
 // ─── 공통코드 관리 ────────────────────────────────────
