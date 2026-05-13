@@ -1719,13 +1719,14 @@ canvas { max-height: 220px; }
               <th style="text-align:right">대출금</th>
               <th style="text-align:right">충당금</th>
               <th style="text-align:right">충당비율</th>
+              <th style="text-align:right">신용비율</th>
               <th>메모</th>
               <th style="text-align:center;width:80px">수정일</th>
               <th style="text-align:center;width:80px">관리</th>
             </tr>
           </thead>
           <tbody id="cp-tbody">
-            <tr><td colspan="9" class="loading">로딩 중...</td></tr>
+            <tr><td colspan="10" class="loading">로딩 중...</td></tr>
           </tbody>
         </table>
       </div>
@@ -6351,15 +6352,20 @@ function cpRenderTable(data) {
     const stockEval = brokerEval[r.brokerage] ?? 0;
     const 충당금    = r.purchase_amount - r.loan_amount;
     const 충당비율  = r.loan_amount > 0 ? (충당금 / r.loan_amount * 100).toFixed(1) + '%' : '—';
-    const color     = 충당금 >= 0 ? '#4ade80' : '#f87171';
+    const 신용비율  = stockEval > 0 ? (r.loan_amount / stockEval * 100).toFixed(1) + '%' : '—';
+    const 충당color = 충당금 >= 0 ? '#4ade80' : '#f87171';
+    const 신용color = stockEval > 0
+      ? (r.loan_amount / stockEval >= 0.5 ? '#f87171' : r.loan_amount / stockEval >= 0.3 ? '#f59e0b' : '#4ade80')
+      : '#64748b';
     totalPurchase += r.purchase_amount; totalLoan += r.loan_amount; totalEval += stockEval;
     return `<tr>
       <td style="font-weight:600">${r.brokerage || '공통/전체'}</td>
       <td class="num" style="color:#60a5fa;font-weight:600">${stockEval.toLocaleString()}원</td>
       <td class="num">${r.purchase_amount.toLocaleString()}원</td>
       <td class="num" style="color:#f87171">${r.loan_amount.toLocaleString()}원</td>
-      <td class="num" style="color:${color};font-weight:600">${충당금.toLocaleString()}원</td>
-      <td class="num" style="color:${color};font-weight:600">${충당비율}</td>
+      <td class="num" style="color:${충당color};font-weight:600">${충당금.toLocaleString()}원</td>
+      <td class="num" style="color:${충당color};font-weight:600">${충당비율}</td>
+      <td class="num" style="color:${신용color};font-weight:600">${신용비율}</td>
       <td style="color:#94a3b8;font-size:12px">${r.note || '-'}</td>
       <td class="center" style="font-size:11px;color:#64748b">${(r.updated_at || '').substring(0, 10)}</td>
       <td class="center">
@@ -6373,14 +6379,19 @@ function cpRenderTable(data) {
 
   const total충당금  = totalPurchase - totalLoan;
   const total충당비율 = totalLoan > 0 ? (total충당금 / totalLoan * 100).toFixed(1) + '%' : '—';
-  const totalColor  = total충당금 >= 0 ? '#4ade80' : '#f87171';
+  const total신용비율 = totalEval > 0 ? (totalLoan / totalEval * 100).toFixed(1) + '%' : '—';
+  const total충당color = total충당금 >= 0 ? '#4ade80' : '#f87171';
+  const total신용color = totalEval > 0
+    ? (totalLoan / totalEval >= 0.5 ? '#f87171' : totalLoan / totalEval >= 0.3 ? '#f59e0b' : '#4ade80')
+    : '#64748b';
   tbody.innerHTML = rows.join('') + `<tr style="border-top:2px solid #334155;background:rgba(148,163,184,0.06);font-weight:700">
     <td style="color:#94a3b8">합계</td>
     <td class="num" style="color:#60a5fa">${totalEval.toLocaleString()}원</td>
     <td class="num">${totalPurchase.toLocaleString()}원</td>
     <td class="num" style="color:#f87171">${totalLoan.toLocaleString()}원</td>
-    <td class="num" style="color:${totalColor}">${total충당금.toLocaleString()}원</td>
-    <td class="num" style="color:${totalColor}">${total충당비율}</td>
+    <td class="num" style="color:${total충당color}">${total충당금.toLocaleString()}원</td>
+    <td class="num" style="color:${total충당color}">${total충당비율}</td>
+    <td class="num" style="color:${total신용color}">${total신용비율}</td>
     <td colspan="3"></td>
   </tr>`;
 }
