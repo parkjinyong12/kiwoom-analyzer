@@ -5079,11 +5079,22 @@ function rbRender() {
   <tr><td colspan="10" style="padding:0;border-bottom:2px solid #334155"></td></tr>`;
 
   const isStockRebalancePage = document.getElementById('page-stock-rebalance').classList.contains('active');
+  // 주식 간 리밸런싱: 현금 제외하고 주식 총액 기준 100%로 정규화
+  const stockTargetSum = isStockRebalancePage
+    ? rbData.reduce((s, r) => s + (r.target_ratio || 0), 0)
+    : 0;
+
   tbody.innerHTML = (isStockRebalancePage ? '' : cashRow) + rbData.map(r => {
-    const cur    = r.current_ratio;
-    const tgt    = r.target_ratio;
-    const relDev = r.deviation_rel;
-    const absDev = r.deviation_pp;
+    const rawCur = r.current_ratio;
+    const rawTgt = r.target_ratio;
+    const cur = isStockRebalancePage && rbStockTotal > 0
+      ? parseFloat((r.eval_amt / rbStockTotal * 100).toFixed(2))
+      : rawCur;
+    const tgt = isStockRebalancePage && stockTargetSum > 0
+      ? parseFloat((rawTgt / stockTargetSum * 100).toFixed(2))
+      : rawTgt;
+    const absDev = parseFloat((cur - tgt).toFixed(2));
+    const relDev = tgt > 0 ? parseFloat(((cur - tgt) / tgt * 100).toFixed(1)) : null;
 
     // 편차 표시
     let devStr = '-', devColor = '#64748b';
@@ -5107,8 +5118,9 @@ function rbRender() {
 
     // 조정수량 계산
     let adjCell = '<td class="center" style="color:#475569">-</td>';
-    if (tgt > 0 && r.current_price != null && rbPortfolioTotal > 0) {
-      const targetEval = rbPortfolioTotal * tgt / 100;
+    const adjBase = isStockRebalancePage ? rbStockTotal : rbPortfolioTotal;
+    if (tgt > 0 && r.current_price != null && adjBase > 0) {
+      const targetEval = adjBase * tgt / 100;
       const diff       = targetEval - r.eval_amt;
       const shares     = Math.floor(Math.abs(diff) / r.current_price);
       const adjAmt     = shares * r.current_price;
