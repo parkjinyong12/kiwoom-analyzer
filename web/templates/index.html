@@ -4892,8 +4892,8 @@ async function loadRebalance() {
 function rbUpdateSummary(json) {
   const total     = json.portfolio_total || 0;
   const cash      = json.total_cash      || 0;
-  // 목표합계 = 주식 개별 목표 + 현금 목표
-  const targetSum = rbData.reduce((s, r) => s + (r.target_ratio || 0), 0) + rbCashTargetRatio;
+  // 목표합계 = 주식 개별 목표 합산 (100% 초과 시 경고)
+  const targetSum = rbData.reduce((s, r) => s + (r.target_ratio || 0), 0);
 
   document.getElementById('rb-portfolio').textContent = Math.round(total).toLocaleString() + '원';
   document.getElementById('rb-portfolio-note').textContent =
@@ -5100,20 +5100,14 @@ function rbRender() {
   <tr><td colspan="10" style="padding:0;border-bottom:2px solid #334155"></td></tr>`;
 
   const isStockRebalancePage = document.getElementById('page-stock-rebalance').classList.contains('active');
-  // 주식 간 리밸런싱: 현금 제외하고 주식 총액 기준 100%로 정규화
-  const stockTargetSum = isStockRebalancePage
-    ? rbData.reduce((s, r) => s + (r.target_ratio || 0), 0)
-    : 0;
 
   tbody.innerHTML = (isStockRebalancePage ? '' : cashRow) + rbData.map(r => {
-    const rawCur = r.current_ratio;
-    const rawTgt = r.target_ratio;
+    // 현재비율: 주식 간 리밸런싱 페이지에서는 주식 총액 기준 정규화
     const cur = isStockRebalancePage && rbStockTotal > 0
       ? parseFloat((r.eval_amt / rbStockTotal * 100).toFixed(2))
-      : rawCur;
-    const tgt = isStockRebalancePage && stockTargetSum > 0
-      ? parseFloat((rawTgt / stockTargetSum * 100).toFixed(2))
-      : rawTgt;
+      : r.current_ratio;
+    // 목표비율: 사용자 입력값 그대로 (정규화 없음)
+    const tgt = r.target_ratio;
     const absDev = parseFloat((cur - tgt).toFixed(2));
     const relDev = tgt > 0 ? parseFloat(((cur - tgt) / tgt * 100).toFixed(1)) : null;
 
@@ -5272,16 +5266,13 @@ function rbRenderRecommendation() {
   let totalBuy = 0, totalSell = 0;
   let noPriceCnt = 0;
 
-  // 주식 간 리밸런싱: 주식 총액 기준 100%로 정규화
-  const stockTargetSum = rbData.reduce((s, r) => s + (r.target_ratio || 0), 0);
-
   for (const r of rbData) {
     if (!r.target_ratio) continue;
     if (r.current_price == null) { noPriceCnt++; continue; }
 
-    // 정규화된 비율 계산
+    // 현재비율: 주식 총액 기준 정규화 / 목표비율: 사용자 입력값 그대로
     const cur    = rbStockTotal > 0 ? r.eval_amt / rbStockTotal * 100 : r.current_ratio;
-    const tgt    = stockTargetSum > 0 ? r.target_ratio / stockTargetSum * 100 : r.target_ratio;
+    const tgt    = r.target_ratio;
     const absDev = parseFloat((cur - tgt).toFixed(2));
     const relDev = tgt > 0 ? parseFloat(((cur - tgt) / tgt * 100).toFixed(1)) : null;
 
