@@ -5069,15 +5069,39 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
   const candidates = rbData.filter(r => r.current_price != null && r.eval_amt > 0);
   if (!candidates.length) return;
 
-  // 배분 기준: 매수 → 목표비율 기준, 매도 → 현재 보유비율 기준
+  // 배분 기준: 매수 → 목표비율 기준, 매도 → 초과 보유분 우선 (주식간 리밸런싱 고려)
   const stockTargetSum = candidates.reduce((s, r) => s + (r.target_ratio || 0), 0);
   const hasTargets     = stockTargetSum > 0;
+
+  // 매도 가중치: 목표 있는 종목은 초과분, 없으면 보유비율
+  const sellWeightMap = new Map();
+  if (!isBuy) {
+    let totalExcess = 0;
+    for (const r of candidates) {
+      let w;
+      if (r.target_ratio > 0 && rbStockTotal > 0) {
+        const curPct = r.eval_amt / rbStockTotal * 100;
+        w = Math.max(0, curPct - r.target_ratio);
+      } else {
+        w = rbStockTotal > 0 ? r.eval_amt / rbStockTotal : 0;
+      }
+      sellWeightMap.set(r.stock_code, w);
+      totalExcess += w;
+    }
+    // 모든 종목이 미달이면 보유비율로 fallback
+    if (totalExcess <= 0) {
+      for (const r of candidates) {
+        sellWeightMap.set(r.stock_code, rbStockTotal > 0 ? r.eval_amt / rbStockTotal : 0);
+      }
+    }
+  }
+  const sellWeightTotal = isBuy ? 0 : [...sellWeightMap.values()].reduce((s, w) => s + w, 0);
 
   const items = [];
   for (const r of candidates) {
     const share = isBuy
       ? (hasTargets ? (r.target_ratio || 0) / stockTargetSum : r.eval_amt / rbStockTotal)
-      : r.eval_amt / rbStockTotal;
+      : (sellWeightTotal > 0 ? (sellWeightMap.get(r.stock_code) || 0) / sellWeightTotal : 0);
     const alloc   = Math.round(tradeTotal * share);
     const rawQty  = alloc / r.current_price;
     const baseQty = Math.floor(rawQty);
