@@ -5078,8 +5078,11 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
     const share = isBuy
       ? (hasTargets ? (r.target_ratio || 0) / stockTargetSum : r.eval_amt / rbStockTotal)
       : r.eval_amt / rbStockTotal;
-    const alloc = Math.round(tradeTotal * share);
-    const qty   = Math.floor(alloc / r.current_price);
+    const alloc   = Math.round(tradeTotal * share);
+    const rawQty  = alloc / r.current_price;
+    const baseQty = Math.floor(rawQty);
+    // 이미 1주 이상 거래 예정인 종목만 소수점 반올림 허용 (목표 소폭 초과 가능)
+    const qty     = baseQty >= 1 ? Math.round(rawQty) : baseQty;
     if (qty <= 0) continue;
 
     const tradeAmt   = qty * r.current_price;
@@ -5094,8 +5097,9 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
   const actualTotal = items.reduce((s, i) => s + i.tradeAmt, 0);
   const label = isBuy ? '📈 주식 매수 계획' : '📉 주식 매도 계획';
   const needLabel  = isBuy ? '현금 투입 목표' : '현금 확보 목표';
+  const overUnder  = actualTotal >= tradeTotal ? '목표 소폭 초과' : '목표 소폭 미달';
   document.getElementById('rb-cash-plan-header').textContent =
-    `${label}  ·  ${needLabel} ${tradeTotal.toLocaleString()}원  →  실행 가능 ${actualTotal.toLocaleString()}원 (1주 단위 절사)`;
+    `${label}  ·  ${needLabel} ${tradeTotal.toLocaleString()}원  →  실행 ${actualTotal.toLocaleString()}원 (${overUnder}, 1주 단위)`;
 
   const tbody = document.getElementById('rb-cash-plan-tbody');
   if (!items.length) {
