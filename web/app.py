@@ -206,6 +206,11 @@ def _ensure_macro_rates_table():
             VALUES ('USD_KRW', '달러/원 환율', '원/달러')
             ON CONFLICT (key) DO NOTHING
         """)
+        cur.execute("""
+            INSERT INTO macro_rates (key, name, unit)
+            VALUES ('GOLD_KRX', '국내 금 시세', '원/g')
+            ON CONFLICT (key) DO NOTHING
+        """)
 
 
 def _ensure_cash_assets_table():
@@ -1526,18 +1531,65 @@ _NAVER_REUTERS_MAP: dict[str, str] = {
     "USD_KRW": "FX_USDKRW",
     "EUR_KRW": "FX_EURKRW",
     "JPY_KRW": "FX_JPYKRW",
+    "GOLD_KRX": "M04020000",  # 국내 금 시세 (KRX 금시장)
     "CNY_KRW": "FX_CNYKRW",
     "GBP_KRW": "FX_GBPKRW",
 }
 
 
+def _fetch_naver_gold_krx() -> float:
+    """네이버 증권 API에서 국내 금 시세(원/g) 조회.
+
+    stock.naver.com/marketindex/metals/M04020000/price 페이지가 내부적으로
+    호출하는 REST API를 직접 사용.
+    응답 JSON: {"closePrice": "136,780", ...}
+    """
+    _NAVER_GOLD_URLS = [
+        "https://api.stock.naver.com/marketindex/M04020000/basic",
+        "https://m.stock.naver.com/api/marketindex/M04020000/prices/latest?category=metals",
+    ]
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Referer": "https://stock.naver.com/",
+        "Accept": "application/json",
+    }
+    last_err: Exception | None = None
+    for url in _NAVER_GOLD_URLS:
+        try:
+            resp = _req.get(url, headers=headers, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+            # API 응답 필드명 후보: closePrice, price, currentPrice, close
+            for field in ("closePrice", "price", "currentPrice", "close", "localTradedAt"):
+                raw = data.get(field)
+                if raw is not None:
+                    price = float(str(raw).replace(",", ""))
+                    if price > 0:
+                        return price
+            # 리스트 형태 응답 처리
+            if isinstance(data, list) and data:
+                item = data[0]
+                for field in ("closePrice", "price", "currentPrice", "close"):
+                    raw = item.get(field)
+                    if raw is not None:
+                        price = float(str(raw).replace(",", ""))
+                        if price > 0:
+                            return price
+        except Exception as e:
+            last_err = e
+    raise ValueError(f"금 시세 조회 실패: {last_err}")
+
+
 @app.route("/api/macro_rates/<int:mid>/sync_naver", methods=["POST"])
 def api_macro_rates_sync_naver(mid):
-    """네이버 금융 HTML에서 환율을 파싱해 macro_rates 값 업데이트.
+    """네이버 금융에서 환율/금 시세를 파싱해 macro_rates 값 업데이트.
 
-    finance.naver.com 환율 페이지는 EUC-KR 인코딩이며,
-    환율 숫자가 <span class='no4'>4</span> 형태로 자리별로 분산되어 있음.
-    class='noX' → 숫자 X, class='shim' → ',', class='jum' → '.'
+    환율: finance.naver.com HTML (EUC-KR, span class='noX')
+    금:   api.stock.naver.com REST API (JSON closePrice)
     """
     import re as _re
     import requests as _req
@@ -1551,48 +1603,55 @@ def api_macro_rates_sync_naver(mid):
     if not reuters_code:
         return jsonify({"error": f"'{key}'는 네이버 자동 동기화를 지원하지 않습니다"}), 400
 
-    try:
-        url = f"https://finance.naver.com/marketindex/exchangeDetail.nhn?marketindexCd={reuters_code}"
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
-        }
-        resp = _req.get(url, headers=headers, timeout=10)
-        resp.raise_for_status()
-        resp.encoding = "euc-kr"
-        html = resp.text
+    if key == "GOLD_KRX":
+        try:
+            close_price = _fetch_naver_gold_krx()
+        except Exception as e:
+            logging.exception("네이버 금 시세 조회 실패")
+            return jsonify({"error": f"네이버 조회 실패: {e}"}), 502
+    else:
+        try:
+            url = f"https://finance.naver.com/marketindex/exchangeDetail.nhn?marketindexCd={reuters_code}"
+            headers = {
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                ),
+            }
+            resp = _req.get(url, headers=headers, timeout=10)
+            resp.raise_for_status()
+            resp.encoding = "euc-kr"
+            html = resp.text
 
-        # 현재가 블록 추출 (no_today … txt_won)
-        block_m = _re.search(
-            r"class=[\"']no_today[\"'].*?class=[\"']txt_won[\"']",
-            html, _re.DOTALL,
-        )
-        if not block_m:
-            raise ValueError("환율 블록을 찾을 수 없습니다")
-        block = block_m.group(0)
+            # 현재가 블록 추출 (no_today … txt_won)
+            block_m = _re.search(
+                r"class=[\"']no_today[\"'].*?class=[\"']txt_won[\"']",
+                html, _re.DOTALL,
+            )
+            if not block_m:
+                raise ValueError("환율 블록을 찾을 수 없습니다")
+            block = block_m.group(0)
 
-        # no[숫자] → 해당 숫자, shim → ',', jum → '.' 순서대로 조립
-        price_str = ""
-        for m in _re.finditer(r"class=[\"'](no\d|shim|jum)[\"']", block):
-            cls = m.group(1)
-            if cls.startswith("no"):
-                price_str += cls[2]   # 'no4' → '4'
-            elif cls == "shim":
-                price_str += ","
-            else:
-                price_str += "."
+            # no[숫자] → 해당 숫자, shim → ',', jum → '.' 순서대로 조립
+            price_str = ""
+            for m in _re.finditer(r"class=[\"'](no\d|shim|jum)[\"']", block):
+                cls = m.group(1)
+                if cls.startswith("no"):
+                    price_str += cls[2]   # 'no4' → '4'
+                elif cls == "shim":
+                    price_str += ","
+                else:
+                    price_str += "."
 
-        if not price_str:
-            raise ValueError("환율 숫자를 파싱하지 못했습니다")
+            if not price_str:
+                raise ValueError("환율 숫자를 파싱하지 못했습니다")
 
-        close_price = float(price_str.replace(",", ""))
+            close_price = float(price_str.replace(",", ""))
 
-    except Exception as e:
-        logging.exception("네이버 환율 조회 실패: %s", key)
-        return jsonify({"error": f"네이버 조회 실패: {e}"}), 502
+        except Exception as e:
+            logging.exception("네이버 환율 조회 실패: %s", key)
+            return jsonify({"error": f"네이버 조회 실패: {e}"}), 502
 
     with get_conn() as conn:
         conn.cursor().execute(
