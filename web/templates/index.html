@@ -469,7 +469,10 @@ canvas { max-height: 220px; }
           <span class="icon">📊</span> 매크로 관리
         </div>
         <div class="nav-item" data-page="rebalance" onclick="showPage('rebalance')">
-          <span class="icon">⚖️</span> 리밸런싱
+          <span class="icon">⚖️</span> 현금·신용 리밸런싱
+        </div>
+        <div class="nav-item" data-page="stock-rebalance" onclick="showPage('stock-rebalance')">
+          <span class="icon">📈</span> 주식 간 리밸런싱
         </div>
         <div class="nav-item" data-page="theme-rebalance" onclick="showPage('theme-rebalance')">
           <span class="icon">🏷️</span> 테마 리밸런싱
@@ -1632,17 +1635,14 @@ canvas { max-height: 220px; }
     </div>
   </div>
 
-  <!-- ===== 리밸런싱 페이지 ===== -->
+  <!-- ===== 현금 대 주식 리밸런싱 페이지 ===== -->
   <section id="page-rebalance" class="page">
     <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
       <div>
-        <div class="page-title">리밸런싱</div>
-        <div class="page-sub">종목별 목표비율 설정 및 포트폴리오 편차 모니터링</div>
+        <div class="page-title">현금 대 주식 리밸런싱</div>
+        <div class="page-sub">주식·현금 비율 관리 및 신용 포지션 충당금 모니터링</div>
       </div>
-      <div style="display:flex;gap:8px">
-        <button class="btn btn-ghost" style="font-size:12px" onclick="loadRebalance()">새로고침</button>
-        <button class="btn btn-primary" id="rb-rec-btn" style="font-size:12px" onclick="rbToggleRecommendation()">💡 매매 추천</button>
-      </div>
+      <button class="btn btn-ghost" style="font-size:12px" onclick="loadRebalance()">새로고침</button>
     </div>
 
     <!-- 임계치 설정 -->
@@ -1784,6 +1784,21 @@ canvas { max-height: 220px; }
           <button class="btn btn-ghost" onclick="cpCloseModal()">취소</button>
           <button class="btn btn-primary" onclick="cpSave()">저장</button>
         </div>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ===== 주식 간 리밸런싱 페이지 ===== -->
+  <section id="page-stock-rebalance" class="page">
+    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
+      <div>
+        <div class="page-title">주식 간 리밸런싱</div>
+        <div class="page-sub">종목별 목표비율 설정 및 포트폴리오 편차 모니터링</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost" style="font-size:12px" onclick="loadRebalance()">새로고침</button>
+        <button class="btn btn-primary" id="rb-rec-btn" style="font-size:12px" onclick="rbToggleRecommendation()">💡 매매 추천</button>
       </div>
     </div>
 
@@ -2271,6 +2286,7 @@ const PAGE_TITLES = {
   snapshot:'기간별 변화', signals:'매매 신호', report:'보유종목 리포트',
   auditlog:'감사 로그', stocks:'감시 종목', batch:'배치 관리', usermgmt:'사용자 관리',
   'ext-holdings':'보유종목', 'price-mgmt':'현재가 관리', 'cash-assets':'현금성 자산', macro:'매크로 관리', 'common-codes':'공통코드 관리',
+  rebalance:'현금·신용 리밸런싱', 'stock-rebalance':'주식 간 리밸런싱', 'theme-rebalance':'테마 리밸런싱',
 };
 function toggleMobileDrawer() {
   const open = document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -2287,7 +2303,7 @@ const NAV_GROUP_MAP = {
   snapshot:'navg-analysis',  signals:'navg-analysis', report:'navg-analysis',
   'ext-holdings':'navg-analysis', 'price-mgmt':'navg-analysis',
   'cash-assets':'navg-analysis', macro:'navg-analysis',
-  rebalance:'navg-analysis',     'theme-rebalance':'navg-analysis', qualitative:'navg-analysis',
+  rebalance:'navg-analysis', 'stock-rebalance':'navg-analysis', 'theme-rebalance':'navg-analysis', qualitative:'navg-analysis',
   auditlog:'navg-system',    stocks:'navg-system',
   batch:'navg-admin',        'common-codes':'navg-admin', usermgmt:'navg-admin',
 };
@@ -2335,6 +2351,7 @@ function showPage(name, fromHash) {
   if (name === 'cash-assets')   loadCashAssets();
   if (name === 'macro')         loadMacro();
   if (name === 'rebalance')        loadRebalance();
+  if (name === 'stock-rebalance')  loadRebalance();
   if (name === 'theme-rebalance')  loadThemeRebalance();
   if (name === 'qualitative')      loadQualitative();
   if (name === 'common-codes')     loadCommonCodes();
@@ -6366,8 +6383,8 @@ function cpRenderTable(data) {
     const stockEval = brokerEval[r.brokerage] ?? 0;
     const 충당금       = r.purchase_amount - r.loan_amount;
     const cur충당비율  = r.loan_amount > 0 ? 충당금 / r.loan_amount * 100 : null;
-    const 충당비율str  = cur충당비율 !== null ? cur충당비율.toFixed(1) + '%' : '—';
-    const 신용비율     = stockEval > 0 ? (r.loan_amount / stockEval * 100).toFixed(1) + '%' : '—';
+    const 충당비율str  = cur충당비율 !== null ? cur충당비율.toFixed(1) : '—';
+    const 신용비율     = stockEval > 0 ? (r.loan_amount / stockEval * 100).toFixed(1) : '—';
     const 충당color    = 충당금 >= 0 ? '#4ade80' : '#f87171';
     const 신용color    = stockEval > 0
       ? (r.loan_amount / stockEval >= 0.5 ? '#f87171' : r.loan_amount / stockEval >= 0.3 ? '#f59e0b' : '#4ade80')
@@ -6381,8 +6398,8 @@ function cpRenderTable(data) {
         부족비율str = '충족'; 부족금액str = '충족'; 부족color = '#4ade80';
       } else {
         const 부족금액 = Math.round(gap / 100 * r.loan_amount);
-        부족비율str = '+' + gap.toFixed(1) + '%p';
-        부족금액str = 부족금액.toLocaleString() + '원';
+        부족비율str = '+' + gap.toFixed(1);
+        부족금액str = 부족금액.toLocaleString();
         부족color   = '#f87171';
       }
     }
@@ -6390,10 +6407,10 @@ function cpRenderTable(data) {
     totalPurchase += r.purchase_amount; totalLoan += r.loan_amount; totalEval += stockEval;
     return `<tr>
       <td style="font-weight:600">${r.brokerage || '공통/전체'}</td>
-      <td class="num" style="color:#60a5fa;font-weight:600">${stockEval.toLocaleString()}원</td>
-      <td class="num">${r.purchase_amount.toLocaleString()}원</td>
-      <td class="num" style="color:#f87171">${r.loan_amount.toLocaleString()}원</td>
-      <td class="num" style="color:${충당color};font-weight:600">${충당금.toLocaleString()}원</td>
+      <td class="num" style="color:#60a5fa;font-weight:600">${stockEval.toLocaleString()}</td>
+      <td class="num">${r.purchase_amount.toLocaleString()}</td>
+      <td class="num" style="color:#f87171">${r.loan_amount.toLocaleString()}</td>
+      <td class="num" style="color:${충당color};font-weight:600">${충당금.toLocaleString()}</td>
       <td class="num" style="color:${충당color};font-weight:600">${충당비율str}</td>
       <td class="num" style="color:${신용color};font-weight:600">${신용비율}</td>
       <td class="num" style="color:${부족color};font-weight:600">${부족비율str}</td>
@@ -6411,8 +6428,8 @@ function cpRenderTable(data) {
 
   const total충당금   = totalPurchase - totalLoan;
   const total충당비율  = totalLoan > 0 ? total충당금 / totalLoan * 100 : null;
-  const total충당비율str = total충당비율 !== null ? total충당비율.toFixed(1) + '%' : '—';
-  const total신용비율  = totalEval > 0 ? (totalLoan / totalEval * 100).toFixed(1) + '%' : '—';
+  const total충당비율str = total충당비율 !== null ? total충당비율.toFixed(1) : '—';
+  const total신용비율  = totalEval > 0 ? (totalLoan / totalEval * 100).toFixed(1) : '—';
   const total충당color = total충당금 >= 0 ? '#4ade80' : '#f87171';
   const total신용color = totalEval > 0
     ? (totalLoan / totalEval >= 0.5 ? '#f87171' : totalLoan / totalEval >= 0.3 ? '#f59e0b' : '#4ade80')
@@ -6424,17 +6441,17 @@ function cpRenderTable(data) {
       total부족비율str = '충족'; total부족금액str = '충족'; total부족color = '#4ade80';
     } else {
       const 부족금액 = Math.round(gap / 100 * totalLoan);
-      total부족비율str = '+' + gap.toFixed(1) + '%p';
-      total부족금액str = 부족금액.toLocaleString() + '원';
+      total부족비율str = '+' + gap.toFixed(1);
+      total부족금액str = 부족금액.toLocaleString();
       total부족color   = '#f87171';
     }
   }
   tbody.innerHTML = rows.join('') + `<tr style="border-top:2px solid #334155;background:rgba(148,163,184,0.06);font-weight:700">
     <td style="color:#94a3b8">합계</td>
-    <td class="num" style="color:#60a5fa">${totalEval.toLocaleString()}원</td>
-    <td class="num">${totalPurchase.toLocaleString()}원</td>
-    <td class="num" style="color:#f87171">${totalLoan.toLocaleString()}원</td>
-    <td class="num" style="color:${total충당color}">${total충당금.toLocaleString()}원</td>
+    <td class="num" style="color:#60a5fa">${totalEval.toLocaleString()}</td>
+    <td class="num">${totalPurchase.toLocaleString()}</td>
+    <td class="num" style="color:#f87171">${totalLoan.toLocaleString()}</td>
+    <td class="num" style="color:${total충당color}">${total충당금.toLocaleString()}</td>
     <td class="num" style="color:${total충당color}">${total충당비율str}</td>
     <td class="num" style="color:${total신용color}">${total신용비율}</td>
     <td class="num" style="color:${total부족color}">${total부족비율str}</td>
@@ -6464,8 +6481,8 @@ function cpCalc() {
   const el       = document.getElementById('cp-calc-display');
   if (!purchase && !loan) { el.textContent = '—'; el.style.color = '#64748b'; return; }
   const 충당금  = purchase - loan;
-  const 충당비율 = loan > 0 ? (충당금 / loan * 100).toFixed(1) + '%' : '—';
-  el.textContent = `${충당금.toLocaleString()}원 / ${충당비율}`;
+  const 충당비율 = loan > 0 ? (충당금 / loan * 100).toFixed(1) : '—';
+  el.textContent = `${충당금.toLocaleString()} / ${충당비율}`;
   el.style.color = 충당금 >= 0 ? '#4ade80' : '#f87171';
 }
 
