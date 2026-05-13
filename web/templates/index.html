@@ -6455,18 +6455,20 @@ function crRenderRiskPanel() {
     const 담보자산     = stockEval + cashEval;
     const cur담보비율  = r.loan_amount > 0 ? 담보자산 / r.loan_amount * 100 : null;
     const 담보비율str  = cur담보비율 !== null ? cur담보비율.toFixed(1) + '%' : '—';
-    const 버퍼         = cur담보비율 !== null ? Math.round(담보자산 - rbCollateralTarget / 100 * r.loan_amount) : null;
-    const 필요추가str  = 버퍼 === null ? '—' : 버퍼 >= 0 ? '충족' : Math.abs(버퍼).toLocaleString() + '원 필요';
+    const 목표갭       = cur담보비율 !== null ? cur담보비율 - rbCollateralTarget : null;
+    const 목표갭금액   = cur담보비율 !== null ? Math.round(담보자산 - rbCollateralTarget / 100 * r.loan_amount) : null;
+    const 목표갭str    = 목표갭 === null ? '—' : (목표갭 >= 0 ? '+' : '') + 목표갭.toFixed(1) + '%p';
+    const 목표갭금액str = 목표갭금액 === null ? '' : (목표갭금액 >= 0 ? '+' : '') + 목표갭금액.toLocaleString() + '원';
     const 담보color    = cur담보비율 === null ? '#64748b'
       : cur담보비율 >= rbCollateralTarget      ? '#4ade80'
       : cur담보비율 >= rbCollateralRequired    ? '#f59e0b'
       : '#f87171';
-    const 버퍼color    = 버퍼 === null ? '#64748b' : 버퍼 >= 0 ? '#4ade80' : '#f87171';
+    const 목표갭color  = 목표갭 === null ? '#64748b' : 목표갭 >= 0 ? '#4ade80' : '#f87171';
     return `<tr>
       <td style="font-weight:600">${r.brokerage || '공통/전체'}</td>
       <td class="num" style="color:${담보color};font-weight:600">${담보비율str}</td>
       <td class="num" style="color:#94a3b8">${rbCollateralTarget}%</td>
-      <td class="num" style="color:${버퍼color};font-weight:600">${필요추가str}</td>
+      <td class="num" style="color:${목표갭color};font-size:12px;line-height:1.6">${목표갭str}<br><span style="font-size:11px;opacity:0.85">${목표갭금액str}</span></td>
     </tr>`;
   });
   tbody.innerHTML = rows.join('');
@@ -6495,7 +6497,9 @@ function cpRenderTable(data) {
     const cur담보비율  = r.loan_amount > 0 ? 담보자산 / r.loan_amount * 100 : null;
     const 담보비율str  = cur담보비율 !== null ? cur담보비율.toFixed(1) : '—';
     const 갭           = cur담보비율 !== null ? cur담보비율 - rbCollateralRequired : null;
+    const 갭금액       = cur담보비율 !== null ? Math.round(담보자산 - rbCollateralRequired / 100 * r.loan_amount) : null;
     const 갭str        = 갭 === null ? '—' : (갭 >= 0 ? '+' : '') + 갭.toFixed(1) + '%p';
+    const 갭금액str    = 갭금액 === null ? '' : (갭금액 >= 0 ? '+' : '') + 갭금액.toLocaleString() + '원';
     const 갭color      = 갭 === null ? '#64748b' : 갭 >= 0 ? '#4ade80' : '#f87171';
     const 담보color    = cur담보비율 === null ? '#64748b'
       : cur담보비율 >= rbCollateralRequired + 10 ? '#4ade80'
@@ -6509,7 +6513,7 @@ function cpRenderTable(data) {
       <td class="num" style="color:#34d399">${cashEval > 0 ? cashEval.toLocaleString() : '—'}</td>
       <td class="num" style="color:#f87171">${r.loan_amount.toLocaleString()}</td>
       <td class="num" style="color:${담보color};font-weight:600">${담보비율str}</td>
-      <td class="num" style="color:${갭color};font-size:12px">${갭str}</td>
+      <td class="num" style="color:${갭color};font-size:12px;line-height:1.6">${갭str}<br><span style="font-size:11px;opacity:0.85">${갭금액str}</span></td>
       <td style="color:#94a3b8;font-size:12px">${r.note || '-'}</td>
       <td class="center" style="font-size:11px;color:#64748b">${(r.updated_at || '').substring(0, 10)}</td>
       <td class="center">
@@ -6525,7 +6529,9 @@ function cpRenderTable(data) {
   const total담보비율   = totalLoan > 0 ? total담보자산 / totalLoan * 100 : null;
   const total담보비율str = total담보비율 !== null ? total담보비율.toFixed(1) : '—';
   const total갭         = total담보비율 !== null ? total담보비율 - rbCollateralRequired : null;
+  const total갭금액     = total담보비율 !== null ? Math.round(total담보자산 - rbCollateralRequired / 100 * totalLoan) : null;
   const total갭str      = total갭 === null ? '—' : (total갭 >= 0 ? '+' : '') + total갭.toFixed(1) + '%p';
+  const total갭금액str  = total갭금액 === null ? '' : (total갭금액 >= 0 ? '+' : '') + total갭금액.toLocaleString() + '원';
   const total갭color    = total갭 === null ? '#64748b' : total갭 >= 0 ? '#4ade80' : '#f87171';
   const total담보color  = total담보비율 === null ? '#64748b'
     : total담보비율 >= rbCollateralRequired + 10 ? '#4ade80'
@@ -6537,7 +6543,7 @@ function cpRenderTable(data) {
     <td class="num" style="color:#34d399">${totalCash > 0 ? totalCash.toLocaleString() : '—'}</td>
     <td class="num" style="color:#f87171">${totalLoan.toLocaleString()}</td>
     <td class="num" style="color:${total담보color}">${total담보비율str}</td>
-    <td class="num" style="color:${total갭color};font-size:12px">${total갭str}</td>
+    <td class="num" style="color:${total갭color};font-size:12px;line-height:1.6">${total갭str}<br><span style="font-size:11px;opacity:0.85">${total갭금액str}</span></td>
     <td colspan="3"></td>
   </tr>`;
 }
