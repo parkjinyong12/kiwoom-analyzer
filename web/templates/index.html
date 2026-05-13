@@ -4927,19 +4927,30 @@ function rbUpdateSummary(json) {
     Math.abs(targetSum - 100) < 0.5 ? '균형 잡힘' :
     `${(targetSum - 100).toFixed(1)}pp ${targetSum > 100 ? '초과' : '부족'}`;
 
-  // 현금 편차 알림 여부
+  const isStockPage = document.getElementById('page-stock-rebalance').classList.contains('active');
+
+  // 주식간 리밸런싱: 주식총액 기준 편차로 알림 판단 (포트폴리오 기준 deviation_rel 사용 안함)
+  const stockAlertCnt = rbData.filter(r => {
+    if (!r.target_ratio) return false;
+    const cur    = isStockPage && rbStockTotal > 0
+      ? r.eval_amt / rbStockTotal * 100
+      : r.current_ratio;
+    const relDev = r.target_ratio > 0 ? (cur - r.target_ratio) / r.target_ratio * 100 : null;
+    if (relDev === null) return false;
+    return relDev > rbAlertUp || relDev < -rbAlertDown;
+  }).length;
+
+  // 현금 편차 알림 — 주식간 페이지에서는 현금 무관
   let cashAlerted = false;
-  if (rbCashTargetRatio > 0 && total > 0) {
-    const cashRatio   = cash / total * 100;
-    const cashDevRel  = (cashRatio - rbCashTargetRatio) / rbCashTargetRatio * 100;
+  if (!isStockPage && rbCashTargetRatio > 0 && total > 0) {
+    const cashRatio  = cash / total * 100;
+    const cashDevRel = (cashRatio - rbCashTargetRatio) / rbCashTargetRatio * 100;
     cashAlerted = cashDevRel > rbAlertUp || cashDevRel < -rbAlertDown;
   }
-  const stockAlertCnt = rbData.filter(r => {
-    if (!r.target_ratio || r.deviation_rel === null) return false;
-    return r.deviation_rel > rbAlertUp || r.deviation_rel < -rbAlertDown;
-  }).length;
+
   const alertCnt = stockAlertCnt + (cashAlerted ? 1 : 0);
-  const unsetCnt = rbData.filter(r => !r.target_ratio).length + (rbCashTargetRatio ? 0 : 1);
+  // 주식간 페이지에서는 현금 목표 미설정 카운트 제외
+  const unsetCnt = rbData.filter(r => !r.target_ratio).length + (isStockPage || rbCashTargetRatio ? 0 : 1);
 
   const alertEl = document.getElementById('rb-alert-cnt');
   alertEl.textContent = alertCnt;
