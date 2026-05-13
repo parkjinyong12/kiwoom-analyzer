@@ -5069,31 +5069,41 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
   const candidates = rbData.filter(r => r.current_price != null && r.eval_amt > 0);
   if (!candidates.length) return;
 
-  // 매수·매도 모두 주식간 리밸런싱 방향 고려
-  // 매수: 미달분(target% - cur_stock%) 우선 / 매도: 초과분(cur_stock% - target%) 우선
+  // 거래 후 주식총액 기준으로 이상적 거래량 계산 → 목표비중에 최대한 근접
+  const newStockEst    = isBuy ? rbStockTotal + tradeTotal : rbStockTotal - tradeTotal;
+  const stockTargetSum = candidates.reduce((s, r) => s + (r.target_ratio || 0), 0);
+
+  // Phase 1: 각 종목의 이상 거래량 (거래 후 주식총액 × 목표비율 → 현재평가와의 차이)
+  const idealMap = new Map();
+  let idealTotal = 0;
+  for (const r of candidates) {
+    if (r.target_ratio > 0 && newStockEst > 0) {
+      const targetEval = r.target_ratio / 100 * newStockEst;
+      const ideal = isBuy
+        ? Math.max(0, targetEval - r.eval_amt)   // 미달분 매수
+        : Math.max(0, r.eval_amt - targetEval);   // 초과분 매도
+      idealMap.set(r.stock_code, ideal);
+      idealTotal += ideal;
+    } else {
+      idealMap.set(r.stock_code, 0);
+    }
+  }
+
+  // Phase 2: 이상 거래량 합보다 필요금액이 클 때 → 나머지를 목표비율로 추가 배분
   const tradeWeightMap = new Map();
   let totalWeight = 0;
+  const remainder = Math.max(0, tradeTotal - idealTotal);
   for (const r of candidates) {
-    let w = 0;
-    if (r.target_ratio > 0 && rbStockTotal > 0) {
-      const curPct = r.eval_amt / rbStockTotal * 100;
-      w = isBuy
-        ? Math.max(0, r.target_ratio - curPct)   // 미달분
-        : Math.max(0, curPct - r.target_ratio);   // 초과분
-    } else {
-      // 목표 없는 종목: 매수=목표비율 0 제외, 매도=보유비율 기준
-      w = isBuy ? 0 : (rbStockTotal > 0 ? r.eval_amt / rbStockTotal : 0);
-    }
+    const phase1 = idealMap.get(r.stock_code) || 0;
+    const phase2 = stockTargetSum > 0 ? (r.target_ratio || 0) / stockTargetSum * remainder : 0;
+    const w = phase1 + phase2;
     tradeWeightMap.set(r.stock_code, w);
     totalWeight += w;
   }
-  // 가중치 합이 0이면 fallback (매수: 목표비율 기준 / 매도: 보유비율 기준)
+  // fallback: 목표 없는 종목만 있거나 합이 0이면 보유비율 기준
   if (totalWeight <= 0) {
-    const stockTargetSum = candidates.reduce((s, r) => s + (r.target_ratio || 0), 0);
     for (const r of candidates) {
-      const fb = isBuy
-        ? (stockTargetSum > 0 ? (r.target_ratio || 0) / stockTargetSum : r.eval_amt / rbStockTotal)
-        : (rbStockTotal > 0 ? r.eval_amt / rbStockTotal : 0);
+      const fb = rbStockTotal > 0 ? r.eval_amt / rbStockTotal : 0;
       tradeWeightMap.set(r.stock_code, fb);
       totalWeight += fb;
     }
