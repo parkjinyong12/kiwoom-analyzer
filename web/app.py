@@ -1557,6 +1557,7 @@ def _fetch_naver_gold_krx() -> float:
         "Referer": "https://stock.naver.com/",
         "Accept": "application/json",
     }
+    import requests as _req
     last_err: Exception | None = None
     for url in _NAVER_GOLD_URLS:
         try:
