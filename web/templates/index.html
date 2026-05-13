@@ -1937,19 +1937,17 @@ canvas { max-height: 220px; }
           <table class="data-table">
             <thead>
               <tr>
-                <th style="text-align:center;width:60px">구분</th>
                 <th>종목명</th>
                 <th style="text-align:right">현재가</th>
-                <th style="text-align:right">현재수량</th>
-                <th style="text-align:right">목표수량</th>
                 <th style="text-align:right">조정수량</th>
+                <th style="text-align:right">거래금액</th>
                 <th style="text-align:right">현재비율</th>
                 <th style="text-align:right">목표비율</th>
-                <th style="text-align:right">거래금액</th>
+                <th style="text-align:right">거래후 비율</th>
               </tr>
             </thead>
             <tbody id="rr-tbody">
-              <tr><td colspan="9" class="loading">로딩 중...</td></tr>
+              <tr><td colspan="7" class="loading">로딩 중...</td></tr>
             </tbody>
           </table>
         </div>
@@ -5293,42 +5291,47 @@ function rbRenderRecommendation() {
       current_price: r.current_price,
       current_qty: r.total_qty,
       target_qty: targetQty,
-      adj_qty: adjQty,
+      adj_qty: adjQty,   // 부호 있음: 매수 양수, 매도 음수
       adj_amt: adjAmt,
+      eval_amt: r.eval_amt,
       current_ratio: cur,
       target_ratio: tgt,
     });
   }
 
-  // 매도 → 매수 → 유지 순, 같은 구분 내 거래금액 큰 순
-  const typeOrder = { sell: 0, buy: 1, hold: 2 };
-  items.sort((a, b) => typeOrder[a.type] - typeOrder[b.type] || b.adj_amt - a.adj_amt);
-
   const netCashChange = totalSell - totalBuy;
   const resultCash    = rbTotalCash + netCashChange;
-  const buyCnt        = items.filter(i => i.type === 'buy').length;
-  const sellCnt       = items.filter(i => i.type === 'sell').length;
+  const sellItems     = items.filter(i => i.type === 'sell').sort((a, b) => b.adj_amt - a.adj_amt);
+  const buyItems      = items.filter(i => i.type === 'buy').sort((a, b) => b.adj_amt - a.adj_amt);
+
+  // ── 전체 플랜 실행 후 주식 총액 및 종목별 최종 비율 계산 ──
+  const newStockTotal = rbStockTotal + totalBuy - totalSell;
+  for (const item of items) {
+    const tradeValue   = item.adj_qty * item.current_price;  // 부호 포함
+    item.final_eval    = item.eval_amt + tradeValue;
+    item.final_ratio   = newStockTotal > 0 ? item.final_eval / newStockTotal * 100 : 0;
+  }
 
   // ── 요약 카드 ──
   document.getElementById('rr-total-buy').textContent  = totalBuy.toLocaleString() + '원';
-  document.getElementById('rr-buy-cnt').textContent    = buyCnt + '종목';
+  document.getElementById('rr-buy-cnt').textContent    = buyItems.length + '종목';
   document.getElementById('rr-total-sell').textContent = totalSell.toLocaleString() + '원';
-  document.getElementById('rr-sell-cnt').textContent   = sellCnt + '종목';
+  document.getElementById('rr-sell-cnt').textContent   = sellItems.length + '종목';
 
   const netEl   = document.getElementById('rr-net-cash');
   const netNote = document.getElementById('rr-net-note');
-  netEl.textContent  = (netCashChange >= 0 ? '+' : '') + netCashChange.toLocaleString() + '원';
-  netEl.style.color  = netCashChange >= 0 ? '#4ade80' : '#f87171';
+  netEl.textContent   = (netCashChange >= 0 ? '+' : '') + netCashChange.toLocaleString() + '원';
+  netEl.style.color   = netCashChange >= 0 ? '#4ade80' : '#f87171';
   netNote.textContent = netCashChange >= 0 ? '현금 증가 (매도 우세)' : '현금 감소 (매수 우세)';
 
   const resEl   = document.getElementById('rr-result-cash');
   const resNote = document.getElementById('rr-result-note');
   resEl.textContent = Math.max(0, resultCash).toLocaleString() + '원';
   if (resultCash < 0) {
-    resEl.style.color  = '#f87171';
+    resEl.style.color   = '#f87171';
     resNote.textContent = '⚠️ 현금 부족';
   } else {
-    resEl.style.color  = '#e2e8f0';
+    resEl.style.color   = '#e2e8f0';
     const ratio = rbPortfolioTotal > 0 ? resultCash / rbPortfolioTotal * 100 : 0;
     resNote.textContent = '포트폴리오 ' + ratio.toFixed(1) + '%';
   }
@@ -5336,29 +5339,44 @@ function rbRenderRecommendation() {
   // ── 추천 테이블 ──
   const tbody = document.getElementById('rr-tbody');
   if (!items.length) {
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:28px;color:#475569">목표 비율·현재가가 설정된 종목 없음</td></tr>';
-  } else {
-    tbody.innerHTML = items.map(r => {
-      const isHold  = r.type === 'hold';
-      const isBuy   = r.type === 'buy';
-      const label   = isBuy ? '매수' : isHold ? '유지' : '매도';
-      const color   = isBuy ? '#60a5fa' : isHold ? '#4ade80' : '#f87171';
-      const rowBg   = isBuy ? 'rgba(96,165,250,0.06)' : isHold ? '' : 'rgba(248,113,113,0.06)';
-      const adjSign = r.adj_qty > 0 ? '+' : '';
-      const amtSign = isBuy ? '-' : isHold ? '' : '+';
-      return `<tr style="background:${rowBg}">
-        <td class="center"><span style="color:${color};font-weight:700;font-size:13px">${label}</span></td>
-        <td style="font-weight:500">${r.stock_name}</td>
-        <td class="num">${r.current_price.toLocaleString()}원</td>
-        <td class="num">${Number(r.current_qty).toLocaleString()}주</td>
-        <td class="num">${r.target_qty.toLocaleString()}주</td>
-        <td class="num" style="color:${color};font-weight:600">${isHold ? '—' : adjSign + r.adj_qty.toLocaleString() + '주'}</td>
-        <td class="num" style="font-size:12px;color:#94a3b8">${r.current_ratio.toFixed(2)}%</td>
-        <td class="num" style="font-size:12px;color:#94a3b8">${r.target_ratio.toFixed(1)}%</td>
-        <td class="num" style="color:${color};font-weight:500">${isHold ? '—' : amtSign + r.adj_amt.toLocaleString() + '원'}</td>
-      </tr>`;
-    }).join('');
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:28px;color:#475569">목표 비율·현재가가 설정된 종목 없음</td></tr>';
+    return;
   }
+
+  function renderRrRow(r) {
+    const isBuy  = r.type === 'buy';
+    const isSell = r.type === 'sell';
+    const color  = isBuy ? '#60a5fa' : '#f87171';
+    const rowBg  = isBuy ? 'rgba(96,165,250,0.05)' : 'rgba(248,113,113,0.05)';
+    const adjSign = r.adj_qty > 0 ? '+' : '';
+    const amtSign = isBuy ? '-' : '+';
+    const finalDiff = r.final_ratio - r.target_ratio;
+    const finalOk   = Math.abs(finalDiff) < 1;
+    const finalColor = finalOk ? '#4ade80' : '#f59e0b';
+    return `<tr style="background:${rowBg}">
+      <td style="font-weight:500">${r.stock_name}</td>
+      <td class="num">${r.current_price.toLocaleString()}원</td>
+      <td class="num" style="color:${color};font-weight:600">${adjSign}${r.adj_qty.toLocaleString()}주</td>
+      <td class="num" style="color:${color};font-weight:500">${amtSign}${r.adj_amt.toLocaleString()}원</td>
+      <td class="num" style="font-size:12px;color:#64748b">${r.current_ratio.toFixed(2)}%</td>
+      <td class="num" style="font-size:12px;color:#94a3b8">${r.target_ratio.toFixed(1)}%</td>
+      <td class="num" style="color:${finalColor};font-weight:600">${r.final_ratio.toFixed(2)}%</td>
+    </tr>`;
+  }
+
+  const stepStyle = (bg, color, label, total) =>
+    `<tr style="background:${bg}"><td colspan="7" style="padding:7px 12px;font-size:11px;font-weight:700;letter-spacing:1px;color:${color}">${label} · 합계 ${total.toLocaleString()}원</td></tr>`;
+
+  let html = '';
+  if (sellItems.length) {
+    html += stepStyle('#1c0f0f', '#f87171', 'STEP 1 — 매도', totalSell);
+    html += sellItems.map(renderRrRow).join('');
+  }
+  if (buyItems.length) {
+    html += stepStyle('#0d1a2e', '#60a5fa', 'STEP 2 — 매수', totalBuy);
+    html += buyItems.map(renderRrRow).join('');
+  }
+  tbody.innerHTML = html;
 
   // ── 안내 메시지 ──
   const notes = [];
