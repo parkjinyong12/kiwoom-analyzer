@@ -1670,6 +1670,13 @@ canvas { max-height: 220px; }
                  style="width:65px;padding:5px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#f59e0b;font-size:13px;text-align:center;outline:none"/>
           <span style="font-size:12px;color:#64748b">% 이상 유지</span>
         </div>
+        <div style="width:1px;height:28px;background:#1e2535"></div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:12px;color:#a78bfa">신용담보비율 기준</span>
+          <input type="number" id="rb-collateral-required" value="140" min="100" max="500" step="1"
+                 style="width:65px;padding:5px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#a78bfa;font-size:13px;text-align:center;outline:none"/>
+          <span style="font-size:12px;color:#64748b">% 이상 유지</span>
+        </div>
         <button class="btn btn-primary" style="font-size:12px;padding:6px 14px" onclick="rbSaveThresholds()">기준 저장</button>
       </div>
     </div>
@@ -1726,7 +1733,8 @@ canvas { max-height: 220px; }
               <th style="text-align:right">대출금</th>
               <th style="text-align:right">충당금</th>
               <th style="text-align:right">충당비율</th>
-              <th style="text-align:right">신용비율</th>
+              <th style="text-align:right">신용담보비율</th>
+              <th style="text-align:right">담보버퍼금액</th>
               <th style="text-align:right">충당 부족비율</th>
               <th style="text-align:right">충당 부족금액</th>
               <th>메모</th>
@@ -1735,7 +1743,7 @@ canvas { max-height: 220px; }
             </tr>
           </thead>
           <tbody id="cp-tbody">
-            <tr><td colspan="12" class="loading">로딩 중...</td></tr>
+            <tr><td colspan="13" class="loading">로딩 중...</td></tr>
           </tbody>
         </table>
       </div>
@@ -4774,6 +4782,7 @@ let rbStockTotal         = 0;
 let rbTotalCash          = 0;
 let rbCashTargetRatio    = 0;
 let rbCollateralTarget   = 40;
+let rbCollateralRequired = 140;
 async function loadRebalance() {
   document.getElementById('rb-tbody').innerHTML =
     '<tr><td colspan="10" class="loading">로딩 중...</td></tr>';
@@ -4795,11 +4804,13 @@ async function loadRebalance() {
     rbStockTotal        = json.stock_total       || 0;
     rbTotalCash         = json.total_cash        || 0;
     rbCashTargetRatio   = json.cash_target_ratio || 0;
-    rbCollateralTarget  = parseFloat(settings.collateral_target_ratio ?? 40);
+    rbCollateralTarget   = parseFloat(settings.collateral_target_ratio   ?? 40);
+    rbCollateralRequired = parseFloat(settings.collateral_required_ratio ?? 140);
 
-    document.getElementById('rb-threshold-up').value        = rbAlertUp;
-    document.getElementById('rb-threshold-down').value      = rbAlertDown;
-    document.getElementById('rb-collateral-target').value   = rbCollateralTarget;
+    document.getElementById('rb-threshold-up').value          = rbAlertUp;
+    document.getElementById('rb-threshold-down').value        = rbAlertDown;
+    document.getElementById('rb-collateral-target').value     = rbCollateralTarget;
+    document.getElementById('rb-collateral-required').value   = rbCollateralRequired;
 
     rbUpdateSummary(json);
     rbRenderMarginPanel();
@@ -5083,14 +5094,16 @@ async function rbSaveCashTarget(inputEl) {
 async function rbSaveThresholds() {
   rbAlertUp          = parseFloat(document.getElementById('rb-threshold-up').value)        || 30;
   rbAlertDown        = parseFloat(document.getElementById('rb-threshold-down').value)      || 25;
-  rbCollateralTarget = parseFloat(document.getElementById('rb-collateral-target').value)   ?? 40;
+  rbCollateralTarget   = parseFloat(document.getElementById('rb-collateral-target').value)    ?? 40;
+  rbCollateralRequired = parseFloat(document.getElementById('rb-collateral-required').value)  ?? 140;
   await fetch('/api/settings', {
     method: 'PUT',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({
-      rebalance_alert_up:        String(rbAlertUp),
-      rebalance_alert_down:      String(rbAlertDown),
-      collateral_target_ratio:   String(rbCollateralTarget),
+      rebalance_alert_up:          String(rbAlertUp),
+      rebalance_alert_down:        String(rbAlertDown),
+      collateral_target_ratio:     String(rbCollateralTarget),
+      collateral_required_ratio:   String(rbCollateralRequired),
     }),
   });
   await loadRebalance();
@@ -6378,7 +6391,7 @@ function cpRenderTable(data) {
   const tbody      = document.getElementById('cp-tbody');
 
   if (!positions.length) {
-    tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;padding:24px;color:#475569">등록된 신용 포지션이 없습니다.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;padding:24px;color:#475569">등록된 신용 포지션이 없습니다.</td></tr>';
     return;
   }
 
@@ -6388,11 +6401,16 @@ function cpRenderTable(data) {
     const 충당금       = r.purchase_amount - r.loan_amount;
     const cur충당비율  = r.loan_amount > 0 ? 충당금 / r.loan_amount * 100 : null;
     const 충당비율str  = cur충당비율 !== null ? cur충당비율.toFixed(1) : '—';
-    const 신용비율     = stockEval > 0 ? (r.loan_amount / stockEval * 100).toFixed(1) : '—';
+    const cur담보비율  = r.loan_amount > 0 ? stockEval / r.loan_amount * 100 : null;
+    const 담보비율str  = cur담보비율 !== null ? cur담보비율.toFixed(1) : '—';
+    const 담보버퍼금액 = cur담보비율 !== null ? Math.round(stockEval - rbCollateralRequired / 100 * r.loan_amount) : null;
+    const 담보버퍼str  = 담보버퍼금액 !== null ? 담보버퍼금액.toLocaleString() : '—';
     const 충당color    = 충당금 >= 0 ? '#4ade80' : '#f87171';
-    const 신용color    = stockEval > 0
-      ? (r.loan_amount / stockEval >= 0.5 ? '#f87171' : r.loan_amount / stockEval >= 0.3 ? '#f59e0b' : '#4ade80')
-      : '#64748b';
+    const 담보color    = cur담보비율 === null ? '#64748b'
+      : cur담보비율 >= rbCollateralRequired + 10 ? '#4ade80'
+      : cur담보비율 >= rbCollateralRequired       ? '#f59e0b'
+      : '#f87171';
+    const 버퍼color    = 담보버퍼금액 === null ? '#64748b' : 담보버퍼금액 >= 0 ? '#4ade80' : '#f87171';
 
     // 충당비율 목표 대비 부족
     let 부족비율str = '—', 부족금액str = '—', 부족color = '#64748b';
@@ -6416,7 +6434,8 @@ function cpRenderTable(data) {
       <td class="num" style="color:#f87171">${r.loan_amount.toLocaleString()}</td>
       <td class="num" style="color:${충당color};font-weight:600">${충당금.toLocaleString()}</td>
       <td class="num" style="color:${충당color};font-weight:600">${충당비율str}</td>
-      <td class="num" style="color:${신용color};font-weight:600">${신용비율}</td>
+      <td class="num" style="color:${담보color};font-weight:600">${담보비율str}</td>
+      <td class="num" style="color:${버퍼color};font-weight:600">${담보버퍼str}</td>
       <td class="num" style="color:${부족color};font-weight:600">${부족비율str}</td>
       <td class="num" style="color:${부족color};font-weight:600">${부족금액str}</td>
       <td style="color:#94a3b8;font-size:12px">${r.note || '-'}</td>
@@ -6433,11 +6452,16 @@ function cpRenderTable(data) {
   const total충당금   = totalPurchase - totalLoan;
   const total충당비율  = totalLoan > 0 ? total충당금 / totalLoan * 100 : null;
   const total충당비율str = total충당비율 !== null ? total충당비율.toFixed(1) : '—';
-  const total신용비율  = totalEval > 0 ? (totalLoan / totalEval * 100).toFixed(1) : '—';
-  const total충당color = total충당금 >= 0 ? '#4ade80' : '#f87171';
-  const total신용color = totalEval > 0
-    ? (totalLoan / totalEval >= 0.5 ? '#f87171' : totalLoan / totalEval >= 0.3 ? '#f59e0b' : '#4ade80')
-    : '#64748b';
+  const total담보비율   = totalLoan > 0 ? totalEval / totalLoan * 100 : null;
+  const total담보비율str = total담보비율 !== null ? total담보비율.toFixed(1) : '—';
+  const total담보버퍼   = total담보비율 !== null ? Math.round(totalEval - rbCollateralRequired / 100 * totalLoan) : null;
+  const total담보버퍼str = total담보버퍼 !== null ? total담보버퍼.toLocaleString() : '—';
+  const total충당color  = total충당금 >= 0 ? '#4ade80' : '#f87171';
+  const total담보color  = total담보비율 === null ? '#64748b'
+    : total담보비율 >= rbCollateralRequired + 10 ? '#4ade80'
+    : total담보비율 >= rbCollateralRequired       ? '#f59e0b'
+    : '#f87171';
+  const total버퍼color  = total담보버퍼 === null ? '#64748b' : total담보버퍼 >= 0 ? '#4ade80' : '#f87171';
   let total부족비율str = '—', total부족금액str = '—', total부족color = '#64748b';
   if (total충당비율 !== null) {
     const gap = rbCollateralTarget - total충당비율;
@@ -6457,7 +6481,8 @@ function cpRenderTable(data) {
     <td class="num" style="color:#f87171">${totalLoan.toLocaleString()}</td>
     <td class="num" style="color:${total충당color}">${total충당금.toLocaleString()}</td>
     <td class="num" style="color:${total충당color}">${total충당비율str}</td>
-    <td class="num" style="color:${total신용color}">${total신용비율}</td>
+    <td class="num" style="color:${total담보color}">${total담보비율str}</td>
+    <td class="num" style="color:${total버퍼color}">${total담보버퍼str}</td>
     <td class="num" style="color:${total부족color}">${total부족비율str}</td>
     <td class="num" style="color:${total부족color}">${total부족금액str}</td>
     <td colspan="3"></td>
