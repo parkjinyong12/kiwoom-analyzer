@@ -1753,13 +1753,14 @@ canvas { max-height: 220px; }
               <th style="text-align:right">현금성자산</th>
               <th style="text-align:right">대출금</th>
               <th style="text-align:right">신용담보비율</th>
+              <th style="text-align:right">기준 대비</th>
               <th>메모</th>
               <th style="text-align:center;width:80px">수정일</th>
               <th style="text-align:center;width:80px">관리</th>
             </tr>
           </thead>
           <tbody id="cp-tbody">
-            <tr><td colspan="8" class="loading">로딩 중...</td></tr>
+            <tr><td colspan="9" class="loading">로딩 중...</td></tr>
           </tbody>
         </table>
       </div>
@@ -6493,6 +6494,9 @@ function cpRenderTable(data) {
     const 담보자산     = stockEval + cashEval;
     const cur담보비율  = r.loan_amount > 0 ? 담보자산 / r.loan_amount * 100 : null;
     const 담보비율str  = cur담보비율 !== null ? cur담보비율.toFixed(1) : '—';
+    const 갭           = cur담보비율 !== null ? cur담보비율 - rbCollateralRequired : null;
+    const 갭str        = 갭 === null ? '—' : (갭 >= 0 ? '+' : '') + 갭.toFixed(1) + '%p';
+    const 갭color      = 갭 === null ? '#64748b' : 갭 >= 0 ? '#4ade80' : '#f87171';
     const 담보color    = cur담보비율 === null ? '#64748b'
       : cur담보비율 >= rbCollateralRequired + 10 ? '#4ade80'
       : cur담보비율 >= rbCollateralRequired       ? '#f59e0b'
@@ -6505,6 +6509,7 @@ function cpRenderTable(data) {
       <td class="num" style="color:#34d399">${cashEval > 0 ? cashEval.toLocaleString() : '—'}</td>
       <td class="num" style="color:#f87171">${r.loan_amount.toLocaleString()}</td>
       <td class="num" style="color:${담보color};font-weight:600">${담보비율str}</td>
+      <td class="num" style="color:${갭color};font-size:12px">${갭str}</td>
       <td style="color:#94a3b8;font-size:12px">${r.note || '-'}</td>
       <td class="center" style="font-size:11px;color:#64748b">${(r.updated_at || '').substring(0, 10)}</td>
       <td class="center">
@@ -6519,6 +6524,9 @@ function cpRenderTable(data) {
   const total담보자산   = totalEval + totalCash;
   const total담보비율   = totalLoan > 0 ? total담보자산 / totalLoan * 100 : null;
   const total담보비율str = total담보비율 !== null ? total담보비율.toFixed(1) : '—';
+  const total갭         = total담보비율 !== null ? total담보비율 - rbCollateralRequired : null;
+  const total갭str      = total갭 === null ? '—' : (total갭 >= 0 ? '+' : '') + total갭.toFixed(1) + '%p';
+  const total갭color    = total갭 === null ? '#64748b' : total갭 >= 0 ? '#4ade80' : '#f87171';
   const total담보color  = total담보비율 === null ? '#64748b'
     : total담보비율 >= rbCollateralRequired + 10 ? '#4ade80'
     : total담보비율 >= rbCollateralRequired       ? '#f59e0b'
@@ -6529,6 +6537,7 @@ function cpRenderTable(data) {
     <td class="num" style="color:#34d399">${totalCash > 0 ? totalCash.toLocaleString() : '—'}</td>
     <td class="num" style="color:#f87171">${totalLoan.toLocaleString()}</td>
     <td class="num" style="color:${total담보color}">${total담보비율str}</td>
+    <td class="num" style="color:${total갭color};font-size:12px">${total갭str}</td>
     <td colspan="3"></td>
   </tr>`;
 }
