@@ -233,9 +233,11 @@ def _ensure_cash_assets_table():
 def _ensure_credit_positions_table():
     """신용 포지션 충당금 관리 테이블."""
     with get_conn() as conn:
-        conn.cursor().execute("""
+        cur = conn.cursor()
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS credit_positions (
                 id              SERIAL PRIMARY KEY,
+                brokerage       VARCHAR(50)  NOT NULL DEFAULT '',
                 name            VARCHAR(100) NOT NULL,
                 purchase_amount BIGINT NOT NULL DEFAULT 0,
                 loan_amount     BIGINT NOT NULL DEFAULT 0,
@@ -243,6 +245,7 @@ def _ensure_credit_positions_table():
                 updated_at      TIMESTAMP DEFAULT NOW()
             )
         """)
+        cur.execute("ALTER TABLE credit_positions ADD COLUMN IF NOT EXISTS brokerage VARCHAR(50) NOT NULL DEFAULT ''")
 
 
 def _get_total_cash() -> int:
@@ -1172,23 +1175,51 @@ def api_rebalance_target():
 @app.route("/api/credit_positions")
 def api_credit_positions_list():
     rows = query("""
-        SELECT id, name, purchase_amount, loan_amount, note,
+        SELECT id, brokerage, name, purchase_amount, loan_amount, note,
                TO_CHAR(updated_at, 'YYYY-MM-DD HH24:MI') AS updated_at
-        FROM credit_positions ORDER BY id
+        FROM credit_positions ORDER BY brokerage, id
     """)
-    return jsonify([{
+    positions = [{
         "id":              r["id"],
+        "brokerage":       r["brokerage"] or "",
         "name":            r["name"],
         "purchase_amount": int(r["purchase_amount"]),
         "loan_amount":     int(r["loan_amount"]),
         "note":            r["note"] or "",
         "updated_at":      r["updated_at"],
-    } for r in rows])
+    } for r in rows]
+
+    # 증권사별 주식 평가금
+    broker_rows = query("""
+        WITH latest_close AS (
+            SELECT DISTINCT ON (stock_code) stock_code, close_price
+            FROM supply_demand
+            WHERE close_price IS NOT NULL AND close_price > 0
+            ORDER BY stock_code, date DESC
+        )
+        SELECT
+            mh.brokerage,
+            COALESCE(SUM(mh.quantity * COALESCE(
+                lc.close_price,
+                CASE WHEN st.last_price ~ '^[0-9]+$' THEN st.last_price::BIGINT ELSE NULL END,
+                mh.avg_price,
+                0
+            )), 0) AS stock_eval
+        FROM manual_holdings mh
+        LEFT JOIN latest_close lc ON lc.stock_code = mh.stock_code
+        LEFT JOIN stocks st ON st.stock_code = mh.stock_code
+        GROUP BY mh.brokerage
+        ORDER BY mh.brokerage
+    """)
+    broker_stock_eval = {(r["brokerage"] or ""): round(float(r["stock_eval"] or 0)) for r in broker_rows}
+
+    return jsonify({"positions": positions, "broker_stock_eval": broker_stock_eval})
 
 
 @app.route("/api/credit_positions", methods=["POST"])
 def api_credit_positions_create():
     data = request.get_json() or {}
+    brokerage = (data.get("brokerage") or "").strip()
     name = (data.get("name") or "").strip()
     if not name:
         return jsonify({"error": "이름 필수"}), 400
@@ -1200,8 +1231,8 @@ def api_credit_positions_create():
     note = (data.get("note") or "").strip()
     with get_conn() as conn:
         conn.cursor().execute(
-            "INSERT INTO credit_positions (name, purchase_amount, loan_amount, note) VALUES (%s,%s,%s,%s)",
-            (name, purchase, loan, note),
+            "INSERT INTO credit_positions (brokerage, name, purchase_amount, loan_amount, note) VALUES (%s,%s,%s,%s,%s)",
+            (brokerage, name, purchase, loan, note),
         )
     return jsonify({"ok": True})
 
@@ -1209,6 +1240,7 @@ def api_credit_positions_create():
 @app.route("/api/credit_positions/<int:pid>", methods=["PUT"])
 def api_credit_positions_update(pid: int):
     data = request.get_json() or {}
+    brokerage = (data.get("brokerage") or "").strip()
     name = (data.get("name") or "").strip()
     if not name:
         return jsonify({"error": "이름 필수"}), 400
@@ -1220,8 +1252,8 @@ def api_credit_positions_update(pid: int):
     note = (data.get("note") or "").strip()
     with get_conn() as conn:
         conn.cursor().execute(
-            "UPDATE credit_positions SET name=%s, purchase_amount=%s, loan_amount=%s, note=%s, updated_at=NOW() WHERE id=%s",
-            (name, purchase, loan, note, pid),
+            "UPDATE credit_positions SET brokerage=%s, name=%s, purchase_amount=%s, loan_amount=%s, note=%s, updated_at=NOW() WHERE id=%s",
+            (brokerage, name, purchase, loan, note, pid),
         )
     return jsonify({"ok": True})
 
