@@ -5093,8 +5093,9 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
 
   const actualTotal = items.reduce((s, i) => s + i.tradeAmt, 0);
   const label = isBuy ? '📈 주식 매수 계획' : '📉 주식 매도 계획';
+  const needLabel  = isBuy ? '현금 투입 목표' : '현금 확보 목표';
   document.getElementById('rb-cash-plan-header').textContent =
-    `${label}  (필요 ${tradeTotal.toLocaleString()}원 / 실행 ${actualTotal.toLocaleString()}원)`;
+    `${label}  ·  ${needLabel} ${tradeTotal.toLocaleString()}원  →  실행 가능 ${actualTotal.toLocaleString()}원 (1주 단위 절사)`;
 
   const tbody = document.getElementById('rb-cash-plan-tbody');
   if (!items.length) {
