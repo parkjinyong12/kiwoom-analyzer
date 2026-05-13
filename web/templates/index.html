@@ -3908,17 +3908,21 @@ const MENU_META = {
   supply:     { label: '수급 현황',       icon: '💹', section: '분석' },
   divergence: { label: '수급↑ 가격↔',   icon: '🔍', section: '분석' },
   snapshot:   { label: '기간별 변화',     icon: '📊', section: '분석' },
-  signals:       { label: '매매 신호',       icon: '📈', section: '분석' },
-  report:        { label: '보유종목 리포트', icon: '📧', section: '분석' },
-  'ext-holdings': { label: '보유종목',        icon: '🏦', section: '분석' },
-  'price-mgmt':   { label: '현재가 관리',    icon: '💰', section: '분석' },
-  'cash-assets':  { label: '현금성 자산',    icon: '💵', section: '분석' },
-  macro:          { label: '매크로 관리',    icon: '📊', section: '분석' },
-  auditlog:       { label: '감사 로그',      icon: '📋', section: '시스템' },
-  stocks:     { label: '감시 종목',       icon: '🔭', section: '시스템' },
-  batch:           { label: '배치 관리',    icon: '⚙️', section: '관리' },
-  'common-codes':  { label: '공통코드 관리', icon: '🗂️', section: '관리' },
-  usermgmt:        { label: '사용자 관리',  icon: '👥', section: '관리' },
+  signals:         { label: '매매 신호',       icon: '📈', section: '분석' },
+  report:          { label: '보유종목 리포트', icon: '📧', section: '분석' },
+  'ext-holdings':  { label: '보유종목',        icon: '🏦', section: '분석' },
+  'price-mgmt':    { label: '현재가 관리',     icon: '💰', section: '분석' },
+  'cash-assets':   { label: '현금성 자산',     icon: '💵', section: '분석' },
+  macro:           { label: '매크로 관리',     icon: '📊', section: '분석' },
+  rebalance:       { label: '현금·신용 리밸런싱', icon: '⚖️', section: '분석' },
+  'stock-rebalance': { label: '주식 간 리밸런싱', icon: '📈', section: '분석' },
+  'theme-rebalance': { label: '테마 리밸런싱',    icon: '🏷️', section: '분석' },
+  qualitative:     { label: '정성 점수',       icon: '📝', section: '분석' },
+  auditlog:        { label: '감사 로그',       icon: '📋', section: '시스템' },
+  stocks:          { label: '감시 종목',       icon: '🔭', section: '시스템' },
+  batch:           { label: '배치 관리',       icon: '⚙️', section: '관리' },
+  'common-codes':  { label: '공통코드 관리',   icon: '🗂️', section: '관리' },
+  usermgmt:        { label: '사용자 관리',     icon: '👥', section: '관리' },
 };
 
 let allUsers = [];
@@ -6647,7 +6651,7 @@ async function ccDelete(id, name) {
 }
 
 // ─── 초기 로드 (해시 기반 페이지 복원) ───────────────────
-const PAGES = ['dashboard','supply','divergence','snapshot','signals','report','ext-holdings','price-mgmt','cash-assets','macro','rebalance','theme-rebalance','qualitative','auditlog','stocks','batch','common-codes','usermgmt'];
+const PAGES = ['dashboard','supply','divergence','snapshot','signals','report','ext-holdings','price-mgmt','cash-assets','macro','rebalance','stock-rebalance','theme-rebalance','qualitative','auditlog','stocks','batch','common-codes','usermgmt'];
 // visible_menus 저장 시점 이전에 존재하던 페이지 목록
 const PAGES_V1 = ['dashboard','supply','signals','auditlog','stocks','batch','usermgmt'];
 
