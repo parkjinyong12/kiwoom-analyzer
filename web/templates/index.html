@@ -1856,7 +1856,6 @@ canvas { max-height: 220px; }
       </div>
       <div style="display:flex;gap:8px">
         <button class="btn btn-ghost" style="font-size:12px" onclick="loadRebalance()">새로고침</button>
-        <button class="btn btn-primary" id="rb-rec-btn" style="font-size:12px" onclick="rbToggleRecommendation()">💡 매매 추천</button>
       </div>
     </div>
 
@@ -1885,7 +1884,7 @@ canvas { max-height: 220px; }
     </div>
 
     <!-- 매매 추천 패널 (토글) -->
-    <div id="rb-rec-panel" style="display:none;margin-bottom:4px">
+    <div id="rb-rec-panel" style="margin-bottom:4px">
       <div class="cards" style="grid-template-columns:repeat(4,1fr);margin-bottom:12px">
         <div class="card">
           <div class="card-label">총 매수 금액</div>
@@ -4861,7 +4860,7 @@ async function loadRebalance() {
     rbUpdateSummary(json);
     rbRenderMarginPanel();
     rbRender();
-    if (rbRecVisible) rbRenderRecommendation();
+    rbRenderRecommendation();
   } catch(e) {
     document.getElementById('rb-tbody').innerHTML =
       '<tr><td colspan="10" style="text-align:center;color:#f87171;padding:32px">데이터 로드 실패</td></tr>';
