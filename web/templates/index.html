@@ -5361,11 +5361,12 @@ function rbRender() {
     <span style="font-size:11px;color:#64748b">%</span>`;
 
     const hasCustom = r.alert_up !== null || r.alert_down !== null;
+    const thColor = hasCustom ? '#a78bfa' : '#475569';
     return `<tr>
       <td>
         <span style="font-weight:500;cursor:pointer;color:#60a5fa;text-decoration:underline;text-underline-offset:3px"
               onclick="showStockSetting('${r.stock_code}')">${r.stock_name || '-'}</span>
-        ${hasCustom ? '<span style="font-size:10px;color:#a78bfa;margin-left:5px">개별설정</span>' : ''}
+        <br><span style="font-size:10px;color:${thColor}">▲${aUp}% ▼${aDown}%</span>
       </td>
       <td class="num">${r.eval_amt.toLocaleString()}원${r.has_price ? '' : '<br><span style="font-size:10px;color:#64748b">매입가 기준</span>'}</td>
       <td class="num" style="font-weight:500">${cur.toFixed(2)}%</td>
