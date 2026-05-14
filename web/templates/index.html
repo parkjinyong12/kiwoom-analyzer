@@ -1884,6 +1884,9 @@ canvas { max-height: 220px; }
       </div>
     </div>
 
+    <!-- 목록 뷰 -->
+    <div id="srb-list-view">
+
     <!-- 기준 설정 -->
     <div class="panel" style="margin-bottom:12px">
       <div class="panel-header" style="cursor:default">리밸런싱 기준 설정</div>
@@ -2005,6 +2008,55 @@ canvas { max-height: 220px; }
         </table>
       </div>
     </div>
+
+    </div><!-- /srb-list-view -->
+
+    <!-- 종목별 설정 뷰 -->
+    <div id="srb-setting-view" style="display:none">
+      <div style="margin-bottom:14px">
+        <button class="btn btn-ghost" style="font-size:13px" onclick="hideStockSetting()">← 목록으로</button>
+      </div>
+      <div class="panel">
+        <div class="panel-header" style="cursor:default">
+          <div>
+            <span id="ss-stock-name" style="font-size:16px;font-weight:700">-</span>
+            <span id="ss-stock-code" style="font-size:12px;color:#64748b;margin-left:8px;font-family:monospace">-</span>
+          </div>
+        </div>
+        <div style="padding:20px;display:grid;gap:20px;max-width:480px">
+
+          <div>
+            <div style="font-size:12px;color:#64748b;margin-bottom:6px">목표비율 (%)</div>
+            <input type="number" id="ss-target" min="0" max="100" step="0.1" placeholder="0"
+                   style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:14px;outline:none"/>
+          </div>
+
+          <div style="border-top:1px solid #1e2535;padding-top:16px">
+            <div style="font-size:12px;color:#94a3b8;margin-bottom:12px;font-weight:600">편차 알림 기준 <span style="font-weight:400;color:#475569">(비워두면 전체 기준 적용)</span></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+              <div>
+                <div style="font-size:12px;color:#f87171;margin-bottom:6px">과다보유 기준 (%)</div>
+                <input type="number" id="ss-alert-up" min="1" max="500" step="1" placeholder="전체 기준 사용"
+                       style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#f87171;font-size:13px;outline:none"/>
+              </div>
+              <div>
+                <div style="font-size:12px;color:#60a5fa;margin-bottom:6px">부족보유 기준 (%)</div>
+                <input type="number" id="ss-alert-down" min="1" max="500" step="1" placeholder="전체 기준 사용"
+                       style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#60a5fa;font-size:13px;outline:none"/>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:10px;align-items:center">
+            <button class="btn btn-primary" style="padding:9px 24px" onclick="ssSave()">저장</button>
+            <button class="btn btn-ghost" style="padding:9px 16px" onclick="ssClear()">개별 기준 초기화</button>
+            <span id="ss-save-msg" style="font-size:12px;color:#4ade80;display:none">✓ 저장됨</span>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
   </section>
 
   <!-- ===== 테마 리밸런싱 페이지 ===== -->
@@ -4937,7 +4989,9 @@ function rbUpdateSummary(json) {
       : r.current_ratio;
     const relDev = r.target_ratio > 0 ? (cur - r.target_ratio) / r.target_ratio * 100 : null;
     if (relDev === null) return false;
-    return relDev > rbAlertUp || relDev < -rbAlertDown;
+    const aUp   = r.alert_up   !== null ? r.alert_up   : rbAlertUp;
+    const aDown = r.alert_down !== null ? r.alert_down : rbAlertDown;
+    return relDev > aUp || relDev < -aDown;
   }).length;
 
   // 현금 편차 알림 — 주식간 페이지에서는 현금 무관
@@ -5245,22 +5299,26 @@ function rbRender() {
     const absDev = parseFloat((cur - tgt).toFixed(2));
     const relDev = tgt > 0 ? parseFloat(((cur - tgt) / tgt * 100).toFixed(1)) : null;
 
+    // 종목별 임계값 (없으면 전체 기준)
+    const aUp   = r.alert_up   !== null ? r.alert_up   : rbAlertUp;
+    const aDown = r.alert_down !== null ? r.alert_down : rbAlertDown;
+
     // 편차 표시
     let devStr = '-', devColor = '#64748b';
     if (tgt > 0 && relDev !== null) {
       const sign = relDev >= 0 ? '+' : '';
       devStr = `${sign}${relDev.toFixed(1)}%<br><span style="font-size:10px;color:#64748b">${absDev >= 0 ? '+' : ''}${absDev.toFixed(2)}pp</span>`;
-      if (relDev > rbAlertUp)              devColor = '#f87171';
-      else if (relDev < -rbAlertDown)      devColor = '#60a5fa';
-      else if (Math.abs(relDev) > rbAlertUp * 0.6) devColor = '#f59e0b';
+      if (relDev > aUp)                        devColor = '#f87171';
+      else if (relDev < -aDown)                devColor = '#60a5fa';
+      else if (Math.abs(relDev) > aUp * 0.6)  devColor = '#f59e0b';
     }
 
     // 신호
     let signal = '', sigColor = '#64748b', sigBg = '';
     if (tgt > 0 && relDev !== null) {
-      if      (relDev > rbAlertUp)    { signal = '차익실현 검토'; sigColor = '#f87171'; sigBg = 'background:rgba(248,113,113,0.1);'; }
-      else if (relDev < -rbAlertDown) { signal = '추가매수 검토'; sigColor = '#60a5fa'; sigBg = 'background:rgba(96,165,250,0.1);'; }
-      else                            { signal = '정상 범위';   sigColor = '#4ade80'; }
+      if      (relDev > aUp)   { signal = '차익실현 검토'; sigColor = '#f87171'; sigBg = 'background:rgba(248,113,113,0.1);'; }
+      else if (relDev < -aDown){ signal = '추가매수 검토'; sigColor = '#60a5fa'; sigBg = 'background:rgba(96,165,250,0.1);'; }
+      else                     { signal = '정상 범위';    sigColor = '#4ade80'; }
     } else if (!tgt) {
       signal = '목표 미설정'; sigColor = '#64748b';
     }
@@ -5306,8 +5364,13 @@ function rbRender() {
       onkeydown="if(event.key==='Enter'&&!event.isComposing)this.blur()"/>
     <span style="font-size:11px;color:#64748b">%</span>`;
 
+    const hasCustom = r.alert_up !== null || r.alert_down !== null;
     return `<tr>
-      <td style="font-weight:500">${r.stock_name || '-'}</td>
+      <td>
+        <span style="font-weight:500;cursor:pointer;color:#60a5fa;text-decoration:underline;text-underline-offset:3px"
+              onclick="showStockSetting('${r.stock_code}')">${r.stock_name || '-'}</span>
+        ${hasCustom ? '<span style="font-size:10px;color:#a78bfa;margin-left:5px">개별설정</span>' : ''}
+      </td>
       <td class="num">${r.eval_amt.toLocaleString()}원${r.has_price ? '' : '<br><span style="font-size:10px;color:#64748b">매입가 기준</span>'}</td>
       <td class="num" style="font-weight:500">${cur.toFixed(2)}%</td>
       <td class="num">${targetInput}</td>
@@ -5315,6 +5378,67 @@ function rbRender() {
       <td class="center" style="${sigBg}padding:6px"><span style="color:${sigColor};font-size:12px;font-weight:500">${signal}</span></td>
     </tr>`;
   }).join('');
+}
+
+// ─── 종목별 설정 뷰 ──────────────────────────────────────
+let ssCurrentCode = null;
+
+function showStockSetting(stockCode) {
+  const r = rbData.find(d => d.stock_code === stockCode);
+  if (!r) return;
+  ssCurrentCode = stockCode;
+  document.getElementById('srb-list-view').style.display    = 'none';
+  document.getElementById('srb-setting-view').style.display = 'block';
+  document.getElementById('ss-stock-name').textContent = r.stock_name || stockCode;
+  document.getElementById('ss-stock-code').textContent = stockCode;
+  document.getElementById('ss-target').value     = r.target_ratio || '';
+  document.getElementById('ss-alert-up').value   = r.alert_up   !== null ? r.alert_up   : '';
+  document.getElementById('ss-alert-down').value = r.alert_down !== null ? r.alert_down : '';
+  document.getElementById('ss-save-msg').style.display = 'none';
+}
+
+function hideStockSetting() {
+  document.getElementById('srb-setting-view').style.display = 'none';
+  document.getElementById('srb-list-view').style.display    = 'block';
+  ssCurrentCode = null;
+}
+
+async function ssSave() {
+  if (!ssCurrentCode) return;
+  const target   = document.getElementById('ss-target').value;
+  const alertUp  = document.getElementById('ss-alert-up').value;
+  const alertDown= document.getElementById('ss-alert-down').value;
+  await fetch('/api/rebalance/stock_setting', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      stock_code:   ssCurrentCode,
+      target_ratio: target   !== '' ? parseFloat(target)    : null,
+      alert_up:     alertUp  !== '' ? parseFloat(alertUp)   : null,
+      alert_down:   alertDown!== '' ? parseFloat(alertDown) : null,
+    }),
+  });
+  const msg = document.getElementById('ss-save-msg');
+  msg.style.display = 'inline';
+  setTimeout(() => msg.style.display = 'none', 2000);
+  await loadRebalance();
+  // 뷰는 유지 — 재로드 후 rbData가 갱신됐으므로 폼 값 재설정
+  const updated = rbData.find(d => d.stock_code === ssCurrentCode);
+  if (updated) {
+    document.getElementById('ss-target').value     = updated.target_ratio || '';
+    document.getElementById('ss-alert-up').value   = updated.alert_up   !== null ? updated.alert_up   : '';
+    document.getElementById('ss-alert-down').value = updated.alert_down !== null ? updated.alert_down : '';
+    // 재로드로 뷰가 리셋됐을 수 있으므로 설정뷰 다시 표시
+    document.getElementById('srb-list-view').style.display    = 'none';
+    document.getElementById('srb-setting-view').style.display = 'block';
+  }
+}
+
+async function ssClear() {
+  if (!ssCurrentCode) return;
+  document.getElementById('ss-alert-up').value   = '';
+  document.getElementById('ss-alert-down').value = '';
+  await ssSave();
 }
 
 async function rbSaveTarget(stockCode, inputEl) {
@@ -5406,8 +5530,11 @@ function rbRenderRecommendation() {
     const absDev = parseFloat((cur - tgt).toFixed(2));
     const relDev = tgt > 0 ? parseFloat(((cur - tgt) / tgt * 100).toFixed(1)) : null;
 
+    // 종목별 임계값 (없으면 전체 기준)
+    const aUp   = r.alert_up   !== null ? r.alert_up   : rbAlertUp;
+    const aDown = r.alert_down !== null ? r.alert_down : rbAlertDown;
     // 정상 범위 종목은 추천 제외
-    if (relDev === null || (relDev <= rbAlertUp && relDev >= -rbAlertDown)) continue;
+    if (relDev === null || (relDev <= aUp && relDev >= -aDown)) continue;
 
     const targetEval = rbStockTotal * tgt / 100;
     const diff       = targetEval - r.eval_amt;

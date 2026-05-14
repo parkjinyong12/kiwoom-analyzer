@@ -280,6 +280,8 @@ def _ensure_rebalance_targets_table():
                 updated_at   TIMESTAMP     DEFAULT NOW()
             )
         """)
+        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS alert_up   DECIMAL(6,2) DEFAULT NULL")
+        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS alert_down DECIMAL(6,2) DEFAULT NULL")
 
 
 def _ensure_common_codes_table():
@@ -1103,7 +1105,8 @@ def api_rebalance():
                 lc.close_price,
                 CASE WHEN st.last_price ~ '^[0-9]+$' THEN st.last_price::BIGINT ELSE NULL END
             ) AS current_price,
-            COALESCE(rt.target_ratio, 0) AS target_ratio
+            COALESCE(rt.target_ratio, 0) AS target_ratio,
+            rt.alert_up, rt.alert_down
         FROM holdings_agg ha
         LEFT JOIN latest_close lc ON lc.stock_code = ha.stock_code
         LEFT JOIN stocks st ON st.stock_code = ha.stock_code
@@ -1134,6 +1137,8 @@ def api_rebalance():
             "eval_amt":     round(eval_amt),
             "has_price":    cur_price is not None,
             "target_ratio": float(r["target_ratio"] or 0),
+            "alert_up":     float(r["alert_up"])   if r["alert_up"]   is not None else None,
+            "alert_down":   float(r["alert_down"]) if r["alert_down"] is not None else None,
         })
 
     portfolio_total = stock_total + total_cash
@@ -1156,6 +1161,33 @@ def api_rebalance():
         "alert_down":        alert_down,
         "cash_target_ratio": cash_target_ratio,
     })
+
+
+@app.route("/api/rebalance/stock_setting", methods=["PUT"])
+def api_rebalance_stock_setting():
+    data = request.get_json() or {}
+    stock_code = (data.get("stock_code") or "").strip()
+    if not stock_code:
+        return jsonify({"error": "종목코드 필수"}), 400
+    def _to_float_or_none(v):
+        try:
+            return float(v) if v not in (None, "") else None
+        except (ValueError, TypeError):
+            return None
+    target_ratio = _to_float_or_none(data.get("target_ratio"))
+    alert_up     = _to_float_or_none(data.get("alert_up"))
+    alert_down   = _to_float_or_none(data.get("alert_down"))
+    with get_conn() as conn:
+        conn.cursor().execute("""
+            INSERT INTO rebalance_targets (stock_code, target_ratio, alert_up, alert_down, updated_at)
+            VALUES (%s, COALESCE(%s, 0), %s, %s, NOW())
+            ON CONFLICT (stock_code) DO UPDATE SET
+                target_ratio = COALESCE(EXCLUDED.target_ratio, rebalance_targets.target_ratio),
+                alert_up     = EXCLUDED.alert_up,
+                alert_down   = EXCLUDED.alert_down,
+                updated_at   = NOW()
+        """, (stock_code, target_ratio, alert_up, alert_down))
+    return jsonify({"ok": True})
 
 
 @app.route("/api/rebalance/target", methods=["PUT"])
