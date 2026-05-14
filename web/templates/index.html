@@ -534,6 +534,14 @@ canvas { max-height: 220px; }
             onmouseout="this.style.background='transparent';this.style.color='#64748b'">
       로그아웃
     </button>
+    <button id="pwa-install-btn" onclick="pwaInstall()"
+            style="display:none;margin-top:8px;width:100%;padding:7px;border-radius:6px;
+                   border:1px solid #3b82f6;background:rgba(59,130,246,0.1);
+                   color:#60a5fa;font-size:12px;cursor:pointer;transition:all 0.15s"
+            onmouseover="this.style.background='rgba(59,130,246,0.2)'"
+            onmouseout="this.style.background='rgba(59,130,246,0.1)'">
+      📲 앱으로 설치
+    </button>
   </div>
 </nav>
 
@@ -7101,6 +7109,32 @@ async function initApp() {
 }
 
 initApp();
+
+// ── PWA: 서비스워커 등록 + 설치 버튼 ──────────────────
+let _pwaPrompt = null;
+
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  _pwaPrompt = e;
+  const btn = document.getElementById('pwa-install-btn');
+  if (btn) btn.style.display = 'block';
+});
+
+window.addEventListener('appinstalled', () => {
+  _pwaPrompt = null;
+  const btn = document.getElementById('pwa-install-btn');
+  if (btn) btn.style.display = 'none';
+});
+
+function pwaInstall() {
+  if (!_pwaPrompt) return;
+  _pwaPrompt.prompt();
+  _pwaPrompt.userChoice.then(() => { _pwaPrompt = null; });
+}
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/static/sw.js').catch(console.error);
+}
 </script>
 </body>
 </html>

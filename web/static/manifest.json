@@ -1,12 +1,12 @@
 {
-  "name": "키움 분석기",
+  "name": "키움 분석 대시보드",
   "short_name": "키움분석",
-  "description": "키움증권 수급/차트 분석 대시보드",
+  "description": "키움증권 포트폴리오 분석 및 리밸런싱 관리",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0a0e17",
+  "background_color": "#0f1117",
   "theme_color": "#0f172a",
-  "orientation": "portrait-primary",
+  "orientation": "any",
   "icons": [
     {
       "src": "/static/icons/icon-192.png",
