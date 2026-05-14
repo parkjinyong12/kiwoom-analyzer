@@ -1887,26 +1887,6 @@ canvas { max-height: 220px; }
     <!-- 목록 뷰 -->
     <div id="srb-list-view">
 
-    <!-- 기준 설정 -->
-    <div class="panel" style="margin-bottom:12px">
-      <div class="panel-header" style="cursor:default">리밸런싱 기준 설정</div>
-      <div style="display:flex;gap:20px;align-items:center;padding:12px 16px;flex-wrap:wrap">
-        <div style="display:flex;align-items:center;gap:8px">
-          <span style="font-size:12px;color:#f87171">과다보유 기준</span>
-          <input type="number" id="srb-threshold-up" value="30" min="1" max="500" step="1"
-                 style="width:55px;padding:5px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#f87171;font-size:13px;text-align:center;outline:none"/>
-          <span style="font-size:12px;color:#64748b">% 초과 → 차익실현</span>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <span style="font-size:12px;color:#60a5fa">부족보유 기준</span>
-          <input type="number" id="srb-threshold-down" value="25" min="1" max="500" step="1"
-                 style="width:55px;padding:5px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#60a5fa;font-size:13px;text-align:center;outline:none"/>
-          <span style="font-size:12px;color:#64748b">% 이하 → 추가매수</span>
-        </div>
-        <button class="btn btn-primary" style="font-size:12px;padding:6px 14px" onclick="srbSaveThresholds()">저장</button>
-      </div>
-    </div>
-
     <!-- 요약 카드 -->
     <div class="cards" style="grid-template-columns:repeat(4,1fr)">
       <div class="card">
@@ -4947,8 +4927,6 @@ async function loadRebalance() {
     document.getElementById('rb-threshold-up').value        = rbAlertUp;
     document.getElementById('rb-threshold-down').value      = rbAlertDown;
     document.getElementById('rb-cash-target-input').value   = rbCashTargetRatio || 0;
-    document.getElementById('srb-threshold-up').value       = rbAlertUp;
-    document.getElementById('srb-threshold-down').value     = rbAlertDown;
 
     rbUpdateSummary(json);
     rbRenderMarginPanel();
@@ -5392,8 +5370,10 @@ function showStockSetting(stockCode) {
   document.getElementById('ss-stock-name').textContent = r.stock_name || stockCode;
   document.getElementById('ss-stock-code').textContent = stockCode;
   document.getElementById('ss-target').value     = r.target_ratio || '';
-  document.getElementById('ss-alert-up').value   = r.alert_up   !== null ? r.alert_up   : '';
-  document.getElementById('ss-alert-down').value = r.alert_down !== null ? r.alert_down : '';
+  document.getElementById('ss-alert-up').value       = r.alert_up   !== null ? r.alert_up   : '';
+  document.getElementById('ss-alert-down').value     = r.alert_down !== null ? r.alert_down : '';
+  document.getElementById('ss-alert-up').placeholder   = `기본값 ${rbAlertUp}%`;
+  document.getElementById('ss-alert-down').placeholder = `기본값 ${rbAlertDown}%`;
   document.getElementById('ss-save-msg').style.display = 'none';
 }
 
@@ -5477,20 +5457,6 @@ async function rbSaveThresholds() {
       rebalance_alert_up:   String(rbAlertUp),
       rebalance_alert_down: String(rbAlertDown),
       cash_target_ratio:    String(rbCashTargetRatio),
-    }),
-  });
-  await loadRebalance();
-}
-
-async function srbSaveThresholds() {
-  rbAlertUp   = parseFloat(document.getElementById('srb-threshold-up').value)   || 30;
-  rbAlertDown = parseFloat(document.getElementById('srb-threshold-down').value) || 25;
-  await fetch('/api/settings', {
-    method: 'PUT',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({
-      rebalance_alert_up:   String(rbAlertUp),
-      rebalance_alert_down: String(rbAlertDown),
     }),
   });
   await loadRebalance();
