@@ -2021,16 +2021,26 @@ canvas { max-height: 220px; }
 
           <div style="border-top:1px solid #1e2535;padding-top:16px">
             <div style="font-size:12px;color:#94a3b8;margin-bottom:12px;font-weight:600">편차 알림 기준 <span style="font-weight:400;color:#475569">(비워두면 전체 기준 적용)</span></div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-              <div>
-                <div style="font-size:12px;color:#f87171;margin-bottom:6px">과다보유 기준 (%)</div>
-                <input type="number" id="ss-alert-up" min="1" max="500" step="1" placeholder="전체 기준 사용"
-                       style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#f87171;font-size:13px;outline:none"/>
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <!-- 과다보유: 편차 +X% 초과 시 차익실현 -->
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="font-size:13px;color:#f87171;font-weight:600;white-space:nowrap">+ 편차</span>
+                <div style="display:flex;align-items:center;border:1px solid #f87171;border-radius:6px;overflow:hidden;flex:1;max-width:140px">
+                  <input type="text" inputmode="decimal" id="ss-alert-up" placeholder="기본"
+                         style="width:100%;padding:8px 10px;background:#0f1117;color:#f87171;font-size:14px;outline:none;border:none;text-align:right"/>
+                  <span style="padding:0 8px;color:#f87171;font-size:13px;background:#0f1117;border-left:1px solid #1e2535">%</span>
+                </div>
+                <span style="font-size:12px;color:#64748b;white-space:nowrap">초과 → 차익실현 고려</span>
               </div>
-              <div>
-                <div style="font-size:12px;color:#60a5fa;margin-bottom:6px">부족보유 기준 (%)</div>
-                <input type="number" id="ss-alert-down" min="1" max="500" step="1" placeholder="전체 기준 사용"
-                       style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#60a5fa;font-size:13px;outline:none"/>
+              <!-- 부족보유: 편차 -X% 이상 시 추가매수 -->
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="font-size:13px;color:#60a5fa;font-weight:600;white-space:nowrap">− 편차</span>
+                <div style="display:flex;align-items:center;border:1px solid #60a5fa;border-radius:6px;overflow:hidden;flex:1;max-width:140px">
+                  <input type="text" inputmode="decimal" id="ss-alert-down" placeholder="기본"
+                         style="width:100%;padding:8px 10px;background:#0f1117;color:#60a5fa;font-size:14px;outline:none;border:none;text-align:right"/>
+                  <span style="padding:0 8px;color:#60a5fa;font-size:13px;background:#0f1117;border-left:1px solid #1e2535">%</span>
+                </div>
+                <span style="font-size:12px;color:#64748b;white-space:nowrap">초과 → 추가매수 고려</span>
               </div>
             </div>
           </div>
@@ -5402,8 +5412,8 @@ async function ssSave() {
     body: JSON.stringify({
       stock_code:   ssCurrentCode,
       target_ratio: target   !== '' ? parseFloat(target)    : null,
-      alert_up:     alertUp  !== '' ? parseFloat(alertUp)   : null,
-      alert_down:   alertDown!== '' ? parseFloat(alertDown) : null,
+      alert_up:     alertUp  !== '' ? Math.abs(parseFloat(alertUp))   : null,
+      alert_down:   alertDown!== '' ? Math.abs(parseFloat(alertDown)) : null,
     }),
   });
   const msg = document.getElementById('ss-save-msg');
