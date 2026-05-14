@@ -115,6 +115,14 @@ class TokenManager:
             self._issue_token()
             return self._token  # type: ignore[return-value]
 
+    def force_refresh(self) -> str:
+        """서버 측 토큰 무효화(8005 등) 시 강제 재발급."""
+        with self._lock:
+            self._expires_at = 0.0
+            self._token = None
+            self._issue_token()
+            return self._token  # type: ignore[return-value]
+
     def _issue_token(self) -> None:
         url = f"{self._base_url}/oauth2/token"
         payload = {
@@ -162,7 +170,7 @@ class MarketDataAgent:
     # 공통 요청
     # ------------------------------------------------------------------
 
-    def _post(self, path: str, api_id: str, body: dict) -> dict:
+    def _post(self, path: str, api_id: str, body: dict, _retry: bool = True) -> dict:
         self._limiter.wait()
         url = f"{self._base_url}{path}"
         headers = {
@@ -176,6 +184,11 @@ class MarketDataAgent:
 
         if data.get("return_code", -1) != 0:
             msg = data.get("return_msg", "알 수 없는 오류")
+            # 토큰 무효화(8005) → 강제 재발급 후 1회 재시도
+            if _retry and "8005" in msg:
+                logger.warning("토큰 무효화(8005) 감지 — 강제 재발급 후 재시도")
+                self._token_mgr.force_refresh()
+                return self._post(path, api_id, body, _retry=False)
             raise RuntimeError(f"키움 API 오류 [{api_id}]: {msg}")
 
         return data
