@@ -7146,6 +7146,116 @@ function pwaInstall() {
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/static/sw.js').catch(console.error);
 }
+
+// ── Pull-to-refresh (모바일) ─────────────────────────
+(function() {
+  const PAGE_LOAD_MAP = {
+    'dashboard':       () => loadDashboard(),
+    'supply':          () => loadSupplyStocksAndRestore(),
+    'divergence':      () => loadDivergence(),
+    'snapshot':        () => loadSnapshot(),
+    'signals':         () => loadSignals(),
+    'auditlog':        () => loadEvents(),
+    'stocks':          () => loadStocks(),
+    'batch':           () => loadBatch(),
+    'report':          () => loadReportPage(),
+    'usermgmt':        () => loadUserMgmt(),
+    'ext-holdings':    () => loadExtHoldings(),
+    'price-mgmt':      () => loadPriceMgmt(),
+    'cash-assets':     () => loadCashAssets(),
+    'macro':           () => loadMacro(),
+    'rebalance':       () => loadRebalance(),
+    'credit':          () => loadCredit(),
+    'stock-rebalance': () => loadRebalance(),
+    'theme-rebalance': () => loadThemeRebalance(),
+    'qualitative':     () => loadQualitative(),
+    'common-codes':    () => loadCommonCodes(),
+  };
+
+  function currentPageName() {
+    const active = document.querySelector('.page.active');
+    if (!active) return null;
+    return active.id.replace(/^page-/, '');
+  }
+
+  const THRESHOLD = 80;
+  let startY = 0, pulling = false, triggered = false;
+
+  // 인디케이터 엘리먼트 생성
+  const indicator = document.createElement('div');
+  indicator.id = 'ptr-indicator';
+  indicator.innerHTML = '<div id="ptr-spinner"></div>';
+  Object.assign(indicator.style, {
+    position: 'fixed', top: '0', left: '0', right: '0',
+    display: 'flex', justifyContent: 'center', alignItems: 'center',
+    height: '0', overflow: 'hidden',
+    background: 'rgba(15,17,23,0.95)', zIndex: '9999',
+    transition: 'height 0.15s ease',
+    pointerEvents: 'none',
+  });
+  Object.assign(indicator.querySelector('#ptr-spinner').style, {
+    width: '24px', height: '24px',
+    border: '3px solid #1e2535',
+    borderTop: '3px solid #3b82f6',
+    borderRadius: '50%',
+    opacity: '0',
+    transition: 'opacity 0.2s',
+  });
+  document.body.appendChild(indicator);
+
+  const spinner = indicator.querySelector('#ptr-spinner');
+  let spinnerAnim = null;
+
+  function setIndicatorHeight(h) {
+    indicator.style.transition = h === 0 ? 'height 0.25s ease' : 'none';
+    indicator.style.height = h + 'px';
+    spinner.style.opacity = h > 20 ? '1' : '0';
+    if (h >= THRESHOLD && !spinnerAnim) {
+      spinner.style.animation = 'ptr-spin 0.7s linear infinite';
+      spinnerAnim = true;
+    } else if (h < THRESHOLD && spinnerAnim) {
+      spinner.style.animation = '';
+      spinnerAnim = false;
+    }
+  }
+
+  // 스피너 CSS 애니메이션 주입
+  const style = document.createElement('style');
+  style.textContent = '@keyframes ptr-spin { to { transform: rotate(360deg); } }';
+  document.head.appendChild(style);
+
+  const main = document.getElementById('main');
+
+  main.addEventListener('touchstart', e => {
+    if (main.scrollTop !== 0) return;
+    startY = e.touches[0].clientY;
+    pulling = true;
+    triggered = false;
+  }, { passive: true });
+
+  main.addEventListener('touchmove', e => {
+    if (!pulling) return;
+    if (main.scrollTop > 0) { pulling = false; setIndicatorHeight(0); return; }
+    const dy = e.touches[0].clientY - startY;
+    if (dy <= 0) return;
+    const h = Math.min(dy * 0.5, THRESHOLD + 20);
+    setIndicatorHeight(h);
+  }, { passive: true });
+
+  main.addEventListener('touchend', async () => {
+    if (!pulling) return;
+    pulling = false;
+    const h = parseFloat(indicator.style.height) || 0;
+    if (h >= THRESHOLD && !triggered) {
+      triggered = true;
+      setIndicatorHeight(THRESHOLD);
+      const fn = PAGE_LOAD_MAP[currentPageName()];
+      if (fn) await fn();
+    }
+    setIndicatorHeight(0);
+    triggered = false;
+  });
+})();
 </script>
 </body>
 </html>
