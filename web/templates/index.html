@@ -5891,8 +5891,13 @@ function trbCalcDetail(rowId, theme, isBuy) {
   if (!themeInfo) { bodyEl.innerHTML = '데이터 없음'; return; }
 
   const curAmt   = themeInfo.eval_amt;
-  const tgtAmt   = themeInfo.target_ratio / 100 * total;
-  const diffAmt  = tgtAmt - curAmt;  // 양수=매수필요, 음수=매도필요
+  const tgtRatio = themeInfo.target_ratio / 100;
+  const diffAmt  = tgtRatio * total - curAmt;  // 양수=매수필요, 음수=매도필요
+
+  // 매수/매도 시 총액 자체가 바뀌므로 보정 필요
+  // 매수: (curAmt+X)/(total+X) = tgtRatio  →  X = diffAmt / (1 - tgtRatio)
+  // 매도: (curAmt-X)/(total-X) = tgtRatio  →  X = -diffAmt / (1 - tgtRatio)
+  const adjustedDiff = Math.abs(diffAmt) / (1 - tgtRatio);
 
   // 테마 내 종목 목록 + 현재가·평가금 조회
   const themeStockCodes = themeInfo.stocks.map(s => s.stock_code);
@@ -5910,22 +5915,21 @@ function trbCalcDetail(rowId, theme, isBuy) {
   // 종목별 현재 테마 내 비중 (평가금 기준)
   const themeEval = themeStocksWithPrice.reduce((s, st) => s + st.eval_amt, 0);
   const color     = isBuy ? '#60a5fa' : '#f87171';
-  const absDiff   = Math.abs(diffAmt);
-
   let rows = '';
   let totalShares = 0, totalAmt = 0;
 
   themeStocksWithPrice.forEach(st => {
     const weight    = themeEval > 0 ? st.eval_amt / themeEval : 1 / themeStocksWithPrice.length;
-    const allocated = absDiff * weight;
+    const allocated = adjustedDiff * weight;
     const shares    = Math.floor(allocated / st.current_price);
     const amt       = shares * st.current_price;
     totalShares    += shares;
     totalAmt       += amt;
 
-    const afterEval  = isBuy ? st.eval_amt + amt : st.eval_amt - amt;
-    const afterTotal = isBuy ? total + amt : total - amt;
-    const afterRatio = afterTotal > 0 ? afterEval / afterTotal * 100 : 0;
+    // 거래 후 총액도 변하므로 정확히 반영
+    const afterStockEval = isBuy ? st.eval_amt + amt : st.eval_amt - amt;
+    const afterTotal     = isBuy ? total + totalAmt : total - totalAmt;
+    const afterRatio     = afterTotal > 0 ? afterStockEval / afterTotal * 100 : 0;
 
     rows += `<tr>
       <td style="color:#e2e8f0;font-weight:500">${st.stock_name}</td>
@@ -5937,10 +5941,16 @@ function trbCalcDetail(rowId, theme, isBuy) {
     </tr>`;
   });
 
+  // 거래 후 테마 전체 비율 검증
+  const afterThemeEval  = isBuy ? curAmt + totalAmt : curAmt - totalAmt;
+  const afterTotalPort  = isBuy ? total + totalAmt : total - totalAmt;
+  const afterThemeRatio = afterTotalPort > 0 ? afterThemeEval / afterTotalPort * 100 : 0;
+
   bodyEl.innerHTML = `
     <div style="font-size:12px;color:#94a3b8;margin-bottom:8px">
-      테마 부족액 <span style="color:${color};font-weight:600">${Math.round(absDiff).toLocaleString()}원</span>
-      · 현재 ${themeInfo.current_ratio.toFixed(2)}% → 목표 ${themeInfo.target_ratio.toFixed(2)}%
+      필요 거래액 <span style="color:${color};font-weight:600">${Math.round(adjustedDiff).toLocaleString()}원</span>
+      · 테마비율 ${themeInfo.current_ratio.toFixed(2)}% → 목표 <span style="color:${color}">${themeInfo.target_ratio.toFixed(2)}%</span>
+      (거래 후 예상 <span style="color:#4ade80">${afterThemeRatio.toFixed(2)}%</span>)
     </div>
     <table class="data-table" style="margin:0">
       <thead>
