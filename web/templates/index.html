@@ -2140,6 +2140,17 @@ canvas { max-height: 220px; }
       </div>
     </div>
 
+    <!-- 전체 테마 리밸런싱 계획 패널 -->
+    <div class="panel" style="margin-bottom:12px">
+      <div class="panel-header" style="cursor:pointer" onclick="trbToggleFullPlan()">
+        <span>전체 테마 리밸런싱 계획</span>
+        <span style="font-size:11px;color:#64748b">초과 테마 매도 → 부족 테마 매수 · 클릭하여 펼치기</span>
+      </div>
+      <div id="trb-full-plan" style="display:none;padding:16px">
+        <div id="trb-full-plan-body">계산 중...</div>
+      </div>
+    </div>
+
     <!-- 종목별 테마 설정 패널 -->
     <div class="panel">
       <div class="panel-header">
@@ -6046,6 +6057,139 @@ function trbCalcDetail(rowId, theme, isBuy) {
         </thead>
         <tbody>${allThemeRows}</tbody>
       </table>
+    </div>`;
+}
+
+function trbToggleFullPlan() {
+  const panel = document.getElementById('trb-full-plan');
+  const isOpen = panel.style.display !== 'none';
+  panel.style.display = isOpen ? 'none' : 'block';
+  if (!isOpen) trbRenderFullPlan();
+}
+
+function trbRenderFullPlan() {
+  const bodyEl = document.getElementById('trb-full-plan-body');
+  if (!trbData) return;
+
+  const total  = trbData.portfolio_total || 0;
+  const themes = (trbData.themes || []).filter(t => !t.is_untagged && t.target_ratio > 0);
+  const stockMap = {};
+  (trbData.stocks || []).forEach(s => { stockMap[s.stock_code] = s; });
+
+  if (!themes.length) {
+    bodyEl.innerHTML = '<span style="color:#64748b;font-size:13px">목표비율이 설정된 테마가 없습니다.</span>';
+    return;
+  }
+
+  // 테마별 필요 거래금액 (내부 교환 기준: 총액 고정, diff = target*total - eval)
+  const targetSum = themes.reduce((s, t) => s + t.target_ratio, 0);
+  const plans = themes.map(t => {
+    const targetAmt = t.target_ratio / 100 * total;
+    const diff      = targetAmt - t.eval_amt;  // 양수=매수, 음수=매도
+    return { ...t, targetAmt, diff };
+  });
+
+  const sellPlans = plans.filter(p => p.diff < 0).sort((a, b) => a.diff - b.diff);
+  const buyPlans  = plans.filter(p => p.diff > 0).sort((a, b) => b.diff - a.diff);
+  const totalSell = sellPlans.reduce((s, p) => s + Math.abs(p.diff), 0);
+  const totalBuy  = buyPlans.reduce((s, p) => s + p.diff, 0);
+  const netFlow   = totalBuy - totalSell;
+
+  // 테마 내 종목별 분배 계산
+  function stockRows(plan, tradeAmt, isBuy) {
+    const themeStocks = (plan.stocks || [])
+      .map(s => stockMap[s.stock_code]).filter(s => s && s.current_price > 0);
+    if (!themeStocks.length) return '<tr><td colspan="4" style="color:#475569;font-size:11px;padding:6px 12px">현재가 없음</td></tr>';
+
+    const themeEval = themeStocks.reduce((s, st) => s + st.eval_amt, 0);
+    const color = isBuy ? '#60a5fa' : '#f87171';
+    return themeStocks.map(st => {
+      const weight  = themeEval > 0 ? st.eval_amt / themeEval : 1 / themeStocks.length;
+      const alloc   = Math.abs(tradeAmt) * weight;
+      const shares  = Math.floor(alloc / st.current_price);
+      const amt     = shares * st.current_price;
+      return `<tr style="background:rgba(0,0,0,0.15)">
+        <td style="padding:5px 12px 5px 28px;color:#94a3b8;font-size:12px">${st.stock_name}</td>
+        <td class="num" style="font-size:12px;color:#64748b">${st.current_price.toLocaleString()}원</td>
+        <td class="num" style="color:${color};font-size:12px;font-weight:600">
+          ${isBuy ? '매수' : '매도'} ${shares.toLocaleString()}주
+        </td>
+        <td class="num" style="color:${color};font-size:12px">${amt.toLocaleString()}원</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function themeSection(planList, isBuy) {
+    if (!planList.length) return '<tr><td colspan="4" style="text-align:center;padding:16px;color:#475569">해당 없음</td></tr>';
+    const color = isBuy ? '#60a5fa' : '#f87171';
+    return planList.map(p => {
+      const absDiff = Math.abs(p.diff);
+      return `
+        <tr style="background:${isBuy ? 'rgba(59,130,246,0.08)' : 'rgba(248,113,113,0.08)'}">
+          <td style="font-weight:600;color:#e2e8f0;padding:8px 12px">${p.theme}</td>
+          <td class="num" style="color:#64748b">${p.current_ratio.toFixed(2)}%</td>
+          <td class="num" style="color:${color};font-weight:700">
+            ${isBuy ? '매수' : '매도'} ${Math.round(absDiff).toLocaleString()}원
+          </td>
+          <td class="num" style="color:#475569;font-size:11px">${p.target_ratio.toFixed(2)}% 목표</td>
+        </tr>
+        ${stockRows(p, absDiff, isBuy)}`;
+    }).join('');
+  }
+
+  const netColor  = Math.abs(netFlow) < 10000 ? '#4ade80' : netFlow > 0 ? '#60a5fa' : '#f87171';
+  const netLabel  = Math.abs(netFlow) < 10000 ? '균형 (현금 유출입 없음)'
+                  : netFlow > 0 ? `현금 ${Math.round(netFlow).toLocaleString()}원 필요`
+                  : `현금 ${Math.round(-netFlow).toLocaleString()}원 회수`;
+
+  const tgtSumColor = Math.abs(targetSum - 100) < 0.5 ? '#4ade80' : '#f59e0b';
+  const tgtSumNote  = Math.abs(targetSum - 100) < 0.5 ? ''
+    : `<span style="color:#f59e0b;font-size:11px;margin-left:8px">⚠ 목표합계 ${targetSum.toFixed(1)}% — 100% 아닐 시 순현금흐름 발생</span>`;
+
+  bodyEl.innerHTML = `
+    <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:16px;padding:12px 16px;background:#0a0f1a;border-radius:8px">
+      <div>
+        <div style="font-size:11px;color:#64748b">STEP 1 매도 합계</div>
+        <div style="font-size:16px;font-weight:700;color:#f87171">${Math.round(totalSell).toLocaleString()}원</div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:#64748b">STEP 2 매수 합계</div>
+        <div style="font-size:16px;font-weight:700;color:#60a5fa">${Math.round(totalBuy).toLocaleString()}원</div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:#64748b">순 현금흐름</div>
+        <div style="font-size:16px;font-weight:700;color:${netColor}">${netLabel}</div>
+      </div>
+      <div style="align-self:center">${tgtSumNote}</div>
+    </div>
+
+    <table class="data-table" style="margin-bottom:16px">
+      <thead>
+        <tr style="background:rgba(248,113,113,0.15)">
+          <th colspan="4" style="color:#f87171;text-align:left">STEP 1 — 매도 (초과 테마)</th>
+        </tr>
+        <tr>
+          <th>테마</th><th style="text-align:right">현재비율</th>
+          <th style="text-align:right">거래금액</th><th style="text-align:right">목표</th>
+        </tr>
+      </thead>
+      <tbody>${themeSection(sellPlans, false)}</tbody>
+    </table>
+
+    <table class="data-table">
+      <thead>
+        <tr style="background:rgba(59,130,246,0.15)">
+          <th colspan="4" style="color:#60a5fa;text-align:left">STEP 2 — 매수 (부족 테마)</th>
+        </tr>
+        <tr>
+          <th>테마</th><th style="text-align:right">현재비율</th>
+          <th style="text-align:right">거래금액</th><th style="text-align:right">목표</th>
+        </tr>
+      </thead>
+      <tbody>${themeSection(buyPlans, true)}</tbody>
+    </table>
+    <div style="font-size:11px;color:#475569;margin-top:10px">
+      * 내부 교환 기준 (총액 고정) · 테마 내 현재 평가금 비중으로 종목 배분 · 현재가 없는 종목 제외
     </div>`;
 }
 
