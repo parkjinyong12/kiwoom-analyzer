@@ -6162,22 +6162,59 @@ function trbRenderFullPlan() {
     }).join('');
   }
 
+  // 현금-주식 비율 변화 계산
+  // actualNetFlow > 0: 순매수 → 현금 감소, 주식 증가
+  // actualNetFlow < 0: 순매도 → 현금 증가, 주식 감소
+  const curCash      = trbData.total_cash || 0;
+  const curStock     = total - curCash;
+  const afterCash    = curCash - actualNetFlow;   // 매수 시 현금 감소
+  const afterStock   = curStock + actualNetFlow;  // 매수 시 주식 증가
+  const afterPortTotal = afterCash + afterStock;  // ≈ total (정수 주식 오차)
+
+  const curCashRatio   = total > 0 ? curCash  / total * 100 : 0;
+  const curStockRatio  = total > 0 ? curStock / total * 100 : 0;
+  const afterCashRatio = afterPortTotal > 0 ? afterCash  / afterPortTotal * 100 : 0;
+  const afterStockRatio= afterPortTotal > 0 ? afterStock / afterPortTotal * 100 : 0;
+  const cashDiff       = afterCashRatio - curCashRatio;
+  const cashDiffColor  = Math.abs(cashDiff) < 0.3 ? '#4ade80'
+                       : cashDiff < 0 ? '#f59e0b' : '#60a5fa';
+
   const netColor = Math.abs(actualNetFlow) < 10000 ? '#4ade80' : actualNetFlow > 0 ? '#60a5fa' : '#f87171';
-  const netLabel = Math.abs(actualNetFlow) < 10000 ? '균형'
-                 : actualNetFlow > 0 ? `현금 ${Math.round(actualNetFlow).toLocaleString()}원 필요`
+  const netLabel = Math.abs(actualNetFlow) < 10000 ? '균형 (내부 교환)'
+                 : actualNetFlow > 0 ? `현금 ${Math.round(actualNetFlow).toLocaleString()}원 사용`
                  : `현금 ${Math.round(-actualNetFlow).toLocaleString()}원 회수`;
   const tgtSumNote = Math.abs(targetSum - 100) < 0.5 ? ''
     : `<span style="color:#f59e0b;font-size:11px">⚠ 목표합계 ${targetSum.toFixed(1)}%</span>`;
 
   bodyEl.innerHTML = `
-    <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:16px;padding:12px 16px;background:#0a0f1a;border-radius:8px;align-items:center">
-      <div><div style="font-size:11px;color:#64748b">STEP 1 매도 합계</div>
+    <div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:16px;padding:14px 16px;background:#0a0f1a;border-radius:8px;align-items:flex-start">
+      <div><div style="font-size:11px;color:#64748b">STEP 1 매도</div>
         <div style="font-size:16px;font-weight:700;color:#f87171">${Math.round(totalSell).toLocaleString()}원</div></div>
-      <div><div style="font-size:11px;color:#64748b">STEP 2 매수 합계</div>
+      <div><div style="font-size:11px;color:#64748b">STEP 2 매수</div>
         <div style="font-size:16px;font-weight:700;color:#60a5fa">${Math.round(totalBuy).toLocaleString()}원</div></div>
       <div><div style="font-size:11px;color:#64748b">순 현금흐름</div>
         <div style="font-size:15px;font-weight:700;color:${netColor}">${netLabel}</div></div>
-      ${tgtSumNote}
+      <div style="width:1px;background:#1e2535;align-self:stretch"></div>
+      <div>
+        <div style="font-size:11px;color:#64748b;margin-bottom:6px">현금 · 주식 비율 변화</div>
+        <div style="display:flex;gap:16px;font-size:13px">
+          <div>
+            <span style="color:#64748b">현금</span>
+            <span style="color:#94a3b8;margin:0 4px">${curCashRatio.toFixed(1)}%</span>
+            <span style="color:#475569">→</span>
+            <span style="color:${cashDiffColor};font-weight:600;margin-left:4px">${afterCashRatio.toFixed(1)}%</span>
+            <span style="font-size:11px;color:${cashDiffColor};margin-left:2px">(${cashDiff >= 0 ? '+' : ''}${cashDiff.toFixed(2)}pp)</span>
+          </div>
+          <div>
+            <span style="color:#64748b">주식</span>
+            <span style="color:#94a3b8;margin:0 4px">${curStockRatio.toFixed(1)}%</span>
+            <span style="color:#475569">→</span>
+            <span style="color:${cashDiff <= 0 ? '#f59e0b' : '#60a5fa'};font-weight:600;margin-left:4px">${afterStockRatio.toFixed(1)}%</span>
+          </div>
+        </div>
+        ${Math.abs(actualNetFlow) > 10000 ? `<div style="font-size:11px;color:#f59e0b;margin-top:4px">⚠ 현금-주식 비율이 변경됩니다. 현금 대 주식 리밸런싱 기준 확인 필요</div>` : ''}
+      </div>
+      <div style="align-self:center">${tgtSumNote}</div>
     </div>
 
     <table class="data-table" style="margin-bottom:16px">
