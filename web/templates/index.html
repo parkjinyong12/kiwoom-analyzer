@@ -5831,17 +5831,141 @@ function trbRenderThemes() {
       <span style="font-size:10px;color:#64748b">%</span>
     </div>`;
 
-    return `<tr>
-      <td style="font-weight:600;color:#e2e8f0">${t.theme}</td>
+    const hasSignal = signal === '추가매수 검토' || signal === '차익실현 검토';
+    const rowId     = 'trb-detail-' + t.theme.replace(/[^a-zA-Z0-9가-힣]/g, '_');
+    const isBuy     = signal === '추가매수 검토';
+
+    return `<tr style="${hasSignal ? 'cursor:pointer' : ''}" onclick="${hasSignal ? `trbToggleDetail('${rowId}','${themeEsc}',${isBuy})` : ''}">
+      <td style="font-weight:600;color:#e2e8f0">
+        ${t.theme}
+        ${hasSignal ? `<span style="font-size:10px;color:#475569;margin-left:4px">▾ 상세</span>` : ''}
+      </td>
       <td style="font-size:11px;color:#94a3b8;max-width:180px;white-space:normal">${stockList}</td>
       <td class="num">${t.eval_amt.toLocaleString()}원</td>
       <td class="num" style="font-weight:500">${t.current_ratio.toFixed(2)}%</td>
-      <td class="num">${targetInput}</td>
-      <td class="center">${alertInputs}</td>
+      <td class="num" onclick="event.stopPropagation()">${targetInput}</td>
+      <td class="center" onclick="event.stopPropagation()">${alertInputs}</td>
       <td class="num" style="color:${devColor}">${devStr}</td>
       <td class="center" style="${sigBg}padding:6px"><span style="color:${sigColor};font-size:12px;font-weight:500">${signal}</span></td>
+    </tr>
+    <tr id="${rowId}" style="display:none">
+      <td colspan="8" style="padding:0;background:#0a0f1a">
+        <div style="padding:16px 20px;border-left:3px solid ${isBuy ? '#3b82f6' : '#f87171'}">
+          <div style="font-size:12px;color:#64748b;margin-bottom:10px">
+            ${isBuy ? '🔵 추가매수 계획' : '🔴 차익실현 계획'} — 목표비율까지 전액 기준
+          </div>
+          <div id="${rowId}-body">계산 중...</div>
+        </div>
+      </td>
     </tr>`;
   }).join('');
+}
+
+let _trbDetailOpen = null;
+
+function trbToggleDetail(rowId, theme, isBuy) {
+  const row = document.getElementById(rowId);
+  if (!row) return;
+  const isOpen = row.style.display !== 'none';
+  // 다른 열린 항목 닫기
+  if (_trbDetailOpen && _trbDetailOpen !== rowId) {
+    const prev = document.getElementById(_trbDetailOpen);
+    if (prev) prev.style.display = 'none';
+  }
+  if (isOpen) {
+    row.style.display = 'none';
+    _trbDetailOpen = null;
+    return;
+  }
+  row.style.display = '';
+  _trbDetailOpen = rowId;
+  trbCalcDetail(rowId, theme, isBuy);
+}
+
+function trbCalcDetail(rowId, theme, isBuy) {
+  const bodyEl = document.getElementById(rowId + '-body');
+  if (!bodyEl || !trbData) return;
+
+  const total      = trbData.portfolio_total || 0;
+  const themeInfo  = (trbData.themes || []).find(t => t.theme === theme);
+  if (!themeInfo) { bodyEl.innerHTML = '데이터 없음'; return; }
+
+  const curAmt   = themeInfo.eval_amt;
+  const tgtAmt   = themeInfo.target_ratio / 100 * total;
+  const diffAmt  = tgtAmt - curAmt;  // 양수=매수필요, 음수=매도필요
+
+  // 테마 내 종목 목록 + 현재가·평가금 조회
+  const themeStockCodes = themeInfo.stocks.map(s => s.stock_code);
+  const stockMap = {};
+  (trbData.stocks || []).forEach(s => { stockMap[s.stock_code] = s; });
+
+  const themeStocks = themeStockCodes.map(code => stockMap[code]).filter(Boolean);
+  const themeStocksWithPrice = themeStocks.filter(s => s.current_price && s.current_price > 0);
+
+  if (!themeStocksWithPrice.length) {
+    bodyEl.innerHTML = '<span style="color:#f87171;font-size:12px">현재가 없는 종목만 있어 계산 불가</span>';
+    return;
+  }
+
+  // 종목별 현재 테마 내 비중 (평가금 기준)
+  const themeEval = themeStocksWithPrice.reduce((s, st) => s + st.eval_amt, 0);
+  const color     = isBuy ? '#60a5fa' : '#f87171';
+  const absDiff   = Math.abs(diffAmt);
+
+  let rows = '';
+  let totalShares = 0, totalAmt = 0;
+
+  themeStocksWithPrice.forEach(st => {
+    const weight    = themeEval > 0 ? st.eval_amt / themeEval : 1 / themeStocksWithPrice.length;
+    const allocated = absDiff * weight;
+    const shares    = Math.floor(allocated / st.current_price);
+    const amt       = shares * st.current_price;
+    totalShares    += shares;
+    totalAmt       += amt;
+
+    const afterEval  = isBuy ? st.eval_amt + amt : st.eval_amt - amt;
+    const afterTotal = isBuy ? total + amt : total - amt;
+    const afterRatio = afterTotal > 0 ? afterEval / afterTotal * 100 : 0;
+
+    rows += `<tr>
+      <td style="color:#e2e8f0;font-weight:500">${st.stock_name}</td>
+      <td class="num">${st.current_price.toLocaleString()}원</td>
+      <td class="num" style="font-size:11px;color:#64748b">${(weight * 100).toFixed(1)}%</td>
+      <td class="num" style="color:${color};font-weight:600">${isBuy ? '매수' : '매도'} ${shares.toLocaleString()}주</td>
+      <td class="num" style="color:${color}">${amt.toLocaleString()}원</td>
+      <td class="num" style="font-size:11px;color:#94a3b8">${st.current_ratio.toFixed(2)}% → ${afterRatio.toFixed(2)}%</td>
+    </tr>`;
+  });
+
+  bodyEl.innerHTML = `
+    <div style="font-size:12px;color:#94a3b8;margin-bottom:8px">
+      테마 부족액 <span style="color:${color};font-weight:600">${Math.round(absDiff).toLocaleString()}원</span>
+      · 현재 ${themeInfo.current_ratio.toFixed(2)}% → 목표 ${themeInfo.target_ratio.toFixed(2)}%
+    </div>
+    <table class="data-table" style="margin:0">
+      <thead>
+        <tr>
+          <th>종목명</th>
+          <th style="text-align:right">현재가</th>
+          <th style="text-align:right">테마내비중</th>
+          <th style="text-align:right">추천수량</th>
+          <th style="text-align:right">금액</th>
+          <th style="text-align:right">포트비율 변화</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+      <tfoot>
+        <tr style="background:#0f1117">
+          <td colspan="3" style="color:#94a3b8;font-size:12px;padding:8px 12px">합계</td>
+          <td class="num" style="color:${color};font-weight:700">— ${totalAmt.toLocaleString()}원</td>
+          <td class="num" style="color:${color};font-weight:700">${totalAmt.toLocaleString()}원</td>
+          <td></td>
+        </tr>
+      </tfoot>
+    </table>
+    <div style="font-size:11px;color:#475569;margin-top:8px">
+      * 테마 내 현재 평가금 비중으로 배분 · 현재가 없는 종목 제외
+    </div>`;
 }
 
 function trbRenderStocks() {
