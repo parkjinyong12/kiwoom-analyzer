@@ -2147,6 +2147,25 @@ canvas { max-height: 220px; }
         <span style="font-size:11px;color:#64748b">초과 테마 매도 → 부족 테마 매수 · 클릭하여 펼치기</span>
       </div>
       <div id="trb-full-plan" style="display:none;padding:16px">
+        <!-- 매수 방식 선택 -->
+        <div style="display:flex;align-items:center;gap:16px;margin-bottom:14px;padding:10px 14px;background:#0a0f1a;border-radius:8px;flex-wrap:wrap">
+          <span style="font-size:12px;color:#94a3b8;font-weight:600">매수 방식</span>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:#e2e8f0">
+            <input type="radio" name="trb-buy-mode" value="cash" checked onchange="trbRenderFullPlan()"
+                   style="accent-color:#3b82f6"/> 현금 매수
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:#e2e8f0">
+            <input type="radio" name="trb-buy-mode" value="credit" onchange="trbRenderFullPlan()"
+                   style="accent-color:#a78bfa"/> 신용 매수
+          </label>
+          <div id="trb-credit-ratio-wrap" style="display:none;align-items:center;gap:6px">
+            <span style="font-size:12px;color:#64748b">신용담보비율</span>
+            <input type="number" id="trb-credit-ratio" value="140" min="100" max="300" step="1"
+                   onchange="trbRenderFullPlan()"
+                   style="width:60px;padding:3px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#a78bfa;font-size:13px;text-align:center;outline:none"/>
+            <span style="font-size:12px;color:#64748b">%</span>
+          </div>
+        </div>
         <div id="trb-full-plan-body">계산 중...</div>
       </div>
     </div>
@@ -6067,10 +6086,20 @@ function trbToggleFullPlan() {
   if (!isOpen) trbRenderFullPlan();
 }
 
+function trbGetBuyMode() {
+  const radio = document.querySelector('input[name="trb-buy-mode"]:checked');
+  const mode  = radio ? radio.value : 'cash';
+  const wrap  = document.getElementById('trb-credit-ratio-wrap');
+  if (wrap) wrap.style.display = mode === 'credit' ? 'flex' : 'none';
+  const ratio = parseFloat(document.getElementById('trb-credit-ratio')?.value || '140');
+  return { isCredit: mode === 'credit', collateralRatio: isNaN(ratio) ? 140 : ratio };
+}
+
 function trbRenderFullPlan() {
   const bodyEl = document.getElementById('trb-full-plan-body');
   if (!trbData) return;
 
+  const { isCredit, collateralRatio } = trbGetBuyMode();
   const total  = trbData.portfolio_total || 0;
   const themes = (trbData.themes || []).filter(t => !t.is_untagged && t.target_ratio > 0);
   const stockMap = {};
@@ -6163,13 +6192,20 @@ function trbRenderFullPlan() {
   }
 
   // 현금-주식 비율 변화 계산
-  // actualNetFlow > 0: 순매수 → 현금 감소, 주식 증가
-  // actualNetFlow < 0: 순매도 → 현금 증가, 주식 감소
+  // 신용매수 시: 담보금(현금성자산)만 빠지고 나머지는 대출로 충당
   const curCash      = trbData.total_cash || 0;
   const curStock     = total - curCash;
-  const afterCash    = curCash - actualNetFlow;   // 매수 시 현금 감소
-  const afterStock   = curStock + actualNetFlow;  // 매수 시 주식 증가
-  const afterPortTotal = afterCash + afterStock;  // ≈ total (정수 주식 오차)
+
+  // 매수 시 실제 현금성자산에서 나가는 금액
+  const cashOutForBuy = isCredit
+    ? totalBuy * (collateralRatio - 100) / collateralRatio
+    : totalBuy;
+  const loanAmount    = isCredit ? totalBuy * 100 / collateralRatio : 0;
+
+  // afterCash: 매도 수익 입금 + 매수 담보금 출금
+  const afterCash      = curCash + totalSell - cashOutForBuy;
+  const afterStock     = curStock + actualNetFlow;  // 주식평가는 그대로 (신용 포함)
+  const afterPortTotal = afterCash + afterStock;
 
   const curCashRatio   = total > 0 ? curCash  / total * 100 : 0;
   const curStockRatio  = total > 0 ? curStock / total * 100 : 0;
@@ -6179,10 +6215,17 @@ function trbRenderFullPlan() {
   const cashDiffColor  = Math.abs(cashDiff) < 0.3 ? '#4ade80'
                        : cashDiff < 0 ? '#f59e0b' : '#60a5fa';
 
-  const netColor = Math.abs(actualNetFlow) < 10000 ? '#4ade80' : actualNetFlow > 0 ? '#60a5fa' : '#f87171';
-  const netLabel = Math.abs(actualNetFlow) < 10000 ? '균형 (내부 교환)'
-                 : actualNetFlow > 0 ? `현금 ${Math.round(actualNetFlow).toLocaleString()}원 사용`
-                 : `현금 ${Math.round(-actualNetFlow).toLocaleString()}원 회수`;
+  let netLabel, netColor;
+  if (isCredit && loanAmount > 1000) {
+    netColor = '#a78bfa';
+    netLabel = `신용대출 ${Math.round(loanAmount).toLocaleString()}원 / 담보금 ${Math.round(cashOutForBuy).toLocaleString()}원 (현금성자산)`;
+  } else if (Math.abs(actualNetFlow) < 10000) {
+    netColor = '#4ade80'; netLabel = '균형 (내부 교환)';
+  } else if (actualNetFlow > 0) {
+    netColor = '#60a5fa'; netLabel = `현금 ${Math.round(actualNetFlow).toLocaleString()}원 사용`;
+  } else {
+    netColor = '#f87171'; netLabel = `현금 ${Math.round(-actualNetFlow).toLocaleString()}원 회수`;
+  }
   const tgtSumNote = Math.abs(targetSum - 100) < 0.5 ? ''
     : `<span style="color:#f59e0b;font-size:11px">⚠ 목표합계 ${targetSum.toFixed(1)}%</span>`;
 
@@ -6192,14 +6235,14 @@ function trbRenderFullPlan() {
         <div style="font-size:16px;font-weight:700;color:#f87171">${Math.round(totalSell).toLocaleString()}원</div></div>
       <div><div style="font-size:11px;color:#64748b">STEP 2 매수</div>
         <div style="font-size:16px;font-weight:700;color:#60a5fa">${Math.round(totalBuy).toLocaleString()}원</div></div>
-      <div><div style="font-size:11px;color:#64748b">순 현금흐름</div>
-        <div style="font-size:15px;font-weight:700;color:${netColor}">${netLabel}</div></div>
+      <div><div style="font-size:11px;color:#64748b">${isCredit ? '신용매수 현황' : '순 현금흐름'}</div>
+        <div style="font-size:13px;font-weight:700;color:${netColor}">${netLabel}</div></div>
       <div style="width:1px;background:#1e2535;align-self:stretch"></div>
       <div>
         <div style="font-size:11px;color:#64748b;margin-bottom:6px">현금 · 주식 비율 변화</div>
         <div style="display:flex;gap:16px;font-size:13px">
           <div>
-            <span style="color:#64748b">현금</span>
+            <span style="color:#64748b">${isCredit ? '현금성자산' : '현금'}</span>
             <span style="color:#94a3b8;margin:0 4px">${curCashRatio.toFixed(1)}%</span>
             <span style="color:#475569">→</span>
             <span style="color:${cashDiffColor};font-weight:600;margin-left:4px">${afterCashRatio.toFixed(1)}%</span>
@@ -6212,7 +6255,11 @@ function trbRenderFullPlan() {
             <span style="color:${cashDiff <= 0 ? '#f59e0b' : '#60a5fa'};font-weight:600;margin-left:4px">${afterStockRatio.toFixed(1)}%</span>
           </div>
         </div>
-        ${Math.abs(actualNetFlow) > 10000 ? `<div style="font-size:11px;color:#f59e0b;margin-top:4px">⚠ 현금-주식 비율이 변경됩니다. 현금 대 주식 리밸런싱 기준 확인 필요</div>` : ''}
+        ${isCredit && loanAmount > 1000
+          ? `<div style="font-size:11px;color:#a78bfa;margin-top:4px">신용: 담보금 ${Math.round(cashOutForBuy).toLocaleString()}원은 예수금 외 현금성자산에서 조달 가능</div>`
+          : Math.abs(actualNetFlow) > 10000
+            ? `<div style="font-size:11px;color:#f59e0b;margin-top:4px">⚠ 현금-주식 비율이 변경됩니다. 현금 대 주식 리밸런싱 기준 확인 필요</div>`
+            : ''}
       </div>
       <div style="align-self:center">${tgtSumNote}</div>
     </div>
