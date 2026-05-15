@@ -5286,7 +5286,18 @@ function rbRender() {
 
   const isStockRebalancePage = document.getElementById('page-stock-rebalance').classList.contains('active');
 
-  tbody.innerHTML = (isStockRebalancePage ? '' : cashRow) + rbData.map(r => {
+  const renderData = isStockRebalancePage
+    ? [...rbData].sort((a, b) => {
+        const devOf = r => {
+          const cur = rbStockTotal > 0 ? r.eval_amt / rbStockTotal * 100 : 0;
+          const tgt = r.target_ratio;
+          return tgt > 0 ? Math.abs((cur - tgt) / tgt * 100) : -1;
+        };
+        return devOf(b) - devOf(a);
+      })
+    : rbData;
+
+  tbody.innerHTML = (isStockRebalancePage ? '' : cashRow) + renderData.map(r => {
     // 주식간 리밸런싱: 주식총액 기준(합=100%), 현금 대 주식: 포트폴리오 기준
     const cur = isStockRebalancePage && rbStockTotal > 0
       ? parseFloat((r.eval_amt / rbStockTotal * 100).toFixed(2))
