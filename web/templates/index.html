@@ -5941,10 +5941,63 @@ function trbCalcDetail(rowId, theme, isBuy) {
     </tr>`;
   });
 
+  // 거래 후 총액
+  const afterTotalPort = isBuy ? total + totalAmt : total - totalAmt;
+
   // 거래 후 테마 전체 비율 검증
   const afterThemeEval  = isBuy ? curAmt + totalAmt : curAmt - totalAmt;
-  const afterTotalPort  = isBuy ? total + totalAmt : total - totalAmt;
   const afterThemeRatio = afterTotalPort > 0 ? afterThemeEval / afterTotalPort * 100 : 0;
+
+  // 전체 테마 거래 후 비율 계산
+  const allThemes = (trbData.themes || []).filter(t => !t.is_untagged);
+  const allThemeRows = allThemes.map(t => {
+    const isTarget   = t.theme === theme;
+    const afterEval  = isTarget
+      ? (isBuy ? t.eval_amt + totalAmt : t.eval_amt - totalAmt)
+      : t.eval_amt;  // 다른 테마는 평가금 그대로, 총액만 변함
+    const afterRatio = afterTotalPort > 0 ? afterEval / afterTotalPort * 100 : 0;
+    const tgt        = t.target_ratio;
+    const aUp        = t.theme_alert_up   ?? trbAlertUp;
+    const aDown      = t.theme_alert_down ?? trbAlertDown;
+
+    // 거래 전 신호
+    const relBefore  = tgt > 0 ? (t.current_ratio - tgt) / tgt * 100 : null;
+    const sigBefore  = relBefore === null ? '미설정'
+                     : relBefore > aUp   ? '차익실현'
+                     : relBefore < -aDown ? '추가매수'
+                     : '정상';
+
+    // 거래 후 신호
+    const relAfter   = tgt > 0 ? (afterRatio - tgt) / tgt * 100 : null;
+    const sigAfter   = relAfter === null ? '미설정'
+                     : relAfter > aUp   ? '차익실현'
+                     : relAfter < -aDown ? '추가매수'
+                     : '정상';
+
+    const sigChanged = sigBefore !== sigAfter;
+    const sigColor   = sigAfter === '정상' ? '#4ade80'
+                     : sigAfter === '추가매수' ? '#60a5fa' : '#f87171';
+    const rowBg      = isTarget ? 'background:rgba(59,130,246,0.07)' : '';
+    const changeTag  = sigChanged
+      ? `<span style="font-size:10px;color:#f59e0b;margin-left:4px">▶ ${sigAfter}</span>`
+      : '';
+
+    return `<tr style="${rowBg}">
+      <td style="font-weight:${isTarget ? '700' : '400'};color:${isTarget ? '#60a5fa' : '#e2e8f0'}">
+        ${t.theme}${isTarget ? ' ★' : ''}
+      </td>
+      <td class="num" style="color:#64748b">${t.current_ratio.toFixed(2)}%</td>
+      <td class="num" style="color:${isTarget ? color : (afterRatio < t.current_ratio ? '#f87171' : '#94a3b8')};font-weight:${isTarget ? '700' : '400'}">
+        ${afterRatio.toFixed(2)}%
+        <span style="font-size:10px;color:#475569">(${afterRatio >= t.current_ratio ? '+' : ''}${(afterRatio - t.current_ratio).toFixed(2)}pp)</span>
+      </td>
+      <td class="num" style="color:#475569">${tgt > 0 ? tgt.toFixed(2) + '%' : '-'}</td>
+      <td class="center">
+        <span style="font-size:12px;color:${sigColor}">${sigAfter}</span>
+        ${changeTag}
+      </td>
+    </tr>`;
+  }).join('');
 
   bodyEl.innerHTML = `
     <div style="font-size:12px;color:#94a3b8;margin-bottom:8px">
@@ -5975,6 +6028,24 @@ function trbCalcDetail(rowId, theme, isBuy) {
     </table>
     <div style="font-size:11px;color:#475569;margin-top:8px">
       * 테마 내 현재 평가금 비중으로 배분 · 현재가 없는 종목 제외
+    </div>
+    <div style="margin-top:16px;border-top:1px solid #1e2535;padding-top:14px">
+      <div style="font-size:12px;color:#94a3b8;margin-bottom:10px;font-weight:600">
+        이 거래 후 전체 테마 비율 변화
+        <span style="font-weight:400;color:#475569;margin-left:6px">— 매수하지 않는 테마는 희석됩니다</span>
+      </div>
+      <table class="data-table" style="margin:0">
+        <thead>
+          <tr>
+            <th>테마</th>
+            <th style="text-align:right">현재비율</th>
+            <th style="text-align:right">거래 후</th>
+            <th style="text-align:right">목표비율</th>
+            <th style="text-align:center">신호 변화</th>
+          </tr>
+        </thead>
+        <tbody>${allThemeRows}</tbody>
+      </table>
     </div>`;
 }
 
