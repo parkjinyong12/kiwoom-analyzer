@@ -6100,7 +6100,8 @@ function trbRenderFullPlan() {
   if (!trbData) return;
 
   const { isCredit, collateralRatio } = trbGetBuyMode();
-  const total  = trbData.portfolio_total || 0;
+  const stockTotal     = trbData.stock_total     || 0;
+  const portfolioTotal = trbData.portfolio_total || 0;
   const themes = (trbData.themes || []).filter(t => !t.is_untagged && t.target_ratio > 0);
   const stockMap = {};
   (trbData.stocks || []).forEach(s => { stockMap[s.stock_code] = s; });
@@ -6112,9 +6113,9 @@ function trbRenderFullPlan() {
 
   const targetSum = themes.reduce((s, t) => s + t.target_ratio, 0);
 
-  // ① 테마별 이론 거래금액 계산
+  // ① 테마별 이론 거래금액 계산 (주식 총액 기준)
   const plans = themes.map(t => {
-    const diff = t.target_ratio / 100 * total - t.eval_amt;
+    const diff = t.target_ratio / 100 * stockTotal - t.eval_amt;
     return { ...t, diff };
   });
 
@@ -6137,14 +6138,14 @@ function trbRenderFullPlan() {
     p.actualAmt = isBuy ? actualAmt : -actualAmt;  // 매도는 음수
   });
 
-  // ③ 거래 후 총액 = 총액 + 순현금흐름(실제)
-  const actualNetFlow = plans.reduce((s, p) => s + p.actualAmt, 0);
-  const afterTotal    = total + actualNetFlow;
+  // ③ 거래 후 주식 총액 = 주식 총액 + 순현금흐름(실제)
+  const actualNetFlow  = plans.reduce((s, p) => s + p.actualAmt, 0);
+  const afterStockTotal = stockTotal + actualNetFlow;
 
-  // ④ 테마별 거래 후 평가금·비율
+  // ④ 테마별 거래 후 평가금·비율 (주식 총액 기준)
   plans.forEach(p => {
     p.afterEval  = p.eval_amt + p.actualAmt;
-    p.afterRatio = afterTotal > 0 ? p.afterEval / afterTotal * 100 : 0;
+    p.afterRatio = afterStockTotal > 0 ? p.afterEval / afterStockTotal * 100 : 0;
   });
 
   const sellPlans  = plans.filter(p => p.diff < 0).sort((a, b) => a.diff - b.diff);
@@ -6191,10 +6192,10 @@ function trbRenderFullPlan() {
     }).join('');
   }
 
-  // 현금-주식 비율 변화 계산
+  // 현금-주식 비율 변화 계산 (포트폴리오 전체 기준)
   // 신용매수 시: 담보금(현금성자산)만 빠지고 나머지는 대출로 충당
   const curCash      = trbData.total_cash || 0;
-  const curStock     = total - curCash;
+  const curStock     = portfolioTotal - curCash;
 
   // 매수 시 실제 현금성자산에서 나가는 금액
   const cashOutForBuy = isCredit
@@ -6207,8 +6208,8 @@ function trbRenderFullPlan() {
   const afterStock     = curStock + actualNetFlow;  // 주식평가는 그대로 (신용 포함)
   const afterPortTotal = afterCash + afterStock;
 
-  const curCashRatio   = total > 0 ? curCash  / total * 100 : 0;
-  const curStockRatio  = total > 0 ? curStock / total * 100 : 0;
+  const curCashRatio   = portfolioTotal > 0 ? curCash  / portfolioTotal * 100 : 0;
+  const curStockRatio  = portfolioTotal > 0 ? curStock / portfolioTotal * 100 : 0;
   const afterCashRatio = afterPortTotal > 0 ? afterCash  / afterPortTotal * 100 : 0;
   const afterStockRatio= afterPortTotal > 0 ? afterStock / afterPortTotal * 100 : 0;
   const cashDiff       = afterCashRatio - curCashRatio;

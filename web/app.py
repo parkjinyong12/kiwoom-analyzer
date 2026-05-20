@@ -1386,7 +1386,7 @@ def api_theme_rebalance():
 
     portfolio_total = stock_total + total_cash
     for s in stocks:
-        s["current_ratio"] = round(s["eval_amt"] / portfolio_total * 100, 2) if portfolio_total > 0 else 0
+        s["current_ratio"] = round(s["eval_amt"] / stock_total * 100, 2) if stock_total > 0 else 0
 
     # Aggregate by theme (split eval_amt equally across themes)
     theme_data: dict[str, dict] = {}
@@ -1413,7 +1413,7 @@ def api_theme_rebalance():
     theme_result = []
     for tname, data in sorted(theme_data.items(), key=lambda x: -x[1]["eval_amt"]):
         eval_amt     = data["eval_amt"]
-        cur_ratio    = round(eval_amt / portfolio_total * 100, 2) if portfolio_total > 0 else 0
+        cur_ratio    = round(eval_amt / stock_total * 100, 2) if stock_total > 0 else 0
         tdata        = targets.get(tname, {})
         tgt_ratio    = tdata.get("target_ratio", 0)
         is_untagged  = tname == "__untagged__"
@@ -1437,6 +1437,7 @@ def api_theme_rebalance():
         "themes":          theme_result,
         "stocks":          stocks,
         "portfolio_total": round(portfolio_total),
+        "stock_total":     round(stock_total),
         "total_cash":      total_cash,
         "alert_up":        alert_up,
         "alert_down":      alert_down,
