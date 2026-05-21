@@ -434,6 +434,16 @@ class Orchestrator:
         db = self._audit._db
         total_new = 0
 
+        # 종목코드 → 종목명 매핑 (로그 출력용)
+        name_map: dict[str, str] = {
+            s["stock_code"]: s.get("stock_name", "")
+            for s in (self._audit._db.get_watchlist() or [])
+        }
+
+        def _label(code: str) -> str:
+            name = name_map.get(code, "")
+            return f"{code} {name}" if name else code
+
         logger.info("=== 수급 이력 수집 시작: %d개 종목, 최대 %d일 ===", total, max_days)
 
         # 최근 영업일 계산 (토/일 제외)
@@ -454,13 +464,13 @@ class Orchestrator:
                     existing_cnt = len(db.get_supply_demand_dates(ticker))
                     logger.info(
                         "[%d/%d] %s 스킵 (최근 데이터 %s 이미 존재, %d일)",
-                        idx, total, ticker, latest, existing_cnt,
+                        idx, total, _label(ticker), latest, existing_cnt,
                     )
                     total_new += 0
                     continue
 
                 existing = db.get_supply_demand_dates(ticker)
-                logger.info("[%d/%d] %s 수집 중... (기존 %d일)", idx, total, ticker, len(existing))
+                logger.info("[%d/%d] %s 수집 중... (기존 %d일)", idx, total, _label(ticker), len(existing))
 
                 # ── 외국인 보유비율 이력 (ka10008 페이지네이션)
                 holding_rows = self._market.get_foreign_holding(ticker, max_days=max_days)
@@ -490,11 +500,11 @@ class Orchestrator:
                 total_new += new_count
                 logger.info(
                     "[%d/%d] %s 완료: 외국인 %d일 / 투자자 %d일 저장",
-                    idx, total, ticker, len(holding_rows), len(inv_rows),
+                    idx, total, _label(ticker), len(holding_rows), len(inv_rows),
                 )
 
             except Exception as e:
-                logger.error("[%d/%d] %s 수급 이력 수집 오류: %s", idx, total, ticker, e)
+                logger.error("[%d/%d] %s 수급 이력 수집 오류: %s", idx, total, _label(ticker), e)
 
         logger.info("=== 수급 이력 수집 완료: 총 %d건 신규 저장 ===", total_new)
 
