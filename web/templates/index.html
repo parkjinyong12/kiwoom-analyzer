@@ -415,11 +415,11 @@ canvas { max-height: 220px; }
 .sw-header:hover { background:#1a2540; }
 .sw-header.open { background:#172035; border-bottom:1px solid #1e2535; }
 .sw-badge { display:inline-block; font-size:11px; font-weight:800; padding:3px 9px; border-radius:4px; min-width:54px; text-align:center; letter-spacing:.5px; }
-.sw-badge.GET    { background:#064e3b; color:#34d399; }
-.sw-badge.POST   { background:#1e3a5f; color:#60a5fa; }
-.sw-badge.PUT    { background:#451a03; color:#fbbf24; }
-.sw-badge.DELETE { background:#450a0a; color:#f87171; }
-.sw-badge.PATCH  { background:#3b0764; color:#c084fc; }
+.sw-badge.GET    { background:#111827; color:#6ee7b7; border:1px solid #065f46; }
+.sw-badge.POST   { background:#111827; color:#93c5fd; border:1px solid #1e40af; }
+.sw-badge.PUT    { background:#111827; color:#fcd34d; border:1px solid #78350f; }
+.sw-badge.DELETE { background:#111827; color:#fca5a5; border:1px solid #7f1d1d; }
+.sw-badge.PATCH  { background:#111827; color:#d8b4fe; border:1px solid #4c1d95; }
 .sw-path { font-family:monospace; font-size:13px; color:#e2e8f0; flex:1; word-break:break-all; }
 .sw-path .sw-param { color:#fbbf24; }
 .sw-desc { font-size:12px; color:#64748b; margin-left:auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:280px; }
@@ -2612,10 +2612,10 @@ canvas { max-height: 220px; }
           style="flex:1;min-width:220px;max-width:420px;padding:8px 14px;background:#0d1117;border:1px solid #1e2535;border-radius:8px;color:#e2e8f0;font-size:13px">
         <div style="display:flex;gap:6px" id="spec-method-filters">
           <button class="spec-mf active" onclick="toggleMethodFilter(this,'ALL')">ALL</button>
-          <button class="spec-mf" onclick="toggleMethodFilter(this,'GET')" style="color:#34d399">GET</button>
-          <button class="spec-mf" onclick="toggleMethodFilter(this,'POST')" style="color:#60a5fa">POST</button>
-          <button class="spec-mf" onclick="toggleMethodFilter(this,'PUT')" style="color:#fbbf24">PUT</button>
-          <button class="spec-mf" onclick="toggleMethodFilter(this,'DELETE')" style="color:#f87171">DELETE</button>
+          <button class="spec-mf" onclick="toggleMethodFilter(this,'GET')" style="color:#6ee7b7">GET</button>
+          <button class="spec-mf" onclick="toggleMethodFilter(this,'POST')" style="color:#93c5fd">POST</button>
+          <button class="spec-mf" onclick="toggleMethodFilter(this,'PUT')" style="color:#fcd34d">PUT</button>
+          <button class="spec-mf" onclick="toggleMethodFilter(this,'DELETE')" style="color:#fca5a5">DELETE</button>
         </div>
         <span id="spec-api-count" style="font-size:12px;color:#475569;margin-left:auto"></span>
       </div>
