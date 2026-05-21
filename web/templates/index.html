@@ -3762,12 +3762,17 @@ function renderUnifiedBatch() {
 
   const rows = Object.entries(_scheduleData).map(([jid, s]) => {
     const j       = jobMap[jid] || {};
-    const running = j.running || false;
+    const running       = j.running || false;
+    const manualStopped = j.manual_stopped || false;
     const runDot  = running
       ? '<span style="color:#4ade80;font-size:15px" title="실행 중">●</span>'
-      : '<span style="color:#334155;font-size:15px" title="중지">●</span>';
+      : manualStopped
+        ? '<span style="color:#f97316;font-size:15px" title="수동 중지됨 (스케줄 자동 실행 억제)">●</span>'
+        : '<span style="color:#334155;font-size:15px" title="중지">●</span>';
     const schDot  = s.enabled
-      ? '<span style="color:#60a5fa;font-size:15px" title="스케줄 활성">●</span>'
+      ? (manualStopped
+          ? '<span style="color:#f97316;font-size:15px" title="스케줄 활성이나 수동 중지로 억제됨">●</span>'
+          : '<span style="color:#60a5fa;font-size:15px" title="스케줄 활성">●</span>')
       : '<span style="color:#334155;font-size:15px" title="스케줄 꺼짐">●</span>';
     const runBtn  = running
       ? `<button class="btn btn-danger"  style="font-size:11px;padding:3px 8px" onclick="batchStop('${jid}')">■ 중지</button>`

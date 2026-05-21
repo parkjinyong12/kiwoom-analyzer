@@ -21,6 +21,7 @@ import re
 import subprocess
 import glob
 import signal
+import shlex
 import logging
 import secrets
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -2207,12 +2208,69 @@ def _get_user_prefs(user_id: int) -> dict:
 # API — 배치 관리
 # ---------------------------------------------------------------------------
 
+# 앱 내 실행 추적: job_id → 실제 Python 프로세스 PID
+_batch_pids: dict[str, int] = {}
+# 수동 중지된 job_id — 스케줄러가 자동 재실행하지 않도록 방지
+_batch_manual_stopped: set[str] = set()
+
+
+def _batch_running_pid(job_id: str) -> int | None:
+    """실행 중인 배치 PID 반환. 없으면 None.
+    인메모리 PID를 먼저 확인 후 /proc 스캔으로 폴백."""
+    pid = _batch_pids.get(job_id)
+    if pid:
+        try:
+            os.kill(pid, 0)   # 프로세스 존재 확인 (신호 0 = 체크용)
+            return pid
+        except (ProcessLookupError, PermissionError):
+            _batch_pids.pop(job_id, None)   # 종료됐으면 제거
+    # 앱 재시작 후 폴백: 패턴 기반 /proc 스캔
+    j = BATCH_JOBS.get(job_id)
+    if j:
+        found = _find_pid(j["match"])
+        if found:
+            _batch_pids[job_id] = found
+            return found
+    return None
+
+
+def _batch_launch(job_id: str, log_file: str, min_cap: str) -> int:
+    """배치 프로세스를 새 세션으로 시작하고 PID를 반환."""
+    j = BATCH_JOBS[job_id]
+    cmd_parts = shlex.split(j["cmd"])
+    env = {**os.environ, "PYTHONUNBUFFERED": "1", "MIN_MARKET_CAP": min_cap}
+    _append_run_separator(log_file)
+    with open(log_file, "ab") as lf:
+        proc = subprocess.Popen(
+            cmd_parts, env=env, cwd=BASE_DIR,
+            stdout=lf, stderr=subprocess.STDOUT,
+            start_new_session=True,   # 독립 프로세스 그룹 → killpg로 확실히 종료
+        )
+    _batch_pids[job_id] = proc.pid
+    _batch_manual_stopped.discard(job_id)   # 수동 중지 플래그 해제
+    return proc.pid
+
+
+def _batch_kill(job_id: str) -> bool:
+    """배치 프로세스 그룹 전체에 SIGTERM. 성공 여부 반환."""
+    pid = _batch_running_pid(job_id)
+    if not pid:
+        return False
+    try:
+        pgid = os.getpgid(pid)
+        os.killpg(pgid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        pass
+    _batch_pids.pop(job_id, None)
+    return True
+
+
 @app.route("/api/batch")
 def api_batch():
     """배치 작업 실행 상태 목록 조회."""
     jobs = []
     for jid, j in BATCH_JOBS.items():
-        pid = _find_pid(j["match"])
+        pid = _batch_running_pid(jid)
         log_path = _latest_log(j["log_prefix"])
         last_line = ""
         if log_path:
@@ -2229,6 +2287,7 @@ def api_batch():
             "desc": j["desc"],
             "running": pid is not None,
             "pid": pid,
+            "manual_stopped": jid in _batch_manual_stopped,
             "last_line": last_line[:120],
             "log_file": os.path.basename(log_path) if log_path else None,
         })
@@ -2241,33 +2300,28 @@ def api_batch_start(job_id: str):
     j = BATCH_JOBS.get(job_id)
     if not j:
         return jsonify({"error": "unknown job"}), 404
-    if _find_pid(j["match"]):
+    if _batch_running_pid(job_id):
         return jsonify({"error": "이미 실행 중입니다"}), 409
     settings = _get_app_settings()
     min_cap = settings.get("min_market_cap", str(5_000_000_000_000))
     logs_dir = os.path.join(BASE_DIR, "logs")
     os.makedirs(logs_dir, exist_ok=True)
     log_file = os.path.join(logs_dir, f"{j['log_prefix']}.log")
-    _append_run_separator(log_file)
-    subprocess.Popen(
-        f"PYTHONUNBUFFERED=1 MIN_MARKET_CAP={min_cap} nohup {j['cmd']} >> {log_file} 2>&1",
-        shell=True, cwd=BASE_DIR,
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-    )
+    pid = _batch_launch(job_id, log_file, min_cap)
+    logging.info("[batch] %s 수동 시작 (PID %d)", job_id, pid)
     return jsonify({"ok": True, "log_file": os.path.basename(log_file)})
 
 
 @app.route("/api/batch/<job_id>/stop", methods=["POST"])
 def api_batch_stop(job_id: str):
-    """배치 작업 수동 중지."""
-    j = BATCH_JOBS.get(job_id)
-    if not j:
+    """배치 작업 수동 중지. 스케줄러 자동 재실행도 다음 수동 시작 전까지 억제."""
+    if not BATCH_JOBS.get(job_id):
         return jsonify({"error": "unknown job"}), 404
-    if not _find_pid(j["match"]):
+    if not _batch_running_pid(job_id):
         return jsonify({"error": "실행 중이 아닙니다"}), 409
-    # shell=True로 실행 시 셸 프로세스 + Python 자식 프로세스가 모두 생성되므로
-    # pkill -f 로 매칭되는 모든 프로세스를 한 번에 종료
-    subprocess.run(["pkill", "-TERM", "-f", j["match"]], check=False)
+    _batch_kill(job_id)
+    _batch_manual_stopped.add(job_id)   # 스케줄러 재실행 방지
+    logging.info("[batch] %s 수동 중지 — 스케줄러 자동 재실행 억제", job_id)
     return jsonify({"ok": True})
 
 
@@ -2390,6 +2444,10 @@ def _run_scheduled_job(job_id: str, interval_start: int = 0, interval_end: int =
     j = BATCH_JOBS.get(job_id)
     if not j:
         return
+    # 수동 중지 후 스케줄러 자동 재실행 억제
+    if job_id in _batch_manual_stopped:
+        logging.info("[scheduler] %s 수동 중지 상태 — 자동 실행 억제 (수동 시작 시 해제)", job_id)
+        return
     # 반복 주기 모드의 시간 범위 체크 (interval_start/end: 자정 기준 분)
     if interval_start != 0 or interval_end != 1439:
         now = datetime.now()
@@ -2400,7 +2458,7 @@ def _run_scheduled_job(job_id: str, interval_start: int = 0, interval_end: int =
                          interval_start // 60, interval_start % 60,
                          interval_end   // 60, interval_end   % 60)
             return
-    if _find_pid(j["match"]):
+    if _batch_running_pid(job_id):
         logging.info("[scheduler] %s 이미 실행 중 — 스킵", job_id)
         return
     settings = _get_app_settings()
@@ -2408,13 +2466,8 @@ def _run_scheduled_job(job_id: str, interval_start: int = 0, interval_end: int =
     logs_dir = os.path.join(BASE_DIR, "logs")
     os.makedirs(logs_dir, exist_ok=True)
     log_file = os.path.join(logs_dir, f"{j['log_prefix']}.log")
-    _append_run_separator(log_file)
-    logging.info("[scheduler] %s 자동 실행 시작 → %s", job_id, log_file)
-    subprocess.Popen(
-        f"PYTHONUNBUFFERED=1 MIN_MARKET_CAP={min_cap} nohup {j['cmd']} >> {log_file} 2>&1",
-        shell=True, cwd=BASE_DIR,
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-    )
+    pid = _batch_launch(job_id, log_file, min_cap)
+    logging.info("[scheduler] %s 자동 실행 시작 (PID %d) → %s", job_id, pid, log_file)
     try:
         with get_conn() as conn:
             conn.cursor().execute(
