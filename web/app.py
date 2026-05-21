@@ -385,7 +385,9 @@ BATCH_JOBS = {
 }
 
 
-def _find_pid(match: str) -> int | None:
+def _find_pid(match: str, _ps_lines: list[str] | None = None) -> int | None:
+    """매치 패턴으로 실행 중인 프로세스 PID 검색.
+    _ps_lines를 전달하면 ps aux를 재실행하지 않고 재사용한다."""
     pattern = re.compile(match)
     # Linux (container): /proc 스캔
     try:
@@ -402,10 +404,12 @@ def _find_pid(match: str) -> int | None:
         return None
     except FileNotFoundError:
         pass
-    # macOS 폴백
+    # macOS 폴백 — ps aux 출력 재사용 (호출자가 한 번만 실행)
     try:
-        r = subprocess.run(["ps", "aux"], capture_output=True, text=True)
-        for line in r.stdout.splitlines()[1:]:
+        if _ps_lines is None:
+            r = subprocess.run(["ps", "aux"], capture_output=True, text=True)
+            _ps_lines = r.stdout.splitlines()[1:]
+        for line in _ps_lines:
             if pattern.search(line):
                 parts = line.split()
                 if len(parts) > 1:
@@ -2268,9 +2272,31 @@ def _batch_kill(job_id: str) -> bool:
 @app.route("/api/batch")
 def api_batch():
     """배치 작업 실행 상태 목록 조회."""
+    # macOS 환경에서 ps aux를 job마다 반복 실행하지 않도록 한 번만 수집
+    ps_lines: list[str] | None = None
+    if not os.path.exists("/proc"):
+        try:
+            r = subprocess.run(["ps", "aux"], capture_output=True, text=True, timeout=3)
+            ps_lines = r.stdout.splitlines()[1:]
+        except Exception:
+            ps_lines = []
+
     jobs = []
     for jid, j in BATCH_JOBS.items():
-        pid = _batch_running_pid(jid)
+        # 인메모리 PID 먼저 확인, 없으면 _find_pid에 ps 출력 재사용
+        pid = _batch_pids.get(jid)
+        if pid:
+            try:
+                os.kill(pid, 0)
+            except (ProcessLookupError, PermissionError):
+                _batch_pids.pop(jid, None)
+                pid = None
+        if pid is None:
+            found = _find_pid(j["match"], ps_lines)
+            if found:
+                _batch_pids[jid] = found
+                pid = found
+
         log_path = _latest_log(j["log_prefix"])
         last_line = ""
         if log_path:

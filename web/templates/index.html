@@ -3764,6 +3764,12 @@ let _minMarketCap = 5;
 
 async function loadBatch() {
   clearInterval(batchRefreshTimer);
+
+  // 캐시된 데이터가 있으면 즉시 렌더 — "로딩 중" 없애기
+  if (_batchJobs.length > 0 && Object.keys(_scheduleData).length > 0) {
+    renderUnifiedBatch();
+  }
+
   try {
     const [bRes, sRes, setRes] = await Promise.all([
       fetch('/api/batch'), fetch('/api/schedule'), fetch('/api/settings'),
@@ -3777,12 +3783,15 @@ async function loadBatch() {
     renderUnifiedBatch();
     batchRefreshTimer = setInterval(async () => {
       const r = await fetch('/api/batch');
+      if (!r.ok) return;
       _batchJobs = await r.json();
       renderUnifiedBatch();
     }, 8000);
   } catch(e) {
-    document.getElementById('schedule-list').innerHTML =
-      '<tr><td colspan="7" style="text-align:center;padding:24px;color:#f87171">로드 실패</td></tr>';
+    if (_batchJobs.length === 0) {
+      document.getElementById('schedule-list').innerHTML =
+        '<tr><td colspan="7" style="text-align:center;padding:24px;color:#f87171">로드 실패</td></tr>';
+    }
   }
 }
 
