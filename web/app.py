@@ -25,7 +25,6 @@ import logging
 import secrets
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask import Flask, jsonify, render_template, request, session, redirect
-import anthropic
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
@@ -46,21 +45,6 @@ def _ensure_app_settings_table():
                 key   VARCHAR(100) PRIMARY KEY,
                 value TEXT NOT NULL,
                 updated_at TIMESTAMP DEFAULT NOW()
-            )
-        """)
-
-
-def _ensure_spec_table():
-    with get_conn() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS spec_documents (
-                id         SERIAL PRIMARY KEY,
-                version    INTEGER NOT NULL DEFAULT 1,
-                content    TEXT NOT NULL,
-                summary    TEXT DEFAULT '',
-                commit_sha VARCHAR(40) DEFAULT '',
-                created_at TIMESTAMP DEFAULT NOW()
             )
         """)
 
@@ -2396,157 +2380,28 @@ def _init_scheduler():
 
 
 # ---------------------------------------------------------------------------
-# 기획서 (Spec)
+# 기획서 (Spec) — SPEC.md 파일을 읽어 반환
 # ---------------------------------------------------------------------------
 
-def _build_project_context() -> str:
-    lines: list[str] = []
-    claude_md = os.path.join(BASE_DIR, "CLAUDE.md")
-    if os.path.exists(claude_md):
-        try:
-            with open(claude_md, "r", encoding="utf-8") as f:
-                lines.append("=== CLAUDE.md ===")
-                lines.append(f.read())
-        except Exception:
-            pass
-    lines.append("\n=== 배치 작업 목록 ===")
-    for jid, j in BATCH_JOBS.items():
-        lines.append(f"- {jid}: {j['name']} — {j['desc']}")
-    return "\n".join(lines)
-
-
-def _call_claude_spec(current_version: int, current_content: str,
-                      commit_sha: str, commit_message: str, diff_stat: str) -> str:
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY 환경 변수가 설정되지 않았습니다")
-
-    project_context = _build_project_context()
-    client = anthropic.Anthropic(api_key=api_key)
-
-    if current_content:
-        user_msg = (
-            f"현재 기획서 (v{current_version}):\n{current_content}\n\n"
-            f"---\n\n최근 push 정보:\n"
-            f"- 커밋 SHA: {commit_sha[:8] if commit_sha else 'N/A'}\n"
-            f"- 커밋 메시지: {commit_message}\n"
-            f"- 변경 파일 요약:\n{diff_stat}\n\n"
-            f"프로젝트 현재 구조:\n{project_context}\n\n"
-            f"위 변경 사항을 기획서에 반영하여 최신화해주세요.\n"
-            f"변경 이력 섹션에 v{current_version + 1} 항목을 추가하세요.\n"
-            f"응답은 업데이트된 기획서 Markdown 전체만 출력하세요 (설명 없이)."
-        )
-    else:
-        user_msg = (
-            f"프로젝트 구조:\n{project_context}\n\n"
-            f"위 정보를 바탕으로 프로젝트 기획서 v1을 작성해주세요.\n"
-            f"다음 섹션을 포함하세요: 1) 프로젝트 개요  2) 시스템 화면 목록  "
-            f"3) 배치 작업  4) 변경 이력 (v1: 초기 작성)\n"
-            f"응답은 기획서 Markdown만 출력하세요 (설명 없이)."
-        )
-
-    resp = client.messages.create(
-        model="claude-opus-4-7",
-        max_tokens=4096,
-        system=(
-            "당신은 한국어로 소프트웨어 기획서를 작성하는 전문가입니다. "
-            "Markdown 형식으로 명확하고 체계적인 기획서를 작성합니다."
-        ),
-        messages=[{"role": "user", "content": user_msg}],
-    )
-    return resp.content[0].text.strip()
+_SPEC_FILE = os.path.join(BASE_DIR, "SPEC.md")
 
 
 @app.route("/api/spec")
-def api_spec_latest():
-    rows = query(
-        "SELECT id, version, content, summary, commit_sha, created_at "
-        "FROM spec_documents ORDER BY version DESC LIMIT 1"
-    )
-    if not rows:
-        return jsonify({"version": 0, "content": "", "summary": "", "created_at": None})
-    return jsonify(dict(rows[0]))
-
-
-@app.route("/api/spec/versions")
-def api_spec_versions():
-    rows = query(
-        "SELECT id, version, summary, commit_sha, created_at "
-        "FROM spec_documents ORDER BY version DESC LIMIT 30"
-    )
-    return jsonify([dict(r) for r in rows])
-
-
-@app.route("/api/spec/version/<int:ver>")
-def api_spec_version(ver: int):
-    rows = query(
-        "SELECT id, version, content, summary, commit_sha, created_at "
-        "FROM spec_documents WHERE version = %s", (ver,)
-    )
-    if not rows:
-        return jsonify({"error": "not found"}), 404
-    return jsonify(dict(rows[0]))
-
-
-def _do_spec_update(commit_sha: str = "", commit_message: str = "", diff_stat: str = "") -> dict:
-    rows = query("SELECT version, content FROM spec_documents ORDER BY version DESC LIMIT 1")
-    cur_ver = rows[0]["version"] if rows else 0
-    cur_content = rows[0]["content"] if rows else ""
-
-    new_content = _call_claude_spec(cur_ver, cur_content, commit_sha, commit_message, diff_stat)
-    new_ver = cur_ver + 1
-    summary = (commit_message[:200] if commit_message else f"v{new_ver} 업데이트")
-
-    with get_conn() as conn:
-        conn.cursor().execute(
-            "INSERT INTO spec_documents (version, content, summary, commit_sha) VALUES (%s, %s, %s, %s)",
-            (new_ver, new_content, summary, commit_sha),
-        )
-    return {"ok": True, "version": new_ver}
-
-
-@app.route("/api/spec/update", methods=["POST"])
-def api_spec_update():
-    """GitHub Actions에서 호출. X-Webhook-Secret 헤더로 인증."""
-    secret = os.environ.get("SPEC_WEBHOOK_SECRET", "")
-    incoming = request.headers.get("X-Webhook-Secret", "")
-    if secret and not secrets.compare_digest(secret, incoming):
-        return jsonify({"error": "unauthorized"}), 401
-
-    data = request.get_json() or {}
+def api_spec():
     try:
-        result = _do_spec_update(
-            commit_sha=data.get("commit_sha", "")[:40],
-            commit_message=data.get("commit_message", ""),
-            diff_stat=data.get("diff_stat", ""),
-        )
-        return jsonify(result)
-    except Exception as e:
-        logging.error("[spec] update 실패: %s", e)
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/api/spec/regenerate", methods=["POST"])
-def api_spec_regenerate():
-    """웹 UI에서 수동 갱신. 로그인 필요."""
-    if not session.get("user_id"):
-        return jsonify({"error": "not logged in"}), 401
-    try:
-        result = _do_spec_update()
-        return jsonify(result)
-    except Exception as e:
-        logging.error("[spec] regenerate 실패: %s", e)
-        return jsonify({"error": str(e)}), 500
+        if os.path.exists(_SPEC_FILE):
+            with open(_SPEC_FILE, "r", encoding="utf-8") as f:
+                content = f.read()
+            mtime = datetime.fromtimestamp(os.path.getmtime(_SPEC_FILE), tz=KST)
+            return jsonify({"content": content, "updated_at": mtime.isoformat()})
+    except Exception:
+        pass
+    return jsonify({"content": "", "updated_at": None})
 
 
 # ---------------------------------------------------------------------------
 # 엔트리포인트
 # ---------------------------------------------------------------------------
-
-try:
-    _ensure_spec_table()
-except Exception:
-    pass
 
 try:
     _ensure_app_settings_table()
