@@ -10,7 +10,6 @@ from email.mime.text import MIMEText
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from config import config
-from agents.market_data import MarketDataAgent
 import psycopg2
 import psycopg2.extras
 
@@ -19,6 +18,63 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # DB 조회
 # ---------------------------------------------------------------------------
+
+def get_manual_holdings(conn) -> list[dict]:
+    """manual_holdings 테이블에서 보유종목 조회 (현재가 포함, 종목코드별 합산)."""
+    sql = """
+        WITH latest_close AS (
+            SELECT DISTINCT ON (stock_code)
+                stock_code, close_price
+            FROM supply_demand
+            WHERE close_price IS NOT NULL AND close_price > 0
+            ORDER BY stock_code, date DESC
+        )
+        SELECT
+            mh.stock_code,
+            mh.stock_name,
+            SUM(mh.quantity)                        AS hold_qty,
+            SUM(mh.quantity * mh.avg_price)         AS pur_amt_total,
+            COALESCE(
+                lc.close_price,
+                CASE WHEN st.last_price ~ '^[0-9]+$' THEN st.last_price::BIGINT ELSE NULL END
+            )                                       AS current_price
+        FROM manual_holdings mh
+        LEFT JOIN latest_close lc ON lc.stock_code = mh.stock_code
+        LEFT JOIN stocks st ON st.stock_code = mh.stock_code
+        WHERE mh.quantity > 0
+        GROUP BY mh.stock_code, mh.stock_name, lc.close_price, st.last_price
+        ORDER BY mh.stock_name
+    """
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql)
+            rows = cur.fetchall()
+    except Exception as e:
+        logger.warning("manual_holdings 조회 실패: %s", e)
+        return []
+
+    holdings = []
+    for r in rows:
+        hold_qty     = int(r["hold_qty"] or 0)
+        pur_amt      = float(r["pur_amt_total"] or 0)
+        cur_price    = int(r["current_price"]) if r["current_price"] else None
+        eval_amt     = hold_qty * cur_price if cur_price else hold_qty * (pur_amt / hold_qty if hold_qty else 0)
+        has_cost     = pur_amt > 0
+        pnl_amt      = (eval_amt - pur_amt) if has_cost else None
+        pnl_rt       = (pnl_amt / pur_amt * 100) if (has_cost and pur_amt > 0) else None
+        holdings.append({
+            "stock_code":    r["stock_code"],
+            "stock_name":    r["stock_name"],
+            "hold_qty":      hold_qty,
+            "pur_amt_total": pur_amt,
+            "eval_amount":   eval_amt,
+            "current_price": cur_price or (pur_amt / hold_qty if hold_qty else 0),
+            "has_cost_data": has_cost,
+            "pnl_amount":    pnl_amt,
+            "pnl_rate":      pnl_rt,
+        })
+    return holdings
+
 
 def get_supply_history(stock_code: str, conn) -> list[dict]:
     """supply_demand 테이블에서 최근 12행 조회."""
@@ -524,56 +580,15 @@ def main(send: bool = False) -> str:
     """보유종목 리포트 생성 (HTML 반환). send=True이면 이메일도 발송."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
-    # Kiwoom API로 보유종목 조회
-    agent = MarketDataAgent()
-    raw_holdings = agent.get_account_holdings()
-
-    if not raw_holdings:
-        logger.warning("보유종목이 없습니다.")
-        return "<html><body><p>보유종목이 없습니다.</p></body></html>"
-
-    # 동일 종목 합산 (신용 대출건별 분리 대응)
-    import math
-    grouped: dict[str, dict] = {}
-    for h in raw_holdings:
-        key = h.stock_code
-        if key not in grouped:
-            grouped[key] = {
-                "stock_code":     h.stock_code,
-                "stock_name":     h.stock_name,
-                "hold_qty":       0,
-                "pur_amt_total":  0.0,
-                "eval_amount":    0.0,
-                "current_price":  h.current_price,
-                "has_cost_data":  True,   # pur_amt=0 행이 있으면 False
-            }
-        g = grouped[key]
-        g["hold_qty"]     += h.hold_qty
-        g["eval_amount"]  += h.eval_amount
-        if h.pur_amount > 0:
-            g["pur_amt_total"] += h.pur_amount   # API 원본 매입금액 직접 합산
-        else:
-            g["has_cost_data"] = False            # 매입단가 미제공
-
-    holdings = []
-    for g in grouped.values():
-        pur_amt  = g["pur_amt_total"]
-        eval_amt = g["eval_amount"]
-        if g["has_cost_data"] and pur_amt > 0:
-            pnl_amt = eval_amt - pur_amt
-            pnl_rt  = pnl_amt / pur_amt * 100
-        else:
-            pnl_amt = None   # 매입단가 데이터 없음
-            pnl_rt  = None
-        holdings.append({
-            **g,
-            "pnl_amount": pnl_amt,
-            "pnl_rate":   pnl_rt,
-        })
-
-    # PostgreSQL 연결
-    conn = psycopg2.connect(config.database_url)
+    conn = psycopg2.connect(config.database_url, options="-c timezone=Asia/Seoul")
     try:
+        # 보유종목 화면(manual_holdings)의 종목으로 리포트 생성
+        holdings = get_manual_holdings(conn)
+
+        if not holdings:
+            logger.warning("보유종목이 없습니다.")
+            return "<html><body><p>보유종목이 없습니다.</p></body></html>"
+
         # 수급 이력 조회 + 행 데이터 계산
         report_rows: list[dict] = []
         for h in holdings:

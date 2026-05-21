@@ -27,6 +27,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from flask import Flask, jsonify, render_template, request, session, redirect
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
 from config import config
 
@@ -53,15 +54,19 @@ def _ensure_batch_schedules_table():
         cur = conn.cursor()
         cur.execute("""
             CREATE TABLE IF NOT EXISTS batch_schedules (
-                job_id     VARCHAR(50) PRIMARY KEY,
-                enabled    BOOLEAN NOT NULL DEFAULT FALSE,
-                hour       SMALLINT NOT NULL DEFAULT 9,
-                minute     SMALLINT NOT NULL DEFAULT 0,
-                days       VARCHAR(20) NOT NULL DEFAULT 'weekdays',
-                last_run   TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT NOW()
+                job_id           VARCHAR(50) PRIMARY KEY,
+                enabled          BOOLEAN NOT NULL DEFAULT FALSE,
+                hour             SMALLINT NOT NULL DEFAULT 9,
+                minute           SMALLINT NOT NULL DEFAULT 0,
+                days             VARCHAR(20) NOT NULL DEFAULT 'weekdays',
+                interval_mode    BOOLEAN NOT NULL DEFAULT FALSE,
+                interval_minutes INTEGER NOT NULL DEFAULT 60,
+                last_run         TIMESTAMP,
+                updated_at       TIMESTAMP DEFAULT NOW()
             )
         """)
+        cur.execute("ALTER TABLE batch_schedules ADD COLUMN IF NOT EXISTS interval_mode    BOOLEAN NOT NULL DEFAULT FALSE")
+        cur.execute("ALTER TABLE batch_schedules ADD COLUMN IF NOT EXISTS interval_minutes INTEGER NOT NULL DEFAULT 60")
 
 
 def _ensure_users_auth_columns():
@@ -2191,11 +2196,12 @@ def api_save_settings():
 
 @app.route("/api/schedule")
 def api_schedule_get():
-    rows = query("SELECT job_id, enabled, hour, minute, days, last_run FROM batch_schedules")
+    rows = query("SELECT job_id, enabled, hour, minute, days, interval_mode, interval_minutes, last_run FROM batch_schedules")
     result = {r["job_id"]: dict(r) for r in rows}
     for jid in BATCH_JOBS:
         if jid not in result:
-            result[jid] = {"job_id": jid, "enabled": False, "hour": 9, "minute": 0, "days": "weekdays", "last_run": None}
+            result[jid] = {"job_id": jid, "enabled": False, "hour": 9, "minute": 0, "days": "weekdays",
+                           "interval_mode": False, "interval_minutes": 60, "last_run": None}
     return jsonify(result)
 
 
@@ -2204,23 +2210,27 @@ def api_schedule_save(job_id: str):
     if job_id not in BATCH_JOBS:
         return jsonify({"error": "unknown job"}), 404
     data = request.get_json() or {}
-    enabled = bool(data.get("enabled", False))
-    hour    = int(data.get("hour", 9))
-    minute  = int(data.get("minute", 0))
-    days    = data.get("days", "weekdays")
+    enabled          = bool(data.get("enabled", False))
+    hour             = int(data.get("hour", 9))
+    minute           = int(data.get("minute", 0))
+    days             = data.get("days", "weekdays")
+    interval_mode    = bool(data.get("interval_mode", False))
+    interval_minutes = max(1, int(data.get("interval_minutes", 60)))
     with get_conn() as conn:
         cur = conn.cursor()
         cur.execute("""
-            INSERT INTO batch_schedules (job_id, enabled, hour, minute, days, updated_at)
-            VALUES (%s, %s, %s, %s, %s, NOW())
+            INSERT INTO batch_schedules (job_id, enabled, hour, minute, days, interval_mode, interval_minutes, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
             ON CONFLICT (job_id) DO UPDATE
-              SET enabled = EXCLUDED.enabled,
-                  hour    = EXCLUDED.hour,
-                  minute  = EXCLUDED.minute,
-                  days    = EXCLUDED.days,
-                  updated_at = NOW()
-        """, (job_id, enabled, hour, minute, days))
-    _reload_scheduler_job(job_id, enabled, hour, minute, days)
+              SET enabled          = EXCLUDED.enabled,
+                  hour             = EXCLUDED.hour,
+                  minute           = EXCLUDED.minute,
+                  days             = EXCLUDED.days,
+                  interval_mode    = EXCLUDED.interval_mode,
+                  interval_minutes = EXCLUDED.interval_minutes,
+                  updated_at       = NOW()
+        """, (job_id, enabled, hour, minute, days, interval_mode, interval_minutes))
+    _reload_scheduler_job(job_id, enabled, hour, minute, days, interval_mode, interval_minutes)
     return jsonify({"ok": True})
 
 
@@ -2281,29 +2291,38 @@ def _run_scheduled_job(job_id: str):
         pass
 
 
-def _reload_scheduler_job(job_id: str, enabled: bool, hour: int, minute: int, days: str):
+def _reload_scheduler_job(job_id: str, enabled: bool, hour: int, minute: int, days: str,
+                          interval_mode: bool = False, interval_minutes: int = 60):
     sched_id = f"batch_{job_id}"
     if _scheduler.get_job(sched_id):
         _scheduler.remove_job(sched_id)
     if not enabled:
         return
-    day_str = _DAYS_MAP.get(days, "mon,tue,wed,thu,fri")
+    if interval_mode:
+        trigger = IntervalTrigger(minutes=interval_minutes, timezone="Asia/Seoul")
+        logging.info("[scheduler] %s 등록: %d분마다 반복", job_id, interval_minutes)
+    else:
+        day_str = _DAYS_MAP.get(days, "mon,tue,wed,thu,fri")
+        trigger = CronTrigger(day_of_week=day_str, hour=hour, minute=minute, timezone="Asia/Seoul")
+        logging.info("[scheduler] %s 등록: %02d:%02d [%s]", job_id, hour, minute, days)
     _scheduler.add_job(
         _run_scheduled_job,
-        CronTrigger(day_of_week=day_str, hour=hour, minute=minute, timezone="Asia/Seoul"),
+        trigger,
         id=sched_id,
         args=[job_id],
         replace_existing=True,
     )
-    logging.info("[scheduler] %s 등록: %02d:%02d [%s]", job_id, hour, minute, days)
 
 
 def _init_scheduler():
     try:
-        rows = query("SELECT job_id, enabled, hour, minute, days FROM batch_schedules")
+        rows = query("SELECT job_id, enabled, hour, minute, days, interval_mode, interval_minutes FROM batch_schedules")
         for r in rows:
             if r["enabled"]:
-                _reload_scheduler_job(r["job_id"], True, r["hour"], r["minute"], r["days"])
+                _reload_scheduler_job(
+                    r["job_id"], True, r["hour"], r["minute"], r["days"],
+                    bool(r.get("interval_mode", False)), int(r.get("interval_minutes", 60)),
+                )
     except Exception as e:
         logging.warning("[scheduler] 초기화 실패: %s", e)
     _scheduler.start()
