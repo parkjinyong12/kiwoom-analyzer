@@ -2062,7 +2062,7 @@ def api_qualitative_scores_delete(score_id: int):
 # API — 사용자 관리
 # ---------------------------------------------------------------------------
 
-ALL_MENUS = ["dashboard", "supply", "divergence", "signals", "report", "ext-holdings", "price-mgmt", "cash-assets", "macro", "rebalance", "credit", "stock-rebalance", "theme-rebalance", "qualitative", "auditlog", "stocks", "batch", "common-codes", "usermgmt"]
+ALL_MENUS = ["dashboard", "supply", "divergence", "snapshot", "signals", "report", "ext-holdings", "price-mgmt", "cash-assets", "macro", "rebalance", "credit", "stock-rebalance", "theme-rebalance", "qualitative", "auditlog", "stocks", "batch", "spec", "common-codes", "usermgmt"]
 
 @app.route("/api/users")
 def api_users():

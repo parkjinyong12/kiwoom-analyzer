@@ -25,6 +25,7 @@ body { font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
   display: flex; flex-direction: column;
   border-right: 1px solid #1e2535;
 }
+#nav-menu { flex: 1; overflow-y: auto; }
 .sidebar-logo {
   padding: 24px 20px 18px;
   font-size: 16px; font-weight: 700; color: #60a5fa;
@@ -4288,6 +4289,7 @@ const MENU_META = {
   auditlog:        { label: '감사 로그',       icon: '📋', section: '시스템' },
   stocks:          { label: '감시 종목',       icon: '🔭', section: '시스템' },
   batch:           { label: '배치 관리',       icon: '⚙️', section: '관리' },
+  spec:            { label: '기획서',          icon: '📋', section: '관리' },
   'common-codes':  { label: '공통코드 관리',   icon: '🗂️', section: '관리' },
   usermgmt:        { label: '사용자 관리',     icon: '👥', section: '관리' },
 };
