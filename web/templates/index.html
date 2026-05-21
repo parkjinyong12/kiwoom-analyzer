@@ -1817,6 +1817,30 @@ canvas { max-height: 220px; }
       </div>
     </div>
 
+    <!-- 추정자산 요약 카드 -->
+    <div id="cp-estimated-summary" style="display:none;margin-bottom:12px;padding:14px 20px;background:#0a0f1a;border-radius:10px;border:1px solid #1e2535;display:flex;gap:32px;flex-wrap:wrap;align-items:center">
+      <div>
+        <div style="font-size:11px;color:#64748b;margin-bottom:4px">추정 순자산</div>
+        <div id="cp-est-net" style="font-size:22px;font-weight:700">—</div>
+        <div style="font-size:11px;color:#64748b;margin-top:2px">지금 전량 매도 시 손에 쥐는 현금</div>
+      </div>
+      <div style="width:1px;background:#1e2535;align-self:stretch"></div>
+      <div style="display:flex;gap:24px;flex-wrap:wrap">
+        <div>
+          <div style="font-size:11px;color:#64748b">주식 평가금</div>
+          <div id="cp-est-stock" style="font-size:15px;font-weight:600;color:#60a5fa">—</div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:#64748b">현금성자산</div>
+          <div id="cp-est-cash" style="font-size:15px;font-weight:600;color:#34d399">—</div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:#64748b">대출금 상환</div>
+          <div id="cp-est-loan" style="font-size:15px;font-weight:600;color:#f87171">—</div>
+        </div>
+      </div>
+    </div>
+
     <!-- 신용 포지션 관리 패널 -->
     <div class="panel" style="margin-bottom:12px">
       <div class="panel-header">
@@ -1831,6 +1855,7 @@ canvas { max-height: 220px; }
               <th style="text-align:right">주식 평가금</th>
               <th style="text-align:right">현금성자산</th>
               <th style="text-align:right">대출금</th>
+              <th style="text-align:right">추정자산</th>
               <th style="text-align:right">신용담보비율</th>
               <th style="text-align:right">기준 대비</th>
               <th>메모</th>
@@ -1839,7 +1864,7 @@ canvas { max-height: 220px; }
             </tr>
           </thead>
           <tbody id="cp-tbody">
-            <tr><td colspan="9" class="loading">로딩 중...</td></tr>
+            <tr><td colspan="10" class="loading">로딩 중...</td></tr>
           </tbody>
         </table>
       </div>
@@ -7328,23 +7353,26 @@ function cpRenderTable(data) {
   const tbody          = document.getElementById('cp-tbody');
 
   if (!positions.length) {
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:24px;color:#475569">등록된 신용 포지션이 없습니다.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:24px;color:#475569">등록된 신용 포지션이 없습니다.</td></tr>';
+    document.getElementById('cp-estimated-summary').style.display = 'none';
     return;
   }
 
   let totalLoan = 0, totalEval = 0, totalCash = 0;
   const rows = positions.map(r => {
-    const stockEval = brokerEval[r.brokerage]     ?? 0;
-    const cashEval  = brokerCashEval[r.brokerage] ?? 0;
-    const 담보자산     = stockEval + cashEval;
-    const cur담보비율  = r.loan_amount > 0 ? 담보자산 / r.loan_amount * 100 : null;
-    const 담보비율str  = cur담보비율 !== null ? cur담보비율.toFixed(1) : '—';
-    const 갭           = cur담보비율 !== null ? cur담보비율 - rbCollateralRequired : null;
-    const 갭금액       = cur담보비율 !== null ? Math.round(담보자산 - rbCollateralRequired / 100 * r.loan_amount) : null;
-    const 갭str        = 갭 === null ? '—' : (갭 >= 0 ? '+' : '') + 갭.toFixed(1) + '%p';
-    const 갭금액str    = 갭금액 === null ? '' : (갭금액 >= 0 ? '+' : '') + 갭금액.toLocaleString() + '원';
-    const 갭color      = 갭 === null ? '#64748b' : 갭 >= 0 ? '#4ade80' : '#f87171';
-    const 담보color    = cur담보비율 === null ? '#64748b'
+    const stockEval  = brokerEval[r.brokerage]     ?? 0;
+    const cashEval   = brokerCashEval[r.brokerage] ?? 0;
+    const 담보자산      = stockEval + cashEval;
+    const 추정자산      = stockEval + cashEval - r.loan_amount;
+    const 추정color    = 추정자산 >= 0 ? '#4ade80' : '#f87171';
+    const cur담보비율   = r.loan_amount > 0 ? 담보자산 / r.loan_amount * 100 : null;
+    const 담보비율str   = cur담보비율 !== null ? cur담보비율.toFixed(1) : '—';
+    const 갭            = cur담보비율 !== null ? cur담보비율 - rbCollateralRequired : null;
+    const 갭금액        = cur담보비율 !== null ? Math.round(담보자산 - rbCollateralRequired / 100 * r.loan_amount) : null;
+    const 갭str         = 갭 === null ? '—' : (갭 >= 0 ? '+' : '') + 갭.toFixed(1) + '%p';
+    const 갭금액str     = 갭금액 === null ? '' : (갭금액 >= 0 ? '+' : '') + 갭금액.toLocaleString() + '원';
+    const 갭color       = 갭 === null ? '#64748b' : 갭 >= 0 ? '#4ade80' : '#f87171';
+    const 담보color     = cur담보비율 === null ? '#64748b'
       : cur담보비율 >= rbCollateralRequired + 10 ? '#4ade80'
       : cur담보비율 >= rbCollateralRequired       ? '#f59e0b'
       : '#f87171';
@@ -7355,6 +7383,7 @@ function cpRenderTable(data) {
       <td class="num" style="color:#60a5fa;font-weight:600">${stockEval.toLocaleString()}</td>
       <td class="num" style="color:#34d399">${cashEval > 0 ? cashEval.toLocaleString() : '—'}</td>
       <td class="num" style="color:#f87171">${r.loan_amount.toLocaleString()}</td>
+      <td class="num" style="color:${추정color};font-weight:700">${추정자산.toLocaleString()}</td>
       <td class="num" style="color:${담보color};font-weight:600">${담보비율str}</td>
       <td class="num" style="color:${갭color};font-size:12px;line-height:1.6">${갭str}<br><span style="font-size:11px;opacity:0.85">${갭금액str}</span></td>
       <td style="color:#94a3b8;font-size:12px">${r.note || '-'}</td>
@@ -7368,27 +7397,40 @@ function cpRenderTable(data) {
     </tr>`;
   });
 
-  const total담보자산   = totalEval + totalCash;
-  const total담보비율   = totalLoan > 0 ? total담보자산 / totalLoan * 100 : null;
-  const total담보비율str = total담보비율 !== null ? total담보비율.toFixed(1) : '—';
-  const total갭         = total담보비율 !== null ? total담보비율 - rbCollateralRequired : null;
-  const total갭금액     = total담보비율 !== null ? Math.round(total담보자산 - rbCollateralRequired / 100 * totalLoan) : null;
-  const total갭str      = total갭 === null ? '—' : (total갭 >= 0 ? '+' : '') + total갭.toFixed(1) + '%p';
-  const total갭금액str  = total갭금액 === null ? '' : (total갭금액 >= 0 ? '+' : '') + total갭금액.toLocaleString() + '원';
-  const total갭color    = total갭 === null ? '#64748b' : total갭 >= 0 ? '#4ade80' : '#f87171';
-  const total담보color  = total담보비율 === null ? '#64748b'
+  const total담보자산    = totalEval + totalCash;
+  const total추정자산    = totalEval + totalCash - totalLoan;
+  const total추정color   = total추정자산 >= 0 ? '#4ade80' : '#f87171';
+  const total담보비율    = totalLoan > 0 ? total담보자산 / totalLoan * 100 : null;
+  const total담보비율str  = total담보비율 !== null ? total담보비율.toFixed(1) : '—';
+  const total갭          = total담보비율 !== null ? total담보비율 - rbCollateralRequired : null;
+  const total갭금액      = total담보비율 !== null ? Math.round(total담보자산 - rbCollateralRequired / 100 * totalLoan) : null;
+  const total갭str       = total갭 === null ? '—' : (total갭 >= 0 ? '+' : '') + total갭.toFixed(1) + '%p';
+  const total갭금액str   = total갭금액 === null ? '' : (total갭금액 >= 0 ? '+' : '') + total갭금액.toLocaleString() + '원';
+  const total갭color     = total갭 === null ? '#64748b' : total갭 >= 0 ? '#4ade80' : '#f87171';
+  const total담보color   = total담보비율 === null ? '#64748b'
     : total담보비율 >= rbCollateralRequired + 10 ? '#4ade80'
     : total담보비율 >= rbCollateralRequired       ? '#f59e0b'
     : '#f87171';
+
   tbody.innerHTML = rows.join('') + `<tr style="border-top:2px solid #334155;background:rgba(148,163,184,0.06);font-weight:700">
     <td style="color:#94a3b8">합계</td>
     <td class="num" style="color:#60a5fa">${totalEval.toLocaleString()}</td>
     <td class="num" style="color:#34d399">${totalCash > 0 ? totalCash.toLocaleString() : '—'}</td>
     <td class="num" style="color:#f87171">${totalLoan.toLocaleString()}</td>
+    <td class="num" style="color:${total추정color};font-weight:700">${total추정자산.toLocaleString()}</td>
     <td class="num" style="color:${total담보color}">${total담보비율str}</td>
     <td class="num" style="color:${total갭color};font-size:12px;line-height:1.6">${total갭str}<br><span style="font-size:11px;opacity:0.85">${total갭금액str}</span></td>
     <td colspan="3"></td>
   </tr>`;
+
+  // 요약 카드 업데이트
+  const summaryEl = document.getElementById('cp-estimated-summary');
+  summaryEl.style.display = 'flex';
+  document.getElementById('cp-est-net').textContent   = total추정자산.toLocaleString() + '원';
+  document.getElementById('cp-est-net').style.color   = total추정color;
+  document.getElementById('cp-est-stock').textContent = totalEval.toLocaleString() + '원';
+  document.getElementById('cp-est-cash').textContent  = totalCash > 0 ? totalCash.toLocaleString() + '원' : '—';
+  document.getElementById('cp-est-loan').textContent  = '-' + totalLoan.toLocaleString() + '원';
 }
 
 async function cpLoadBrokerages(currentVal) {
