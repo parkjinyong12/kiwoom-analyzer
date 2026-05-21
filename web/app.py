@@ -37,6 +37,38 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "kiwoom-analyzer-secret-chan
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 
+def _ensure_spec_table():
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS spec_document (
+                id         INTEGER PRIMARY KEY DEFAULT 1,
+                content    TEXT NOT NULL DEFAULT '',
+                updated_at TIMESTAMP DEFAULT NOW(),
+                CHECK (id = 1)
+            )
+        """)
+
+
+def _sync_spec_to_db():
+    """SPEC.md가 있으면 DB에 동기화 (앱 시작 시 호출)."""
+    if not os.path.exists(_SPEC_FILE):
+        return
+    try:
+        with open(_SPEC_FILE, "r", encoding="utf-8") as f:
+            content = f.read().strip()
+        if not content:
+            return
+        with get_conn() as conn:
+            conn.cursor().execute("""
+                INSERT INTO spec_document (id, content, updated_at)
+                VALUES (1, %s, NOW())
+                ON CONFLICT (id) DO UPDATE SET content = EXCLUDED.content, updated_at = NOW()
+            """, (content,))
+    except Exception as e:
+        logging.warning("[spec] SPEC.md → DB 동기화 실패: %s", e)
+
+
 def _ensure_app_settings_table():
     with get_conn() as conn:
         cur = conn.cursor()
@@ -2380,7 +2412,7 @@ def _init_scheduler():
 
 
 # ---------------------------------------------------------------------------
-# 기획서 (Spec) — SPEC.md 파일을 읽어 반환
+# 기획서 (Spec) — DB 저장, SPEC.md → DB 자동 동기화
 # ---------------------------------------------------------------------------
 
 _SPEC_FILE = os.path.join(BASE_DIR, "SPEC.md")
@@ -2388,14 +2420,10 @@ _SPEC_FILE = os.path.join(BASE_DIR, "SPEC.md")
 
 @app.route("/api/spec")
 def api_spec():
-    try:
-        if os.path.exists(_SPEC_FILE):
-            with open(_SPEC_FILE, "r", encoding="utf-8") as f:
-                content = f.read()
-            mtime = datetime.fromtimestamp(os.path.getmtime(_SPEC_FILE), tz=KST)
-            return jsonify({"content": content, "updated_at": mtime.isoformat()})
-    except Exception:
-        pass
+    rows = query("SELECT content, updated_at FROM spec_document WHERE id = 1")
+    if rows and rows[0]["content"]:
+        r = rows[0]
+        return jsonify({"content": r["content"], "updated_at": r["updated_at"].isoformat() if r["updated_at"] else None})
     return jsonify({"content": "", "updated_at": None})
 
 
@@ -2467,6 +2495,12 @@ try:
     _ensure_credit_positions_table()
 except Exception:
     pass
+
+try:
+    _ensure_spec_table()
+    _sync_spec_to_db()
+except Exception as e:
+    logging.warning("[spec] 초기화 실패: %s", e)
 
 try:
     _init_scheduler()
