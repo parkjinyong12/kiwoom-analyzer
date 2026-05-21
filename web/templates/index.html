@@ -1017,12 +1017,11 @@ canvas { max-height: 220px; }
               <th style="text-align:center;width:70px">스케줄</th>
               <th>스케줄 요약</th>
               <th style="text-align:center">마지막 실행</th>
-              <th style="color:#475569;max-width:260px">최근 로그</th>
               <th style="text-align:center;width:140px">액션</th>
             </tr>
           </thead>
           <tbody id="schedule-list">
-            <tr><td colspan="7" class="loading"><span class="spinner"></span>로딩 중...</td></tr>
+            <tr><td colspan="6" class="loading"><span class="spinner"></span>로딩 중...</td></tr>
           </tbody>
         </table>
       </div>
@@ -3642,7 +3641,6 @@ function renderUnifiedBatch() {
       ? `<button class="btn btn-danger"  style="font-size:11px;padding:3px 8px" onclick="batchStop('${jid}')">■ 중지</button>`
       : `<button class="btn btn-primary" style="font-size:11px;padding:3px 8px" onclick="batchStart('${jid}')">▶ 실행</button>`;
     const lastRun = s.last_run ? new Date(s.last_run).toLocaleString('ko-KR') : '—';
-    const logLine = j.last_line ? `<span style="color:#475569;font-size:11px;font-family:monospace">${j.last_line}</span>` : '<span style="color:#334155;font-size:11px">—</span>';
     return `<tr>
       <td>
         <div style="font-weight:600;font-size:13px">${BATCH_LABELS[jid] || jid}</div>
@@ -3652,7 +3650,6 @@ function renderUnifiedBatch() {
       <td class="center">${schDot}</td>
       <td style="font-size:13px">${_schSummary(s)}</td>
       <td class="center" style="font-size:11px;color:#64748b;white-space:nowrap">${lastRun}</td>
-      <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${logLine}</td>
       <td class="center" style="white-space:nowrap">
         ${runBtn}
         <button class="btn btn-ghost" style="font-size:11px;padding:3px 8px;margin-left:4px"
@@ -3662,7 +3659,7 @@ function renderUnifiedBatch() {
       </td>
     </tr>`;
   }).join('');
-  tbody.innerHTML = rows || '<tr><td colspan="7" style="text-align:center;padding:24px;color:#475569">배치 없음</td></tr>';
+  tbody.innerHTML = rows || '<tr><td colspan="6" style="text-align:center;padding:24px;color:#475569">배치 없음</td></tr>';
 }
 
 async function loadSchedule() { /* loadBatch에서 통합 처리 */ }
