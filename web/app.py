@@ -2259,9 +2259,18 @@ def api_batch_logs(job_id: str):
     try:
         with open(log_path, "r", errors="replace") as f:
             lines = f.readlines()
-        return jsonify([ln.rstrip() for ln in lines[-100:]])
+        return jsonify([ln.rstrip() for ln in lines[-200:]])
     except Exception:
         return jsonify([])
+
+
+@app.route("/batch/<job_id>/log-viewer")
+def batch_log_viewer(job_id: str):
+    j = BATCH_JOBS.get(job_id)
+    if not j:
+        return "Job not found", 404
+    name = request.args.get("name", j["name"])
+    return render_template("log_viewer.html", job_id=job_id, name=name)
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ name }} — 로그</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0e17;
+      color: #94a3b8;
+      font-family: 'Courier New', Consolas, monospace;
+      font-size: 12px;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .header {
+      background: #161b27;
+      border-bottom: 1px solid #1e2535;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+    .status-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #334155;
+      flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    .status-dot.running {
+      background: #4ade80;
+      box-shadow: 0 0 6px #4ade80;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    .header-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #e2e8f0;
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .status-badge {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 10px;
+      background: #1e2535;
+      color: #64748b;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .status-badge.running {
+      background: rgba(74, 222, 128, 0.12);
+      color: #4ade80;
+    }
+    .log-wrap {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: auto;
+    }
+    #log-body {
+      padding: 14px 16px;
+      line-height: 1.65;
+      white-space: pre;
+      word-break: normal;
+      min-height: 100%;
+    }
+    .log-empty { color: #334155; }
+    .footer {
+      background: #161b27;
+      border-top: 1px solid #1e2535;
+      padding: 7px 16px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-shrink: 0;
+    }
+    .auto-scroll-label {
+      font-size: 11px;
+      color: #64748b;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .auto-scroll-label input { cursor: pointer; accent-color: #60a5fa; }
+    .line-count { font-size: 11px; color: #334155; }
+    .refresh-badge {
+      margin-left: auto;
+      font-size: 10px;
+      color: #1e2535;
+    }
+    .refresh-badge.tick { color: #475569; transition: color 0.1s; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div id="status-dot" class="status-dot"></div>
+    <div class="header-title">{{ name }} — 로그</div>
+    <span id="status-badge" class="status-badge">확인 중...</span>
+  </div>
+
+  <div class="log-wrap" id="log-wrap">
+    <pre id="log-body"><span class="log-empty">로딩 중...</span></pre>
+  </div>
+
+  <div class="footer">
+    <label class="auto-scroll-label">
+      <input type="checkbox" id="auto-scroll" checked>
+      자동 스크롤
+    </label>
+    <span class="line-count" id="line-count"></span>
+    <span class="refresh-badge" id="refresh-badge">● 3초마다 갱신</span>
+  </div>
+
+  <script>
+    const JOB_ID = {{ job_id | tojson }};
+    const scrollEl = document.getElementById('log-wrap');
+
+    function isAtBottom() {
+      return scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 60;
+    }
+
+    async function fetchLogs() {
+      try {
+        const res = await fetch(`/api/batch/${JOB_ID}/logs`);
+        if (!res.ok) return;
+        const lines = await res.json();
+        const body = document.getElementById('log-body');
+        const wasAtBottom = isAtBottom();
+
+        if (lines.length === 0) {
+          body.innerHTML = '<span class="log-empty">로그 없음</span>';
+          document.getElementById('line-count').textContent = '';
+        } else {
+          body.textContent = lines.join('\n');
+          document.getElementById('line-count').textContent = `${lines.length}줄`;
+        }
+
+        const autoScroll = document.getElementById('auto-scroll').checked;
+        if (autoScroll && wasAtBottom) {
+          scrollEl.scrollTop = scrollEl.scrollHeight;
+        }
+      } catch (e) { /* 네트워크 오류 무시 */ }
+    }
+
+    async function fetchStatus() {
+      try {
+        const res = await fetch('/api/batch');
+        if (!res.ok) return;
+        const jobs = await res.json();
+        const job = jobs.find(j => j.id === JOB_ID);
+        const dot = document.getElementById('status-dot');
+        const badge = document.getElementById('status-badge');
+        if (job && job.running) {
+          dot.className = 'status-dot running';
+          badge.textContent = `실행 중 (PID ${job.pid})`;
+          badge.className = 'status-badge running';
+        } else {
+          dot.className = 'status-dot';
+          badge.textContent = '중지됨';
+          badge.className = 'status-badge';
+        }
+      } catch (e) {}
+    }
+
+    function tick() {
+      const el = document.getElementById('refresh-badge');
+      el.classList.add('tick');
+      setTimeout(() => el.classList.remove('tick'), 200);
+    }
+
+    async function refresh() {
+      await Promise.all([fetchLogs(), fetchStatus()]);
+      tick();
+    }
+
+    // 첫 로드는 즉시, 이후 3초마다 갱신
+    refresh().then(() => {
+      // 첫 로드 완료 후 스크롤 맨 아래로
+      scrollEl.scrollTop = scrollEl.scrollHeight;
+    });
+    setInterval(refresh, 3000);
+  </script>
+</body>
+</html>
