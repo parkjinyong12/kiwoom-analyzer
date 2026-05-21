@@ -466,6 +466,11 @@ canvas { max-height: 220px; }
 .ss-chevron-closed { transform:rotate(-90deg); }
 .ss-section-body { border-left:2px solid #1e2535; margin-left:4px; padding-left:16px; }
 .ss-section-body.ss-collapsed { display:none; }
+.ss-ctrl-btn { padding:5px 14px; font-size:12px; background:#1e2535; border:1px solid #2d3748; border-radius:6px; color:#94a3b8; cursor:pointer; transition:all .15s; }
+.ss-ctrl-btn:hover { background:#263048; color:#e2e8f0; }
+.ss-default-btn { padding:4px 14px; font-size:12px; font-weight:700; border-radius:20px; border:1px solid; cursor:pointer; transition:all .2s; }
+.ss-default-btn.open  { background:#0f2d1c; border-color:#166534; color:#6ee7b7; }
+.ss-default-btn.close { background:#1c1215; border-color:#7f1d1d; color:#fca5a5; }
 </style>
 </head>
 <body>
@@ -2613,6 +2618,15 @@ canvas { max-height: 220px; }
 
     <!-- 화면별 기획서 -->
     <div id="spec-panel-screens" class="panel" style="padding:24px 32px;display:none">
+      <!-- 컨트롤 바 -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid #1e2535;flex-wrap:wrap">
+        <button class="ss-ctrl-btn" onclick="ssExpandAll()">모두 펴기</button>
+        <button class="ss-ctrl-btn" onclick="ssCollapseAll()">모두 접기</button>
+        <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+          <span style="font-size:12px;color:#475569">처음 진입 시</span>
+          <button id="ss-default-btn" class="ss-default-btn" onclick="ssToggleDefault()"></button>
+        </div>
+      </div>
       <div id="spec-screens-content" style="color:#cbd5e1;line-height:1.85;font-size:14px">
         <span style="color:#334155">로딩 중...</span>
       </div>
@@ -3842,7 +3856,60 @@ async function loadSpec() {
   } catch(e) {}
 }
 
+// ── 화면별 기획서 상태 관리 (localStorage) ────────────────
+const SS_DEFAULT_KEY = 'ss_default_open';
+const SS_STATE_KEY   = 'ss_section_states';
+
+function _ssDefaultOpen() { return localStorage.getItem(SS_DEFAULT_KEY) !== 'false'; }
+function _ssSetDefault(open) { localStorage.setItem(SS_DEFAULT_KEY, open ? 'true' : 'false'); }
+function _ssSectionState(title) {
+  const s = JSON.parse(localStorage.getItem(SS_STATE_KEY) || '{}');
+  return title in s ? s[title] : _ssDefaultOpen();
+}
+function _ssSaveSection(title, open) {
+  const s = JSON.parse(localStorage.getItem(SS_STATE_KEY) || '{}');
+  s[title] = open;
+  localStorage.setItem(SS_STATE_KEY, JSON.stringify(s));
+}
+
+function _ssRefreshDefaultBtn() {
+  const btn = document.getElementById('ss-default-btn');
+  if (!btn) return;
+  const open = _ssDefaultOpen();
+  btn.textContent = open ? '펼친 상태' : '접힌 상태';
+  btn.className = 'ss-default-btn ' + (open ? 'open' : 'close');
+}
+
+function ssToggleDefault() {
+  _ssSetDefault(!_ssDefaultOpen());
+  _ssRefreshDefaultBtn();
+}
+
+function ssExpandAll() {
+  document.querySelectorAll('.ss-section-body').forEach(body => {
+    body.classList.remove('ss-collapsed');
+    const h2 = body.previousElementSibling;
+    if (h2) { h2.querySelector('.ss-chevron')?.classList.remove('ss-chevron-closed'); }
+    const title = h2?.dataset.ssTitle;
+    if (title) _ssSaveSection(title, true);
+  });
+}
+
+function ssCollapseAll() {
+  document.querySelectorAll('.ss-section-body').forEach(body => {
+    body.classList.add('ss-collapsed');
+    const h2 = body.previousElementSibling;
+    if (h2) { h2.querySelector('.ss-chevron')?.classList.add('ss-chevron-closed'); }
+    const title = h2?.dataset.ssTitle;
+    if (title) _ssSaveSection(title, false);
+  });
+}
+
+let _screenSpecLoaded = false;
+
 async function loadSpecScreens() {
+  _ssRefreshDefaultBtn();
+  if (_screenSpecLoaded) return; // 이미 렌더링됨 — DOM 상태 그대로 유지
   const el = document.getElementById('spec-screens-content');
   try {
     const res = await fetch('/api/spec/screens');
@@ -3854,39 +3921,45 @@ async function loadSpecScreens() {
       _renderMd(el, data.content);
       _makeScreenSpecAccordion(el);
       _makeScreenSpecApiClickable(el);
+      _screenSpecLoaded = true;
     }
   } catch(e) { el.innerHTML = '<p style="color:#ef4444;text-align:center;padding:40px">오류: ' + e.message + '</p>'; }
 }
 
 function _makeScreenSpecAccordion(container) {
-  // H2 기준으로 접기/펼치기 아코디언 구성
-  const h2s = Array.from(container.querySelectorAll('h2'));
-  h2s.forEach(h2 => {
-    // H2 다음 ~ 다음 H2 이전까지의 요소를 wrapper로 묶기
+  Array.from(container.querySelectorAll('h2')).forEach(h2 => {
     const siblings = [];
     let cur = h2.nextElementSibling;
-    while (cur && cur.tagName !== 'H2') {
-      siblings.push(cur);
-      cur = cur.nextElementSibling;
-    }
+    while (cur && cur.tagName !== 'H2') { siblings.push(cur); cur = cur.nextElementSibling; }
     if (!siblings.length) return;
+
+    // 제목 텍스트를 data 속성으로 저장 (chevron 제외)
+    const title = h2.textContent.trim();
+    h2.dataset.ssTitle = title;
 
     const wrapper = document.createElement('div');
     wrapper.className = 'ss-section-body';
     h2.after(wrapper);
     siblings.forEach(s => wrapper.appendChild(s));
 
-    // 헤더 스타일
     h2.classList.add('ss-h2');
     const chevron = document.createElement('span');
     chevron.className = 'ss-chevron';
     chevron.textContent = '▼';
     h2.appendChild(chevron);
 
+    // 저장된 상태 복원
+    const savedOpen = _ssSectionState(title);
+    if (!savedOpen) {
+      wrapper.classList.add('ss-collapsed');
+      chevron.classList.add('ss-chevron-closed');
+    }
+
     h2.addEventListener('click', () => {
-      const open = !wrapper.classList.contains('ss-collapsed');
-      wrapper.classList.toggle('ss-collapsed', open);
-      chevron.classList.toggle('ss-chevron-closed', open);
+      const nowOpen = !wrapper.classList.contains('ss-collapsed');
+      wrapper.classList.toggle('ss-collapsed', nowOpen);
+      chevron.classList.toggle('ss-chevron-closed', nowOpen);
+      _ssSaveSection(title, !nowOpen);
     });
   });
 }
