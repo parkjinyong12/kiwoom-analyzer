@@ -757,7 +757,7 @@ canvas { max-height: 220px; }
       <div class="panel">
         <div class="panel-header">최근 매매 신호</div>
         <div class="panel-body">
-          <div id="dash-signals-loading" class="loading"><span class="spinner"></span>로딩 중...</div>
+          <div id="dash-signals-loading" class="loading" style="display:none"><span class="spinner"></span>로딩 중...</div>
           <table class="data-table" id="dash-signals-table" style="display:none">
             <thead><tr>
               <th>시간</th><th>종목</th><th>신호</th>
@@ -2806,9 +2806,15 @@ function showPage(name, fromHash) {
 
 // ─── 대시보드 ─────────────────────────────────────────
 async function loadDashboard() {
+  const loading = document.getElementById('dash-signals-loading');
+  const table   = document.getElementById('dash-signals-table');
+  const empty   = document.getElementById('dash-signals-empty');
+  loading.style.display = 'block';
+  table.style.display   = 'none';
+  empty.style.display   = 'none';
   try {
     const res = await fetch('/api/dashboard');
-    if (!res.ok) { console.error('loadDashboard failed', res.status); return; }
+    if (!res.ok) throw new Error(res.status);
     const d = await res.json();
 
     document.getElementById('d-watched').textContent  = d.watched_count.toLocaleString();
@@ -2816,18 +2822,12 @@ async function loadDashboard() {
     document.getElementById('d-supply').textContent   = d.supply_alerts_today;
     document.getElementById('d-errors').textContent   = d.errors_today;
 
-    // 최근 신호 테이블
-    const tbody = document.getElementById('dash-signals-body');
-    const table = document.getElementById('dash-signals-table');
-    const loading = document.getElementById('dash-signals-loading');
-    const empty = document.getElementById('dash-signals-empty');
-
     loading.style.display = 'none';
     if (!d.recent_signals || d.recent_signals.length === 0) {
       empty.style.display = 'block';
     } else {
       table.style.display = 'table';
-      tbody.innerHTML = d.recent_signals.map(s => `
+      document.getElementById('dash-signals-body').innerHTML = d.recent_signals.map(s => `
         <tr>
           <td style="color:#64748b">${s.ts}</td>
           <td><b>${s.ticker}</b> <span style="color:#64748b;font-size:12px">${s.stock_name}</span></td>
@@ -2839,12 +2839,10 @@ async function loadDashboard() {
       `).join('');
     }
 
-    // 파이 차트
-    const stats = d.signal_stats_30d || {};
-    drawSignalPie(stats);
+    drawSignalPie(d.signal_stats_30d || {});
 
   } catch (e) {
-    console.error(e);
+    loading.textContent = '로드 실패';
   }
 }
 
@@ -3602,10 +3600,11 @@ async function loadSignals() {
 
   try {
     const res = await fetch('/api/signals');
+    if (!res.ok) throw new Error(res.status);
     allSignals = await res.json();
     loading.style.display = 'none';
     renderSignals(allSignals);
-  } catch(e) { loading.textContent = '로드 실패'; }
+  } catch(e) { loading.style.display = 'none'; empty.style.display = 'block'; empty.querySelector?.('.empty-title') && (empty.querySelector('.empty-title').textContent = '로드 실패'); }
 }
 
 function filterSignals() {
@@ -3651,10 +3650,11 @@ async function loadEvents() {
 
   try {
     const res = await fetch('/api/events');
+    if (!res.ok) throw new Error(res.status);
     allEvents = await res.json();
     loading.style.display = 'none';
     renderEvents(allEvents);
-  } catch(e) { loading.textContent = '로드 실패'; }
+  } catch(e) { loading.style.display = 'none'; }
 }
 
 function filterEvents() {
@@ -3701,10 +3701,11 @@ async function loadStocks() {
 
   try {
     const res = await fetch('/api/stocks');
+    if (!res.ok) throw new Error(res.status);
     allStocks = await res.json();
     loading.style.display = 'none';
     renderStocks(allStocks);
-  } catch(e) { loading.textContent = '로드 실패'; }
+  } catch(e) { loading.style.display = 'none'; }
 }
 
 function filterStocks() {
