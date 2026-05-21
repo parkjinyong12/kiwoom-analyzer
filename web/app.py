@@ -2271,42 +2271,17 @@ def _batch_kill(job_id: str) -> bool:
 
 @app.route("/api/batch")
 def api_batch():
-    """배치 작업 실행 상태 목록 조회."""
-    # macOS 환경에서 ps aux를 job마다 반복 실행하지 않도록 한 번만 수집
-    ps_lines: list[str] | None = None
-    if not os.path.exists("/proc"):
-        try:
-            r = subprocess.run(["ps", "aux"], capture_output=True, text=True, timeout=3)
-            ps_lines = r.stdout.splitlines()[1:]
-        except Exception:
-            ps_lines = []
-
+    """배치 작업 실행 상태 목록 조회.
+    인메모리 PID 딕셔너리 + os.kill(0) 체크만 사용 — subprocess/파일I/O 없음."""
     jobs = []
     for jid, j in BATCH_JOBS.items():
-        # 인메모리 PID 먼저 확인, 없으면 _find_pid에 ps 출력 재사용
         pid = _batch_pids.get(jid)
         if pid:
             try:
-                os.kill(pid, 0)
+                os.kill(pid, 0)   # syscall만 — subprocess/파일 I/O 없음
             except (ProcessLookupError, PermissionError):
                 _batch_pids.pop(jid, None)
                 pid = None
-        if pid is None:
-            found = _find_pid(j["match"], ps_lines)
-            if found:
-                _batch_pids[jid] = found
-                pid = found
-
-        log_path = _latest_log(j["log_prefix"])
-        last_line = ""
-        if log_path:
-            try:
-                size = os.path.getsize(log_path)
-                with open(log_path, "rb") as f:
-                    f.seek(-min(2000, size), 2)
-                    last_line = f.readlines()[-1].decode("utf-8", errors="replace").strip()
-            except Exception:
-                pass
         jobs.append({
             "id": jid,
             "name": j["name"],
@@ -2314,8 +2289,6 @@ def api_batch():
             "running": pid is not None,
             "pid": pid,
             "manual_stopped": jid in _batch_manual_stopped,
-            "last_line": last_line[:120],
-            "log_file": os.path.basename(log_path) if log_path else None,
         })
     return jsonify(jobs)
 
@@ -2732,6 +2705,21 @@ try:
     _init_scheduler()
 except Exception as e:
     logging.warning("스케줄러 시작 실패: %s", e)
+
+# 앱 시작 시 1회 PID 스캔 — 이미 실행 중인 배치 인식
+try:
+    ps_lines: list[str] | None = None
+    if not os.path.exists("/proc"):
+        r = subprocess.run(["ps", "aux"], capture_output=True, text=True, timeout=3)
+        ps_lines = r.stdout.splitlines()[1:]
+    for _jid, _j in BATCH_JOBS.items():
+        if _jid not in _batch_pids:
+            _found = _find_pid(_j["match"], ps_lines)
+            if _found:
+                _batch_pids[_jid] = _found
+                logging.info("[startup] 실행 중인 배치 감지: %s (PID %d)", _jid, _found)
+except Exception as e:
+    logging.warning("[startup] 배치 PID 스캔 실패: %s", e)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5001, debug=True, use_reloader=False)
