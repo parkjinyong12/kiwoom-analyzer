@@ -404,20 +404,26 @@ canvas { max-height: 220px; }
   /* 기간 버튼 가로 스크롤 */
   .period-btns { overflow-x: auto; -webkit-overflow-scrolling: touch; flex-wrap: nowrap; padding-bottom: 2px; }
 }
+/* ── 기획서 탭 ──────────────────────────────────────────── */
+.spec-tab { padding:8px 20px; background:transparent; border:none; border-bottom:2px solid transparent; color:#64748b; cursor:pointer; font-size:13px; font-weight:600; transition:all .15s; margin-bottom:-1px; }
+.spec-tab:hover { color:#94a3b8; }
+.spec-tab.active { color:#38bdf8; border-bottom-color:#38bdf8; }
+
 /* ── 기획서 Markdown 렌더링 ────────────────────────────── */
-#spec-content h1 { font-size:22px; font-weight:800; color:#e2e8f0; border-bottom:1px solid #1e2535; padding-bottom:10px; margin:0 0 20px; }
-#spec-content h2 { font-size:17px; font-weight:700; color:#e2e8f0; margin:32px 0 12px; }
-#spec-content h3 { font-size:14px; font-weight:600; color:#94a3b8; margin:20px 0 8px; }
-#spec-content p  { margin:0 0 12px; }
-#spec-content table { width:100%; border-collapse:collapse; margin:12px 0 20px; font-size:13px; }
-#spec-content th { background:#1e2535; color:#94a3b8; padding:8px 12px; text-align:left; border:1px solid #2d3748; }
-#spec-content td { padding:7px 12px; border:1px solid #1e2535; color:#cbd5e1; }
-#spec-content tr:nth-child(even) td { background:#0d1117; }
-#spec-content code { background:#1e2535; color:#93c5fd; padding:1px 6px; border-radius:4px; font-size:12px; }
-#spec-content ul, #spec-content ol { padding-left:20px; margin:0 0 12px; }
-#spec-content li { margin-bottom:4px; }
-#spec-content hr { border:none; border-top:1px solid #1e2535; margin:24px 0; }
-#spec-content strong { color:#e2e8f0; }
+#spec-content h1, #spec-screens-content h1 { font-size:22px; font-weight:800; color:#e2e8f0; border-bottom:1px solid #1e2535; padding-bottom:10px; margin:0 0 20px; }
+#spec-content h1, #spec-screens-content h1 { font-size:22px; font-weight:800; color:#e2e8f0; border-bottom:1px solid #1e2535; padding-bottom:10px; margin:0 0 20px; }
+#spec-content h2, #spec-screens-content h2 { font-size:17px; font-weight:700; color:#e2e8f0; margin:32px 0 12px; }
+#spec-content h3, #spec-screens-content h3 { font-size:14px; font-weight:600; color:#94a3b8; margin:20px 0 8px; }
+#spec-content p,  #spec-screens-content p  { margin:0 0 12px; }
+#spec-content table, #spec-screens-content table { width:100%; border-collapse:collapse; margin:12px 0 20px; font-size:13px; }
+#spec-content th, #spec-screens-content th { background:#1e2535; color:#94a3b8; padding:8px 12px; text-align:left; border:1px solid #2d3748; }
+#spec-content td, #spec-screens-content td { padding:7px 12px; border:1px solid #1e2535; color:#cbd5e1; }
+#spec-content tr:nth-child(even) td, #spec-screens-content tr:nth-child(even) td { background:#0d1117; }
+#spec-content code, #spec-screens-content code { background:#1e2535; color:#93c5fd; padding:1px 6px; border-radius:4px; font-size:12px; }
+#spec-content ul, #spec-content ol, #spec-screens-content ul, #spec-screens-content ol { padding-left:20px; margin:0 0 12px; }
+#spec-content li, #spec-screens-content li { margin-bottom:4px; }
+#spec-content hr, #spec-screens-content hr { border:none; border-top:1px solid #1e2535; margin:24px 0; }
+#spec-content strong, #spec-screens-content strong { color:#e2e8f0; }
 </style>
 </head>
 <body>
@@ -2549,10 +2555,45 @@ canvas { max-height: 220px; }
       <span id="spec-meta" style="margin-left:auto;font-size:11px;color:#475569"></span>
     </div>
 
-    <div class="panel" style="padding:24px 32px">
+    <!-- 탭 바 -->
+    <div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid #1e2535;padding-bottom:0">
+      <button id="spec-tab-overview" class="spec-tab active" onclick="specShowTab('overview')">프로젝트 개요</button>
+      <button id="spec-tab-screens" class="spec-tab" onclick="specShowTab('screens')">화면별 기획서</button>
+      <button id="spec-tab-apis" class="spec-tab" onclick="specShowTab('apis')">API 목록</button>
+    </div>
+
+    <!-- 프로젝트 개요 -->
+    <div id="spec-panel-overview" class="panel" style="padding:24px 32px">
       <div id="spec-content" style="color:#cbd5e1;line-height:1.85;font-size:14px">
         <span style="color:#334155">로딩 중...</span>
       </div>
+    </div>
+
+    <!-- 화면별 기획서 -->
+    <div id="spec-panel-screens" class="panel" style="padding:24px 32px;display:none">
+      <div id="spec-screens-content" style="color:#cbd5e1;line-height:1.85;font-size:14px">
+        <span style="color:#334155">로딩 중...</span>
+      </div>
+    </div>
+
+    <!-- API 목록 -->
+    <div id="spec-panel-apis" class="panel" style="padding:24px 32px;display:none">
+      <div style="margin-bottom:12px;display:flex;align-items:center;gap:12px">
+        <input id="spec-api-filter" type="text" placeholder="경로 또는 엔드포인트 검색..."
+          oninput="renderSpecApis()"
+          style="flex:1;max-width:360px;padding:6px 12px;background:#0d1117;border:1px solid #1e2535;border-radius:6px;color:#e2e8f0;font-size:13px">
+        <span id="spec-api-count" style="font-size:12px;color:#475569"></span>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px" id="spec-api-table">
+        <thead>
+          <tr style="background:#1e2535">
+            <th style="padding:8px 12px;text-align:left;border:1px solid #2d3748;color:#94a3b8;width:60px">메서드</th>
+            <th style="padding:8px 12px;text-align:left;border:1px solid #2d3748;color:#94a3b8">경로</th>
+            <th style="padding:8px 12px;text-align:left;border:1px solid #2d3748;color:#94a3b8">설명</th>
+          </tr>
+        </thead>
+        <tbody id="spec-api-tbody"></tbody>
+      </table>
     </div>
   </section>
 
@@ -2656,7 +2697,7 @@ function showPage(name, fromHash) {
   if (name === 'auditlog')  loadEvents();
   if (name === 'stocks')    loadStocks();
   if (name === 'batch')     loadBatch();
-  if (name === 'spec')      loadSpec();
+  if (name === 'spec')      specShowTab(_specActiveTab || 'overview');
   if (name === 'report')        loadReportPage();
   if (name === 'usermgmt')      loadUserMgmt();
   if (name === 'ext-holdings')  loadExtHoldings();
@@ -3722,6 +3763,26 @@ function batchShowLog(id, name) {
 }
 
 // ─── 기획서 ──────────────────────────────────────────────
+let _specApiData = [];
+let _specActiveTab = 'overview';
+
+function specShowTab(tab) {
+  _specActiveTab = tab;
+  ['overview','screens','apis'].forEach(t => {
+    document.getElementById('spec-tab-' + t).classList.toggle('active', t === tab);
+    document.getElementById('spec-panel-' + t).style.display = t === tab ? '' : 'none';
+  });
+  if (tab === 'overview') loadSpec();
+  else if (tab === 'screens') loadSpecScreens();
+  else if (tab === 'apis') loadSpecApis();
+}
+
+function _renderMd(el, content) {
+  el.innerHTML = typeof marked !== 'undefined'
+    ? marked.parse(content)
+    : '<pre style="white-space:pre-wrap">' + content.replace(/</g,'&lt;') + '</pre>';
+}
+
 async function loadSpec() {
   try {
     const res = await fetch('/api/spec');
@@ -3733,14 +3794,52 @@ async function loadSpec() {
       el.innerHTML = '<p style="color:#475569;text-align:center;padding:40px">SPEC.md 파일이 없습니다.</p>';
       meta.textContent = '';
     } else {
-      el.innerHTML = typeof marked !== 'undefined'
-        ? marked.parse(data.content)
-        : '<pre style="white-space:pre-wrap">' + data.content.replace(/</g,'&lt;') + '</pre>';
+      _renderMd(el, data.content);
       meta.textContent = data.updated_at
         ? '최종 업데이트: ' + new Date(data.updated_at).toLocaleString('ko-KR')
         : '';
     }
   } catch(e) {}
+}
+
+async function loadSpecScreens() {
+  const el = document.getElementById('spec-screens-content');
+  try {
+    const res = await fetch('/api/spec/screens');
+    if (!res.ok) { el.innerHTML = '<p style="color:#475569;text-align:center;padding:40px">로드 실패</p>'; return; }
+    const data = await res.json();
+    if (!data.content) {
+      el.innerHTML = '<p style="color:#475569;text-align:center;padding:40px">SCREEN_SPEC.md 파일이 없습니다.</p>';
+    } else {
+      _renderMd(el, data.content);
+    }
+  } catch(e) { el.innerHTML = '<p style="color:#ef4444;text-align:center;padding:40px">오류: ' + e.message + '</p>'; }
+}
+
+async function loadSpecApis() {
+  try {
+    const res = await fetch('/api/spec/apis');
+    if (!res.ok) return;
+    _specApiData = await res.json();
+    renderSpecApis();
+  } catch(e) {}
+}
+
+function renderSpecApis() {
+  const filter = (document.getElementById('spec-api-filter')?.value || '').toLowerCase();
+  const rows = _specApiData.filter(r =>
+    !filter || r.path.toLowerCase().includes(filter) || r.endpoint.toLowerCase().includes(filter) || (r.doc||'').toLowerCase().includes(filter)
+  );
+  const METHOD_COLOR = { GET:'#34d399', POST:'#60a5fa', PUT:'#fbbf24', DELETE:'#f87171', PATCH:'#c084fc' };
+  document.getElementById('spec-api-count').textContent = rows.length + '개';
+  document.getElementById('spec-api-tbody').innerHTML = rows.map((r,i) => `
+    <tr style="${i%2===1?'background:#0d1117':''}">
+      <td style="padding:7px 12px;border:1px solid #1e2535;white-space:nowrap">
+        ${r.methods.map(m=>`<span style="color:${METHOD_COLOR[m]||'#94a3b8'};font-weight:700;font-size:11px;margin-right:4px">${m}</span>`).join('')}
+      </td>
+      <td style="padding:7px 12px;border:1px solid #1e2535;font-family:monospace;color:#93c5fd;font-size:12px">${r.path}</td>
+      <td style="padding:7px 12px;border:1px solid #1e2535;color:#94a3b8;font-size:12px">${r.doc||''}</td>
+    </tr>`).join('');
 }
 
 // ─── 스케줄 관리 ────────────────────────────────────────

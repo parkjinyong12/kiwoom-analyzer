@@ -2416,6 +2416,39 @@ def _init_scheduler():
 # ---------------------------------------------------------------------------
 
 _SPEC_FILE = os.path.join(BASE_DIR, "SPEC.md")
+_SCREEN_SPEC_FILE = os.path.join(BASE_DIR, "SCREEN_SPEC.md")
+
+
+def _ensure_screen_spec_table():
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS screen_spec_document (
+                id         INTEGER PRIMARY KEY DEFAULT 1,
+                content    TEXT NOT NULL DEFAULT '',
+                updated_at TIMESTAMP DEFAULT NOW(),
+                CHECK (id = 1)
+            )
+        """)
+
+
+def _sync_screen_spec_to_db():
+    """SCREEN_SPEC.md가 있으면 DB에 동기화 (앱 시작 시 호출)."""
+    if not os.path.exists(_SCREEN_SPEC_FILE):
+        return
+    try:
+        with open(_SCREEN_SPEC_FILE, "r", encoding="utf-8") as f:
+            content = f.read().strip()
+        if not content:
+            return
+        with get_conn() as conn:
+            conn.cursor().execute("""
+                INSERT INTO screen_spec_document (id, content, updated_at)
+                VALUES (1, %s, NOW())
+                ON CONFLICT (id) DO UPDATE SET content = EXCLUDED.content, updated_at = NOW()
+            """, (content,))
+    except Exception as e:
+        logging.warning("[spec] SCREEN_SPEC.md → DB 동기화 실패: %s", e)
 
 
 @app.route("/api/spec")
@@ -2425,6 +2458,41 @@ def api_spec():
         r = rows[0]
         return jsonify({"content": r["content"], "updated_at": r["updated_at"].isoformat() if r["updated_at"] else None})
     return jsonify({"content": "", "updated_at": None})
+
+
+@app.route("/api/spec/screens")
+def api_spec_screens():
+    rows = query("SELECT content, updated_at FROM screen_spec_document WHERE id = 1")
+    if rows and rows[0]["content"]:
+        r = rows[0]
+        return jsonify({"content": r["content"], "updated_at": r["updated_at"].isoformat() if r["updated_at"] else None})
+    return jsonify({"content": "", "updated_at": None})
+
+
+@app.route("/api/spec/apis")
+def api_spec_apis():
+    """Flask url_map 기반 API 목록 자동 생성."""
+    skip_prefixes = ("/static", "/batch/", "/log-viewer")
+    results = []
+    seen = set()
+    for rule in sorted(app.url_map.iter_rules(), key=lambda r: r.rule):
+        path = rule.rule
+        if any(path.startswith(p) for p in skip_prefixes):
+            continue
+        methods = sorted(m for m in rule.methods if m not in ("HEAD", "OPTIONS"))
+        if not methods:
+            continue
+        key = path
+        if key in seen:
+            continue
+        seen.add(key)
+        # 엔드포인트 함수 docstring에서 설명 추출
+        fn = app.view_functions.get(rule.endpoint)
+        doc = ""
+        if fn and fn.__doc__:
+            doc = fn.__doc__.strip().split("\n")[0]
+        results.append({"path": path, "methods": methods, "endpoint": rule.endpoint, "doc": doc})
+    return jsonify(results)
 
 
 # ---------------------------------------------------------------------------
@@ -2501,6 +2569,12 @@ try:
     _sync_spec_to_db()
 except Exception as e:
     logging.warning("[spec] 초기화 실패: %s", e)
+
+try:
+    _ensure_screen_spec_table()
+    _sync_screen_spec_to_db()
+except Exception as e:
+    logging.warning("[spec] screen 초기화 실패: %s", e)
 
 try:
     _init_scheduler()
