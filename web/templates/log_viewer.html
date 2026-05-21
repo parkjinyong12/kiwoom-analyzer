@@ -128,6 +128,7 @@
   <script>
     const JOB_ID = {{ job_id | tojson }};
     const scrollEl = document.getElementById('log-wrap');
+    let _shownLines = 0; // 이미 렌더링된 줄 수
 
     function isAtBottom() {
       return scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 60;
@@ -142,12 +143,30 @@
         const wasAtBottom = isAtBottom();
 
         if (lines.length === 0) {
+          // 로그 없음 — 전체 초기화
           body.innerHTML = '<span class="log-empty">로그 없음</span>';
+          _shownLines = 0;
           document.getElementById('line-count').textContent = '';
-        } else {
-          body.textContent = lines.join('\n');
-          document.getElementById('line-count').textContent = `${lines.length}줄`;
+          return;
         }
+
+        if (lines.length < _shownLines) {
+          // 로그 파일이 교체된 경우 (새 실행) — 전체 교체
+          body.textContent = lines.join('\n');
+          _shownLines = lines.length;
+        } else if (lines.length > _shownLines) {
+          // 새 줄만 append — 깜박임 없음
+          if (_shownLines === 0) {
+            body.textContent = lines.join('\n');
+          } else {
+            const newText = '\n' + lines.slice(_shownLines).join('\n');
+            body.appendChild(document.createTextNode(newText));
+          }
+          _shownLines = lines.length;
+        }
+        // lines.length === _shownLines: 변화 없음 — DOM 건드리지 않음
+
+        document.getElementById('line-count').textContent = `${lines.length}줄`;
 
         const autoScroll = document.getElementById('auto-scroll').checked;
         if (autoScroll && wasAtBottom) {
@@ -187,11 +206,8 @@
       tick();
     }
 
-    // 첫 로드는 즉시, 이후 3초마다 갱신
-    refresh().then(() => {
-      // 첫 로드 완료 후 스크롤 맨 아래로
-      scrollEl.scrollTop = scrollEl.scrollHeight;
-    });
+    // 첫 로드 즉시, 이후 3초마다 갱신
+    refresh().then(() => { scrollEl.scrollTop = scrollEl.scrollHeight; });
     setInterval(refresh, 3000);
   </script>
 </body>
