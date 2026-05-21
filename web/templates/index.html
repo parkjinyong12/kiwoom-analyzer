@@ -2775,6 +2775,12 @@ function showPage(name, fromHash) {
   if (!fromHash) location.hash = name;
   restoreFilters(name);
 
+  // 다른 화면으로 이동 시 price-mgmt 폴링 정리
+  if (name !== 'price-mgmt' && pmPollTimer) {
+    clearInterval(pmPollTimer);
+    pmPollTimer = null;
+  }
+
   if (name === 'dashboard') loadDashboard();
   if (name === 'supply')      loadSupplyStocksAndRestore();
   if (name === 'divergence')  loadDivergence();
@@ -5203,7 +5209,6 @@ async function pmCheckRunning() {
     document.getElementById('pm-sync-btn').textContent = running ? '⟳ 실행 중...' : '⟳ 동기화';
     document.getElementById('pm-sync-status').textContent = running ? '동기화 중...' : '';
     if (running) {
-      pmShowLog(job.last_line);
       if (!pmPollTimer) pmPollTimer = setInterval(pmPoll, 3000);
     } else {
       if (pmPollTimer) { clearInterval(pmPollTimer); pmPollTimer = null; }
@@ -5226,10 +5231,12 @@ async function pmPoll() {
     ]);
     const jobs = await bRes.json();
     const job  = jobs.find(j => j.id === 'sync_prices');
-    const logs = await lRes.json();
+    // 로그 API 응답이 {lines:[], total:N} 객체 형식
+    const data  = await lRes.json();
+    const lines = Array.isArray(data) ? data : (data.lines || []);
 
     const body = document.getElementById('pm-log-body');
-    body.textContent = logs.slice(-30).join('\n');
+    body.textContent = lines.slice(-30).join('\n');
     body.scrollTop   = body.scrollHeight;
 
     if (job && !job.running) {
