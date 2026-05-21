@@ -1,6 +1,9 @@
 app = "kiwoom-analyzer"
 primary_region = "nrt"
 
+[env]
+  TZ = "Asia/Seoul"
+
 [build]
   dockerfile = "Dockerfile"
 

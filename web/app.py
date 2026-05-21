@@ -381,6 +381,7 @@ def get_conn():
     return psycopg2.connect(
         config.database_url,
         cursor_factory=psycopg2.extras.RealDictCursor,
+        options="-c timezone=Asia/Seoul",
     )
 
 
