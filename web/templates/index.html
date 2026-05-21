@@ -1108,6 +1108,7 @@ canvas { max-height: 220px; }
     <div class="page-header">
       <div class="page-title">배치 관리</div>
       <div class="page-sub">백그라운드 작업 실행 · 스케줄 관리</div>
+      <button id="batch-refresh-btn" class="btn btn-ghost" style="margin-left:auto;font-size:12px;padding:5px 14px" onclick="refreshBatchStatus()">↻ 상태 갱신</button>
     </div>
 
     <div class="panel">
@@ -3757,14 +3758,11 @@ function qtyColor(v) {
 }
 
 // ─── 배치 관리 ────────────────────────────────────────
-let batchRefreshTimer = null;
 
 let _batchJobs = [];
 let _minMarketCap = 5;
 
 async function loadBatch() {
-  clearInterval(batchRefreshTimer);
-
   // 캐시된 데이터가 있으면 즉시 렌더 — "로딩 중" 없애기
   if (_batchJobs.length > 0 && Object.keys(_scheduleData).length > 0) {
     renderUnifiedBatch();
@@ -3781,17 +3779,22 @@ async function loadBatch() {
       if (s.min_market_cap != null) _minMarketCap = s.min_market_cap / 1e12;
     }
     renderUnifiedBatch();
-    batchRefreshTimer = setInterval(async () => {
-      const r = await fetch('/api/batch');
-      if (!r.ok) return;
-      _batchJobs = await r.json();
-      renderUnifiedBatch();
-    }, 8000);
   } catch(e) {
     if (_batchJobs.length === 0) {
       document.getElementById('schedule-list').innerHTML =
         '<tr><td colspan="7" style="text-align:center;padding:24px;color:#f87171">로드 실패</td></tr>';
     }
+  }
+}
+
+async function refreshBatchStatus() {
+  const btn = document.getElementById('batch-refresh-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '↻ 갱신 중...'; }
+  try {
+    const r = await fetch('/api/batch');
+    if (r.ok) { _batchJobs = await r.json(); renderUnifiedBatch(); }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '↻ 상태 갱신'; }
   }
 }
 
