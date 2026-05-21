@@ -458,6 +458,14 @@ canvas { max-height: 220px; }
 #spec-content li, #spec-screens-content li { margin-bottom:4px; }
 #spec-content hr, #spec-screens-content hr { border:none; border-top:1px solid #1e2535; margin:24px 0; }
 #spec-content strong, #spec-screens-content strong { color:#e2e8f0; }
+
+/* ── 화면별 기획서 아코디언 ─────────────────────────────── */
+.ss-h2 { cursor:pointer; display:flex; align-items:center; justify-content:space-between; padding:10px 14px; margin:24px -14px 0; border-radius:8px; transition:background .15s; }
+.ss-h2:hover { background:#1a2540; }
+.ss-chevron { font-size:10px; color:#475569; transition:transform .2s; margin-left:10px; flex-shrink:0; }
+.ss-chevron-closed { transform:rotate(-90deg); }
+.ss-section-body { border-left:2px solid #1e2535; margin-left:4px; padding-left:16px; }
+.ss-section-body.ss-collapsed { display:none; }
 </style>
 </head>
 <body>
@@ -3844,20 +3852,53 @@ async function loadSpecScreens() {
       el.innerHTML = '<p style="color:#475569;text-align:center;padding:40px">SCREEN_SPEC.md 파일이 없습니다.</p>';
     } else {
       _renderMd(el, data.content);
+      _makeScreenSpecAccordion(el);
       _makeScreenSpecApiClickable(el);
     }
   } catch(e) { el.innerHTML = '<p style="color:#ef4444;text-align:center;padding:40px">오류: ' + e.message + '</p>'; }
 }
 
+function _makeScreenSpecAccordion(container) {
+  // H2 기준으로 접기/펼치기 아코디언 구성
+  const h2s = Array.from(container.querySelectorAll('h2'));
+  h2s.forEach(h2 => {
+    // H2 다음 ~ 다음 H2 이전까지의 요소를 wrapper로 묶기
+    const siblings = [];
+    let cur = h2.nextElementSibling;
+    while (cur && cur.tagName !== 'H2') {
+      siblings.push(cur);
+      cur = cur.nextElementSibling;
+    }
+    if (!siblings.length) return;
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'ss-section-body';
+    h2.after(wrapper);
+    siblings.forEach(s => wrapper.appendChild(s));
+
+    // 헤더 스타일
+    h2.classList.add('ss-h2');
+    const chevron = document.createElement('span');
+    chevron.className = 'ss-chevron';
+    chevron.textContent = '▼';
+    h2.appendChild(chevron);
+
+    h2.addEventListener('click', () => {
+      const open = !wrapper.classList.contains('ss-collapsed');
+      wrapper.classList.toggle('ss-collapsed', open);
+      chevron.classList.toggle('ss-chevron-closed', open);
+    });
+  });
+}
+
 function _makeScreenSpecApiClickable(container) {
-  // <code> 태그 안의 /api/ 경로를 클릭하면 API 상세 탭으로 이동
   container.querySelectorAll('code').forEach(code => {
     const text = code.textContent.trim();
     if (!text.startsWith('/api/')) return;
     code.style.cursor = 'pointer';
     code.title = 'API 목록에서 상세 보기';
     code.style.textDecoration = 'underline dotted';
-    code.addEventListener('click', () => specGoToApi(text));
+    code.addEventListener('click', e => { e.stopPropagation(); specGoToApi(text); });
   });
 }
 
