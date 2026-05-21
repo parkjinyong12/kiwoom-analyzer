@@ -471,6 +471,37 @@ canvas { max-height: 220px; }
 .ss-default-btn { padding:4px 14px; font-size:12px; font-weight:700; border-radius:20px; border:1px solid; cursor:pointer; transition:all .2s; }
 .ss-default-btn.open  { background:#0f2d1c; border-color:#166534; color:#6ee7b7; }
 .ss-default-btn.close { background:#1c1215; border-color:#7f1d1d; color:#fca5a5; }
+
+/* ── 화면별 기획서 섹션 레이블 칩 ──────────────────────── */
+.ss-lbl {
+  display:inline-flex; align-items:center; gap:5px;
+  font-size:11px; font-weight:700; letter-spacing:.4px;
+  padding:4px 12px; border-radius:20px; border:1px solid;
+  margin:18px 0 8px; user-select:none;
+}
+.ss-lbl-overview  { background:#0f1e35; border-color:#1e40af; color:#93c5fd; }
+.ss-lbl-layout    { background:#1a0e2e; border-color:#4c1d95; color:#c4b5fd; }
+.ss-lbl-feature   { background:#0f2918; border-color:#14532d; color:#86efac; }
+.ss-lbl-form      { background:#1c1508; border-color:#78350f; color:#fcd34d; }
+.ss-lbl-modal     { background:#1c0a0a; border-color:#7f1d1d; color:#fca5a5; }
+.ss-lbl-api       { background:#031a1a; border-color:#065f46; color:#6ee7b7; }
+
+/* ── ASCII 와이어프레임 박스 ────────────────────────────── */
+.ss-wireframe-wrap {
+  margin:8px 0 16px;
+  border:1px solid #1e2535; border-radius:8px; overflow:hidden;
+}
+.ss-wireframe-label {
+  display:flex; align-items:center; gap:6px;
+  background:#0f172a; padding:6px 14px;
+  font-size:11px; font-weight:700; color:#475569;
+  border-bottom:1px solid #1e2535; letter-spacing:.5px;
+}
+.ss-wireframe-wrap pre {
+  background:#0a0e17 !important; color:#64748b !important;
+  font-size:11px; line-height:1.5; padding:14px 16px !important;
+  overflow-x:auto; margin:0 !important;
+}
 </style>
 </head>
 <body>
@@ -3926,6 +3957,7 @@ async function loadSpecScreens() {
       _renderMd(el, data.content);
       _makeScreenSpecAccordion(el);
       _makeScreenSpecApiClickable(el);
+      _styleScreenSpec(el);
       _screenSpecLoaded = true;
     }
   } catch(e) { el.innerHTML = '<p style="color:#ef4444;text-align:center;padding:40px">오류: ' + e.message + '</p>'; }
@@ -3977,6 +4009,69 @@ function _makeScreenSpecApiClickable(container) {
     code.title = 'API 목록에서 상세 보기';
     code.style.textDecoration = 'underline dotted';
     code.addEventListener('click', e => { e.stopPropagation(); specGoToApi(text); });
+  });
+}
+
+function _styleScreenSpec(container) {
+  // 1) <p> 안에 <strong>만 있는 요소 → 컬러 칩 레이블로 교체
+  const LABEL_MAP = {
+    '개요':         ['ss-lbl-overview',  'ℹ',  '개요'],
+    '레이아웃 구성':['ss-lbl-layout',   '📐', '레이아웃 구성'],
+    '주요 기능':    ['ss-lbl-feature',   '⚡', '주요 기능'],
+    '폼 입력':      ['ss-lbl-form',      '📝', '폼 입력'],
+    '폼 입력 (설정 뷰)': ['ss-lbl-form', '📝', '폼 입력 (설정 뷰)'],
+    '모달':         ['ss-lbl-modal',     '🔲', '모달'],
+  };
+  container.querySelectorAll('p').forEach(p => {
+    const children = Array.from(p.childNodes).filter(n =>
+      !(n.nodeType === Node.TEXT_NODE && n.textContent.trim() === '')
+    );
+    if (children.length !== 1 || children[0].tagName !== 'STRONG') return;
+    const text = children[0].textContent.trim();
+
+    // 모달: 접두사 처리
+    let key = text;
+    let modalSuffix = '';
+    if (text.startsWith('모달: ') || text.startsWith('모달:')) {
+      key = '모달';
+      modalSuffix = text.replace(/^모달:\s*/, '');
+    }
+    const cfg = LABEL_MAP[key];
+    if (!cfg) return;
+
+    const chip = document.createElement('span');
+    chip.className = 'ss-lbl ' + cfg[0];
+    chip.textContent = cfg[1] + ' ' + (modalSuffix ? '모달  ' + modalSuffix : cfg[2]);
+    p.replaceWith(chip);
+  });
+
+  // 2) <pre> 블록 → 와이어프레임 래퍼로 감싸기
+  container.querySelectorAll('pre').forEach(pre => {
+    if (pre.closest('.ss-wireframe-wrap')) return; // 이미 처리됨
+    const wrap = document.createElement('div');
+    wrap.className = 'ss-wireframe-wrap';
+    const lbl = document.createElement('div');
+    lbl.className = 'ss-wireframe-label';
+    lbl.textContent = '📐  레이아웃 미리보기';
+    pre.parentNode.insertBefore(wrap, pre);
+    wrap.appendChild(lbl);
+    wrap.appendChild(pre);
+  });
+
+  // 3) API 표 메서드 셀 → sw-badge 적용
+  const METHOD_RE = /^(GET|POST|PUT|DELETE|PATCH)$/;
+  container.querySelectorAll('table').forEach(table => {
+    const headers = Array.from(table.querySelectorAll('th'));
+    const methodIdx = headers.findIndex(th => th.textContent.trim() === '메서드');
+    if (methodIdx < 0) return;
+    table.querySelectorAll('tbody tr').forEach(tr => {
+      const cells = tr.querySelectorAll('td');
+      if (cells.length <= methodIdx) return;
+      const cell = cells[methodIdx];
+      const method = cell.textContent.trim();
+      if (!METHOD_RE.test(method)) return;
+      cell.innerHTML = `<span class="sw-badge ${method}">${method}</span>`;
+    });
   });
 }
 
