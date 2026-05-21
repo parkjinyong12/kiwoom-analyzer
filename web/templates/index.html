@@ -409,6 +409,34 @@ canvas { max-height: 220px; }
 .spec-tab:hover { color:#94a3b8; }
 .spec-tab.active { color:#38bdf8; border-bottom-color:#38bdf8; }
 
+/* ── Swagger 아코디언 ───────────────────────────────────── */
+.sw-item { border:1px solid #1e2535; border-radius:8px; margin-bottom:8px; overflow:hidden; }
+.sw-header { display:flex; align-items:center; gap:10px; padding:10px 16px; cursor:pointer; background:#131c2e; transition:background .15s; user-select:none; }
+.sw-header:hover { background:#1a2540; }
+.sw-header.open { background:#172035; border-bottom:1px solid #1e2535; }
+.sw-badge { display:inline-block; font-size:11px; font-weight:800; padding:3px 9px; border-radius:4px; min-width:54px; text-align:center; letter-spacing:.5px; }
+.sw-badge.GET    { background:#064e3b; color:#34d399; }
+.sw-badge.POST   { background:#1e3a5f; color:#60a5fa; }
+.sw-badge.PUT    { background:#451a03; color:#fbbf24; }
+.sw-badge.DELETE { background:#450a0a; color:#f87171; }
+.sw-badge.PATCH  { background:#3b0764; color:#c084fc; }
+.sw-path { font-family:monospace; font-size:13px; color:#e2e8f0; flex:1; word-break:break-all; }
+.sw-path .sw-param { color:#fbbf24; }
+.sw-desc { font-size:12px; color:#64748b; margin-left:auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:280px; }
+.sw-chevron { color:#475569; font-size:11px; transition:transform .2s; }
+.sw-header.open .sw-chevron { transform:rotate(180deg); }
+.sw-body { display:none; padding:16px 20px; background:#0d1117; }
+.sw-body.open { display:block; }
+.sw-section { margin-bottom:12px; }
+.sw-section-title { font-size:11px; font-weight:700; color:#475569; text-transform:uppercase; letter-spacing:.8px; margin-bottom:6px; }
+.sw-param-row { display:flex; gap:8px; align-items:baseline; margin-bottom:4px; font-size:12px; }
+.sw-param-name { font-family:monospace; color:#93c5fd; min-width:100px; }
+.sw-param-in { font-size:10px; color:#475569; background:#1e2535; padding:1px 6px; border-radius:3px; }
+.sw-param-desc { color:#94a3b8; }
+.spec-mf { padding:4px 12px; font-size:12px; font-weight:700; background:#1e2535; border:1px solid #2d3748; border-radius:5px; cursor:pointer; color:#94a3b8; transition:all .15s; }
+.spec-mf.active { background:#172035; border-color:#38bdf8; color:#e2e8f0; }
+.sw-highlight { box-shadow:0 0 0 2px #38bdf8; }
+
 /* ── 기획서 Markdown 렌더링 ────────────────────────────── */
 #spec-content h1, #spec-screens-content h1 { font-size:22px; font-weight:800; color:#e2e8f0; border-bottom:1px solid #1e2535; padding-bottom:10px; margin:0 0 20px; }
 #spec-content h1, #spec-screens-content h1 { font-size:22px; font-weight:800; color:#e2e8f0; border-bottom:1px solid #1e2535; padding-bottom:10px; margin:0 0 20px; }
@@ -2576,24 +2604,22 @@ canvas { max-height: 220px; }
       </div>
     </div>
 
-    <!-- API 목록 -->
-    <div id="spec-panel-apis" class="panel" style="padding:24px 32px;display:none">
-      <div style="margin-bottom:12px;display:flex;align-items:center;gap:12px">
-        <input id="spec-api-filter" type="text" placeholder="경로 또는 엔드포인트 검색..."
+    <!-- API 목록 (Swagger 스타일) -->
+    <div id="spec-panel-apis" style="display:none">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+        <input id="spec-api-filter" type="text" placeholder="경로·메서드·설명 검색..."
           oninput="renderSpecApis()"
-          style="flex:1;max-width:360px;padding:6px 12px;background:#0d1117;border:1px solid #1e2535;border-radius:6px;color:#e2e8f0;font-size:13px">
-        <span id="spec-api-count" style="font-size:12px;color:#475569"></span>
+          style="flex:1;min-width:220px;max-width:420px;padding:8px 14px;background:#0d1117;border:1px solid #1e2535;border-radius:8px;color:#e2e8f0;font-size:13px">
+        <div style="display:flex;gap:6px" id="spec-method-filters">
+          <button class="spec-mf active" onclick="toggleMethodFilter(this,'ALL')">ALL</button>
+          <button class="spec-mf" onclick="toggleMethodFilter(this,'GET')" style="color:#34d399">GET</button>
+          <button class="spec-mf" onclick="toggleMethodFilter(this,'POST')" style="color:#60a5fa">POST</button>
+          <button class="spec-mf" onclick="toggleMethodFilter(this,'PUT')" style="color:#fbbf24">PUT</button>
+          <button class="spec-mf" onclick="toggleMethodFilter(this,'DELETE')" style="color:#f87171">DELETE</button>
+        </div>
+        <span id="spec-api-count" style="font-size:12px;color:#475569;margin-left:auto"></span>
       </div>
-      <table style="width:100%;border-collapse:collapse;font-size:13px" id="spec-api-table">
-        <thead>
-          <tr style="background:#1e2535">
-            <th style="padding:8px 12px;text-align:left;border:1px solid #2d3748;color:#94a3b8;width:60px">메서드</th>
-            <th style="padding:8px 12px;text-align:left;border:1px solid #2d3748;color:#94a3b8">경로</th>
-            <th style="padding:8px 12px;text-align:left;border:1px solid #2d3748;color:#94a3b8">설명</th>
-          </tr>
-        </thead>
-        <tbody id="spec-api-tbody"></tbody>
-      </table>
+      <div id="spec-api-list"></div>
     </div>
   </section>
 
@@ -3812,8 +3838,30 @@ async function loadSpecScreens() {
       el.innerHTML = '<p style="color:#475569;text-align:center;padding:40px">SCREEN_SPEC.md 파일이 없습니다.</p>';
     } else {
       _renderMd(el, data.content);
+      _makeScreenSpecApiClickable(el);
     }
   } catch(e) { el.innerHTML = '<p style="color:#ef4444;text-align:center;padding:40px">오류: ' + e.message + '</p>'; }
+}
+
+function _makeScreenSpecApiClickable(container) {
+  // <code> 태그 안의 /api/ 경로를 클릭하면 API 상세 탭으로 이동
+  container.querySelectorAll('code').forEach(code => {
+    const text = code.textContent.trim();
+    if (!text.startsWith('/api/')) return;
+    code.style.cursor = 'pointer';
+    code.title = 'API 목록에서 상세 보기';
+    code.style.textDecoration = 'underline dotted';
+    code.addEventListener('click', () => specGoToApi(text));
+  });
+}
+
+let _specMethodFilter = 'ALL';
+
+function toggleMethodFilter(btn, method) {
+  _specMethodFilter = method;
+  document.querySelectorAll('.spec-mf').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderSpecApis();
 }
 
 async function loadSpecApis() {
@@ -3825,21 +3873,71 @@ async function loadSpecApis() {
   } catch(e) {}
 }
 
-function renderSpecApis() {
+function _highlightPath(path) {
+  return path.replace(/\{([^}]+)\}/g, '<span class="sw-param">{$1}</span>');
+}
+
+function renderSpecApis(highlightPath) {
   const filter = (document.getElementById('spec-api-filter')?.value || '').toLowerCase();
-  const rows = _specApiData.filter(r =>
-    !filter || r.path.toLowerCase().includes(filter) || r.endpoint.toLowerCase().includes(filter) || (r.doc||'').toLowerCase().includes(filter)
-  );
-  const METHOD_COLOR = { GET:'#34d399', POST:'#60a5fa', PUT:'#fbbf24', DELETE:'#f87171', PATCH:'#c084fc' };
+  const rows = _specApiData.filter(r => {
+    if (_specMethodFilter !== 'ALL' && !r.methods.includes(_specMethodFilter)) return false;
+    if (!filter) return true;
+    return r.path.toLowerCase().includes(filter) || (r.doc||'').toLowerCase().includes(filter);
+  });
   document.getElementById('spec-api-count').textContent = rows.length + '개';
-  document.getElementById('spec-api-tbody').innerHTML = rows.map((r,i) => `
-    <tr style="${i%2===1?'background:#0d1117':''}">
-      <td style="padding:7px 12px;border:1px solid #1e2535;white-space:nowrap">
-        ${r.methods.map(m=>`<span style="color:${METHOD_COLOR[m]||'#94a3b8'};font-weight:700;font-size:11px;margin-right:4px">${m}</span>`).join('')}
-      </td>
-      <td style="padding:7px 12px;border:1px solid #1e2535;font-family:monospace;color:#93c5fd;font-size:12px">${r.path}</td>
-      <td style="padding:7px 12px;border:1px solid #1e2535;color:#94a3b8;font-size:12px">${r.doc||''}</td>
-    </tr>`).join('');
+
+  document.getElementById('spec-api-list').innerHTML = rows.map((r, i) => {
+    const id = 'sw-' + i;
+    const hl = highlightPath && r.path === highlightPath;
+    const pathParams = (r.path_params || []).map(p =>
+      `<div class="sw-param-row"><span class="sw-param-name">${p}</span><span class="sw-param-in">path</span><span class="sw-param-desc">경로 파라미터</span></div>`
+    ).join('');
+    const hasDetail = pathParams || r.doc;
+    return `
+    <div class="sw-item${hl?' sw-highlight':''}" id="${id}">
+      <div class="sw-header${hl?' open':''}" onclick="swToggle('${id}')">
+        <div style="display:flex;gap:4px;flex-shrink:0">
+          ${r.methods.map(m=>`<span class="sw-badge ${m}">${m}</span>`).join('')}
+        </div>
+        <span class="sw-path">${_highlightPath(r.path)}</span>
+        <span class="sw-desc">${r.doc||''}</span>
+        ${hasDetail ? '<span class="sw-chevron">▼</span>' : ''}
+      </div>
+      ${hasDetail ? `<div class="sw-body${hl?' open':''}">
+        ${r.doc ? `<div class="sw-section"><div class="sw-section-title">설명</div><div style="font-size:13px;color:#cbd5e1">${r.doc}</div></div>` : ''}
+        ${pathParams ? `<div class="sw-section"><div class="sw-section-title">Path Parameters</div>${pathParams}</div>` : ''}
+      </div>` : ''}
+    </div>`;
+  }).join('');
+
+  if (highlightPath) {
+    const hlIdx = rows.findIndex(r => r.path === highlightPath);
+    if (hlIdx >= 0) {
+      const el = document.getElementById('sw-' + hlIdx);
+      if (el) setTimeout(() => el.scrollIntoView({behavior:'smooth', block:'center'}), 150);
+    }
+  }
+}
+
+function swToggle(id) {
+  const header = document.querySelector(`#${id} .sw-header`);
+  const body   = document.querySelector(`#${id} .sw-body`);
+  if (!body) return;
+  const open = body.classList.contains('open');
+  header.classList.toggle('open', !open);
+  body.classList.toggle('open', !open);
+}
+
+function specGoToApi(path) {
+  // path: e.g. "/api/supply_demand/{stock_code}" or "/api/supply_demand/<stock_code>"
+  // normalize angle-bracket form to curly-bracket
+  const normalized = path.replace(/<(?:[^:>]+:)?([^>]+)>/g, '{$1}');
+  specShowTab('apis');
+  if (_specApiData.length === 0) {
+    loadSpecApis().then(() => renderSpecApis(normalized));
+  } else {
+    renderSpecApis(normalized);
+  }
 }
 
 // ─── 스케줄 관리 ────────────────────────────────────────

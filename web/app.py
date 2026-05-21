@@ -494,6 +494,7 @@ def login_page():
 
 @app.route("/api/login", methods=["POST"])
 def api_login():
+    """로그인 (세션 발급)."""
     data = request.get_json() or {}
     login_id = (data.get("login_id") or "").strip()
     password = data.get("password") or ""
@@ -512,12 +513,14 @@ def api_login():
 
 @app.route("/api/logout", methods=["POST"])
 def api_logout():
+    """로그아웃 (세션 삭제)."""
     session.clear()
     return jsonify({"ok": True})
 
 
 @app.route("/api/me")
 def api_me():
+    """현재 로그인 사용자 정보 조회."""
     uid = session.get("user_id")
     if not uid:
         return jsonify({"error": "not logged in"}), 401
@@ -534,6 +537,7 @@ def api_me():
 
 @app.route("/api/dashboard")
 def api_dashboard():
+    """대시보드 현황 요약 (감시종목수·오늘 신호·오류건수, 최근 신호 목록, 30일 통계)."""
     today_kst = datetime.now(KST).replace(hour=0, minute=0, second=0, microsecond=0)
 
     watched = query_one("SELECT COUNT(*) AS cnt FROM stocks WHERE watched = TRUE")
@@ -597,6 +601,7 @@ def api_dashboard():
 
 @app.route("/api/supply_demand/stocks")
 def api_supply_stocks():
+    """수급 데이터가 있는 종목 목록 조회."""
     rows = query(
         """
         SELECT DISTINCT sd.stock_code, COALESCE(st.stock_name, '') AS stock_name
@@ -610,6 +615,7 @@ def api_supply_stocks():
 
 @app.route("/api/supply_demand/<stock_code>")
 def api_supply_demand(stock_code: str):
+    """종목별 외국인·기관 수급 추이 및 누적 집계 (최대 500일)."""
     rows = query(
         """
         SELECT date, for_hold_qty, for_chg_qty, for_hold_ratio,
@@ -708,6 +714,7 @@ def api_supply_summary():
 
 @app.route("/api/signals")
 def api_signals():
+    """전략 에이전트 생성 매매신호 목록 조회 (최근 100건)."""
     rows = query(
         """
         SELECT s.ticker,
@@ -743,6 +750,7 @@ def api_signals():
 
 @app.route("/api/events")
 def api_events():
+    """에이전트 이벤트 감사 로그 전체 조회."""
     rows = query(
         """
         SELECT event_type, agent, ticker, status, data,
@@ -773,6 +781,7 @@ def api_events():
 
 @app.route("/api/stocks")
 def api_stocks():
+    """감시 종목 목록 조회 (코드·이름·시총·최근가)."""
     rows = query(
         """
         SELECT stock_code, stock_name, market_name, last_price, list_count, watched,
@@ -837,7 +846,7 @@ def api_report_send():
 
 @app.route("/api/report/config")
 def api_report_config_get():
-    """이메일 발송 설정 조회."""
+    """이메일 수신자 설정 및 SMTP 구성 조회."""
     emails = query("SELECT id, email, active FROM report_email_config ORDER BY id")
     schedule = query_one("SELECT enabled, hour, minute, days FROM batch_schedules WHERE job_id = 'holdings_report'")
     smtp_user = os.environ.get("SMTP_USER", "")
@@ -920,6 +929,7 @@ def api_common_codes_list(group: str):
 
 @app.route("/api/common_codes/<group>", methods=["POST"])
 def api_common_codes_create(group: str):
+    """공통코드 항목 추가."""
     data = request.get_json() or {}
     code = (data.get("code") or "").strip().upper()
     name = (data.get("name") or "").strip()
@@ -941,6 +951,7 @@ def api_common_codes_create(group: str):
 
 @app.route("/api/common_codes/<int:cid>", methods=["PUT"])
 def api_common_codes_update(cid: int):
+    """공통코드 항목 수정."""
     data = request.get_json() or {}
     name = (data.get("name") or "").strip()
     sort_order = int(data.get("sort_order") or 0)
@@ -955,6 +966,7 @@ def api_common_codes_update(cid: int):
 
 @app.route("/api/common_codes/<int:cid>/toggle", methods=["POST"])
 def api_common_codes_toggle(cid: int):
+    """공통코드 항목 활성화/비활성화 토글."""
     with get_conn() as conn:
         conn.cursor().execute(
             "UPDATE common_codes SET active = NOT active WHERE id = %s", (cid,)
@@ -964,6 +976,7 @@ def api_common_codes_toggle(cid: int):
 
 @app.route("/api/common_codes/<int:cid>", methods=["DELETE"])
 def api_common_codes_delete(cid: int):
+    """공통코드 항목 삭제."""
     with get_conn() as conn:
         conn.cursor().execute("DELETE FROM common_codes WHERE id = %s", (cid,))
     return jsonify({"ok": True})
@@ -975,6 +988,7 @@ def api_common_codes_delete(cid: int):
 
 @app.route("/api/manual_holdings")
 def api_manual_holdings_list():
+    """타사 보유종목 목록 조회."""
     rows = query("""
         WITH latest_close AS (
             SELECT DISTINCT ON (stock_code)
@@ -1009,6 +1023,7 @@ def api_manual_holdings_list():
 
 @app.route("/api/manual_holdings", methods=["POST"])
 def api_manual_holdings_create():
+    """타사 보유종목 추가."""
     data = request.get_json() or {}
     brokerage  = (data.get("brokerage") or "").strip()
     stock_code = (data.get("stock_code") or "").strip()
@@ -1033,6 +1048,7 @@ def api_manual_holdings_create():
 
 @app.route("/api/manual_holdings/<int:hid>", methods=["PUT"])
 def api_manual_holdings_update(hid: int):
+    """타사 보유종목 수정."""
     data = request.get_json() or {}
     brokerage  = (data.get("brokerage") or "").strip()
     stock_code = (data.get("stock_code") or "").strip()
@@ -1059,6 +1075,7 @@ def api_manual_holdings_update(hid: int):
 
 @app.route("/api/manual_holdings/<int:hid>", methods=["DELETE"])
 def api_manual_holdings_delete(hid: int):
+    """타사 보유종목 삭제."""
     with get_conn() as conn:
         conn.cursor().execute("DELETE FROM manual_holdings WHERE id = %s", (hid,))
     return jsonify({"ok": True})
@@ -1226,6 +1243,7 @@ def api_rebalance():
 
 @app.route("/api/rebalance/stock_setting", methods=["PUT"])
 def api_rebalance_stock_setting():
+    """종목별 목표 비중 및 알림 임계값 설정."""
     data = request.get_json() or {}
     stock_code = (data.get("stock_code") or "").strip()
     if not stock_code:
@@ -1253,6 +1271,7 @@ def api_rebalance_stock_setting():
 
 @app.route("/api/rebalance/target", methods=["PUT"])
 def api_rebalance_target():
+    """종목 목표 비중 설정."""
     data = request.get_json() or {}
     stock_code = (data.get("stock_code") or "").strip()
     if not stock_code:
@@ -1279,6 +1298,7 @@ def api_rebalance_target():
 
 @app.route("/api/credit_positions")
 def api_credit_positions_list():
+    """신용 포지션 목록 조회."""
     rows = query("""
         SELECT id, brokerage, purchase_amount, loan_amount, note,
                TO_CHAR(updated_at, 'YYYY-MM-DD HH24:MI') AS updated_at
@@ -1355,6 +1375,7 @@ def api_credit_positions_upsert():
 
 @app.route("/api/credit_positions/<int:pid>", methods=["PUT"])
 def api_credit_positions_update(pid: int):
+    """신용 포지션 수정."""
     data = request.get_json() or {}
     try:
         purchase = int(str(data.get("purchase_amount") or 0).replace(",", ""))
@@ -1372,6 +1393,7 @@ def api_credit_positions_update(pid: int):
 
 @app.route("/api/credit_positions/<int:pid>", methods=["DELETE"])
 def api_credit_positions_delete(pid: int):
+    """신용 포지션 삭제."""
     with get_conn() as conn:
         conn.cursor().execute("DELETE FROM credit_positions WHERE id=%s", (pid,))
     return jsonify({"ok": True})
@@ -1507,6 +1529,7 @@ def api_theme_rebalance():
 
 @app.route("/api/theme_rebalance/stock_themes", methods=["PUT"])
 def api_theme_rebalance_stock_themes():
+    """종목에 테마 태그 지정."""
     data = request.get_json() or {}
     stock_code = (data.get("stock_code") or "").strip()
     themes_str = (data.get("themes") or "").strip()
@@ -1523,6 +1546,7 @@ def api_theme_rebalance_stock_themes():
 
 @app.route("/api/theme_rebalance/theme_target", methods=["PUT"])
 def api_theme_rebalance_theme_target():
+    """테마 목표 비중 설정."""
     data = request.get_json() or {}
     theme = (data.get("theme") or "").strip()
     if not theme:
@@ -1574,6 +1598,7 @@ def api_theme_rebalance_theme_alert():
 
 @app.route("/api/macro_rates")
 def api_macro_rates_list():
+    """거시 지표(금리·환율 등) 목록 조회."""
     rows = query("""
         SELECT id, key, name, value, unit,
                TO_CHAR(updated_at, 'YYYY-MM-DD HH24:MI') AS updated_at
@@ -1591,6 +1616,7 @@ def api_macro_rates_list():
 
 @app.route("/api/macro_rates", methods=["POST"])
 def api_macro_rates_create():
+    """거시 지표 추가."""
     data = request.get_json() or {}
     key  = (data.get("key")  or "").strip().upper().replace(" ", "_")
     name = (data.get("name") or "").strip()
@@ -1609,6 +1635,7 @@ def api_macro_rates_create():
 
 @app.route("/api/macro_rates/<int:mid>", methods=["PUT"])
 def api_macro_rates_update(mid):
+    """거시 지표 수정."""
     data  = request.get_json() or {}
     name  = (data.get("name") or "").strip()
     unit  = (data.get("unit") or "").strip()
@@ -1624,6 +1651,7 @@ def api_macro_rates_update(mid):
 
 @app.route("/api/macro_rates/<int:mid>", methods=["DELETE"])
 def api_macro_rates_delete(mid):
+    """거시 지표 삭제."""
     with get_conn() as conn:
         conn.cursor().execute("DELETE FROM macro_rates WHERE id=%s", (mid,))
     return jsonify({"ok": True})
@@ -1815,6 +1843,7 @@ def _resolve_linked_price(link_type: str, link_key: str):
 
 @app.route("/api/cash_assets")
 def api_cash_assets_list():
+    """현금성 자산 목록 및 합계 조회."""
     rows = query("""
         SELECT id, name, brokerage, quantity, unit_price, purchase_price, amount, link_type, link_key, note,
                TO_CHAR(updated_at, 'YYYY-MM-DD HH24:MI') AS updated_at
@@ -1843,6 +1872,7 @@ def api_cash_assets_list():
 
 @app.route("/api/cash_assets", methods=["POST"])
 def api_cash_assets_create():
+    """현금성 자산 추가."""
     try:
         name, brokerage, qty, up, pp, amount, lt, lk, note = _parse_cash_asset_body(request.get_json() or {})
     except ValueError as e:
@@ -1857,6 +1887,7 @@ def api_cash_assets_create():
 
 @app.route("/api/cash_assets/<int:aid>", methods=["PUT"])
 def api_cash_assets_update(aid):
+    """현금성 자산 수정."""
     try:
         name, brokerage, qty, up, pp, amount, lt, lk, note = _parse_cash_asset_body(request.get_json() or {})
     except ValueError as e:
@@ -1871,6 +1902,7 @@ def api_cash_assets_update(aid):
 
 @app.route("/api/cash_assets/<int:aid>", methods=["DELETE"])
 def api_cash_assets_delete(aid):
+    """현금성 자산 삭제."""
     with get_conn() as conn:
         conn.cursor().execute("DELETE FROM cash_assets WHERE id=%s", (aid,))
     return jsonify({"ok": True})
@@ -1878,6 +1910,7 @@ def api_cash_assets_delete(aid):
 
 @app.route("/api/cash_assets/<int:aid>/sync", methods=["POST"])
 def api_cash_assets_sync(aid):
+    """연동 자산 현재 시세 동기화."""
     rows = query("SELECT quantity, link_type, link_key FROM cash_assets WHERE id=%s", (aid,))
     if not rows:
         return jsonify({"error": "없음"}), 404
@@ -1900,6 +1933,7 @@ def api_cash_assets_sync(aid):
 
 @app.route("/api/cash_assets/sync_all", methods=["POST"])
 def api_cash_assets_sync_all():
+    """전체 연동 자산 시세 일괄 동기화."""
     rows = query("SELECT id, quantity, link_type, link_key FROM cash_assets WHERE link_type != 'none' AND link_key != ''")
     updated, failed = 0, 0
     for r in rows:
@@ -1926,6 +1960,7 @@ def api_cash_assets_sync_all():
 
 @app.route("/api/qualitative/items")
 def api_qualitative_items():
+    """정성 평가 항목 목록 조회."""
     rows = query("""
         WITH ranked AS (
             SELECT item_id, score, scored_at, comment,
@@ -1957,6 +1992,7 @@ def api_qualitative_items():
 
 @app.route("/api/qualitative/items", methods=["POST"])
 def api_qualitative_items_create():
+    """정성 평가 항목 추가."""
     data = request.get_json() or {}
     name     = (data.get("name") or "").strip()
     category = (data.get("category") or "").strip()
@@ -1975,6 +2011,7 @@ def api_qualitative_items_create():
 
 @app.route("/api/qualitative/items/<int:item_id>", methods=["PUT"])
 def api_qualitative_items_update(item_id: int):
+    """정성 평가 항목 수정."""
     data = request.get_json() or {}
     name     = (data.get("name") or "").strip()
     category = (data.get("category") or "").strip()
@@ -1990,6 +2027,7 @@ def api_qualitative_items_update(item_id: int):
 
 @app.route("/api/qualitative/items/<int:item_id>", methods=["DELETE"])
 def api_qualitative_items_delete(item_id: int):
+    """정성 평가 항목 삭제."""
     with get_conn() as conn:
         conn.cursor().execute(
             "UPDATE qualitative_items SET active=FALSE WHERE id=%s", (item_id,)
@@ -1999,6 +2037,7 @@ def api_qualitative_items_delete(item_id: int):
 
 @app.route("/api/qualitative/items/<int:item_id>/scores")
 def api_qualitative_item_scores(item_id: int):
+    """정성 평가 항목별 점수 이력 조회."""
     rows = query("""
         SELECT id, score, scored_at, comment,
                LAG(score) OVER (ORDER BY scored_at, created_at) AS prev_score
@@ -2022,6 +2061,7 @@ def api_qualitative_item_scores(item_id: int):
 
 @app.route("/api/qualitative/scores", methods=["POST"])
 def api_qualitative_scores_create():
+    """정성 평가 점수 추가."""
     data = request.get_json() or {}
     item_id   = data.get("item_id")
     score_raw = data.get("score")
@@ -2053,6 +2093,7 @@ def api_qualitative_scores_create():
 
 @app.route("/api/qualitative/scores/<int:score_id>", methods=["DELETE"])
 def api_qualitative_scores_delete(score_id: int):
+    """정성 평가 점수 삭제."""
     with get_conn() as conn:
         conn.cursor().execute("DELETE FROM qualitative_scores WHERE id=%s", (score_id,))
     return jsonify({"ok": True})
@@ -2066,6 +2107,7 @@ ALL_MENUS = ["dashboard", "supply", "divergence", "snapshot", "signals", "report
 
 @app.route("/api/users")
 def api_users():
+    """사용자 계정 목록 조회."""
     rows = query("SELECT id, name, login_id FROM users ORDER BY id")
     result = []
     for r in rows:
@@ -2083,6 +2125,7 @@ def api_users():
 
 @app.route("/api/users", methods=["POST"])
 def api_create_user():
+    """사용자 계정 추가."""
     data = request.get_json()
     name = (data.get("name") or "").strip()
     if not name:
@@ -2098,6 +2141,7 @@ def api_create_user():
 
 @app.route("/api/users/<int:user_id>/credentials", methods=["PUT"])
 def api_set_credentials(user_id: int):
+    """로그인 ID·비밀번호 설정."""
     data = request.get_json() or {}
     login_id = (data.get("login_id") or "").strip()
     password = (data.get("password") or "").strip()
@@ -2125,6 +2169,7 @@ def api_set_credentials(user_id: int):
 
 @app.route("/api/users/<int:user_id>", methods=["DELETE"])
 def api_delete_user(user_id: int):
+    """사용자 계정 삭제."""
     cnt = query_one("SELECT COUNT(*) AS c FROM users")
     if (cnt or {}).get("c", 0) <= 1:
         return jsonify({"error": "마지막 사용자는 삭제할 수 없습니다"}), 400
@@ -2136,6 +2181,7 @@ def api_delete_user(user_id: int):
 
 @app.route("/api/users/<int:user_id>/preferences", methods=["PUT"])
 def api_save_prefs(user_id: int):
+    """사용자 메뉴 접근 권한 및 기본값 설정."""
     data = request.get_json()
     prefs = {
         "visible_menus":         json.dumps(data.get("visible_menus", ALL_MENUS)),
@@ -2163,6 +2209,7 @@ def _get_user_prefs(user_id: int) -> dict:
 
 @app.route("/api/batch")
 def api_batch():
+    """배치 작업 실행 상태 목록 조회."""
     jobs = []
     for jid, j in BATCH_JOBS.items():
         pid = _find_pid(j["match"])
@@ -2190,6 +2237,7 @@ def api_batch():
 
 @app.route("/api/batch/<job_id>/start", methods=["POST"])
 def api_batch_start(job_id: str):
+    """배치 작업 수동 실행."""
     j = BATCH_JOBS.get(job_id)
     if not j:
         return jsonify({"error": "unknown job"}), 404
@@ -2211,6 +2259,7 @@ def api_batch_start(job_id: str):
 
 @app.route("/api/batch/<job_id>/stop", methods=["POST"])
 def api_batch_stop(job_id: str):
+    """배치 작업 수동 중지."""
     j = BATCH_JOBS.get(job_id)
     if not j:
         return jsonify({"error": "unknown job"}), 404
@@ -2232,11 +2281,13 @@ def _get_app_settings() -> dict:
 
 @app.route("/api/settings")
 def api_settings():
+    """앱 설정값 조회."""
     return jsonify(_get_app_settings())
 
 
 @app.route("/api/settings", methods=["PUT"])
 def api_save_settings():
+    """앱 설정값 수정."""
     data = request.get_json() or {}
     with get_conn() as conn:
         cur = conn.cursor()
@@ -2251,6 +2302,7 @@ def api_save_settings():
 
 @app.route("/api/schedule")
 def api_schedule_get():
+    """배치 스케줄 설정 전체 조회."""
     rows = query("SELECT job_id, enabled, hour, minute, days, interval_mode, interval_minutes, interval_start, interval_end, last_run FROM batch_schedules")
     result = {r["job_id"]: dict(r) for r in rows}
     for jid in BATCH_JOBS:
@@ -2263,6 +2315,7 @@ def api_schedule_get():
 
 @app.route("/api/schedule/<job_id>", methods=["PUT"])
 def api_schedule_save(job_id: str):
+    """배치 스케줄 설정 수정 (cron 또는 인터벌 방식)."""
     if job_id not in BATCH_JOBS:
         return jsonify({"error": "unknown job"}), 404
     data = request.get_json() or {}
@@ -2296,6 +2349,7 @@ def api_schedule_save(job_id: str):
 
 @app.route("/api/batch/<job_id>/logs")
 def api_batch_logs(job_id: str):
+    """배치 작업 로그 최근 200줄 조회."""
     j = BATCH_JOBS.get(job_id)
     if not j:
         return jsonify([])
@@ -2471,27 +2525,36 @@ def api_spec_screens():
 
 @app.route("/api/spec/apis")
 def api_spec_apis():
-    """Flask url_map 기반 API 목록 자동 생성."""
-    skip_prefixes = ("/static", "/batch/", "/log-viewer")
-    results = []
-    seen = set()
+    """Flask url_map 기반 API 엔드포인트 목록 자동 생성 (/api/ 경로만 포함)."""
+    import re as _re
+    _PARAM_RE = _re.compile(r"<(?:(?:int|float|string|path|uuid):)?([^>]+)>")
+
+    # path → {methods, doc, path_params} 로 누적 (같은 path, 다른 method 병합)
+    by_path = {}
     for rule in sorted(app.url_map.iter_rules(), key=lambda r: r.rule):
         path = rule.rule
-        if any(path.startswith(p) for p in skip_prefixes):
+        if not path.startswith("/api/"):
             continue
         methods = sorted(m for m in rule.methods if m not in ("HEAD", "OPTIONS"))
         if not methods:
             continue
-        key = path
-        if key in seen:
-            continue
-        seen.add(key)
-        # 엔드포인트 함수 docstring에서 설명 추출
         fn = app.view_functions.get(rule.endpoint)
         doc = ""
         if fn and fn.__doc__:
             doc = fn.__doc__.strip().split("\n")[0]
-        results.append({"path": path, "methods": methods, "endpoint": rule.endpoint, "doc": doc})
+        # path parameters
+        path_params = _PARAM_RE.findall(path)
+        # display path: <int:id> → {id}
+        display_path = _PARAM_RE.sub(lambda m: "{" + m.group(1) + "}", path)
+        if display_path not in by_path:
+            by_path[display_path] = {"path": display_path, "methods": [], "doc": doc, "path_params": path_params}
+        for m in methods:
+            if m not in by_path[display_path]["methods"]:
+                by_path[display_path]["methods"].append(m)
+        if not by_path[display_path]["doc"] and doc:
+            by_path[display_path]["doc"] = doc
+
+    results = sorted(by_path.values(), key=lambda r: r["path"])
     return jsonify(results)
 
 
