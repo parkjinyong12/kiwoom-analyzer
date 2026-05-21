@@ -19,6 +19,27 @@ jobs:
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 
+      - name: Update project spec
+        if: success()
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          SPEC_WEBHOOK_SECRET: ${{ secrets.SPEC_WEBHOOK_SECRET }}
+        run: |
+          DIFF_STAT=$(git diff HEAD~1 HEAD --stat 2>/dev/null || echo "")
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          COMMIT_SHA="${{ github.sha }}"
+          APP=$(echo "$APP_URL" | tr -d '[:space:]')
+          SECRET=$(echo "$SPEC_WEBHOOK_SECRET" | tr -d '[:space:]')
+          PAYLOAD=$(jq -n \
+            --arg sha "$COMMIT_SHA" \
+            --arg msg "$COMMIT_MSG" \
+            --arg diff "$DIFF_STAT" \
+            '{commit_sha:$sha, commit_message:$msg, diff_stat:$diff}')
+          curl -s -X POST "${APP}/api/spec/update" \
+            -H "Content-Type: application/json" \
+            -H "X-Webhook-Secret: ${SECRET}" \
+            -d "$PAYLOAD" || true
+
       - name: Notify Slack (success)
         if: success()
         env:

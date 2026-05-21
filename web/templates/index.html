@@ -12,6 +12,7 @@
 <meta name="apple-mobile-web-app-title" content="키움분석">
 <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <style>
 /* ── 리셋 & 베이스 ─────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -511,6 +512,9 @@ canvas { max-height: 220px; }
       <div class="nav-group-body">
         <div class="nav-item" data-page="batch" onclick="showPage('batch')">
           <span class="icon">⚙️</span> 배치 관리
+        </div>
+        <div class="nav-item" data-page="spec" onclick="showPage('spec')">
+          <span class="icon">📋</span> 기획서
         </div>
         <div class="nav-item" data-page="common-codes" onclick="showPage('common-codes')">
           <span class="icon">🗂️</span> 공통코드 관리
@@ -2520,6 +2524,61 @@ canvas { max-height: 220px; }
     </div>
   </div>
 
+  <!-- ─── 기획서 ─── -->
+  <section id="page-spec" class="page">
+    <div class="page-header" style="display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap">
+      <div>
+        <div class="page-title">기획서</div>
+        <div class="page-sub">프로젝트 전체 기획 현황 및 변경 이력 (push 시 AI가 자동 갱신)</div>
+      </div>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
+        <span id="spec-meta" style="font-size:11px;color:#475569"></span>
+        <button class="btn btn-ghost spec-regen-btn" style="font-size:12px;padding:5px 14px" onclick="specRegenerate()">AI 갱신</button>
+      </div>
+    </div>
+
+    <!-- 탭 바 -->
+    <div style="display:flex;gap:4px;margin-bottom:12px;border-bottom:1px solid #1e2535;padding-bottom:0">
+      <button id="spec-tab-current" onclick="specShowTab('current')"
+        style="background:none;border:none;color:#60a5fa;font-size:13px;padding:8px 16px;cursor:pointer;border-bottom:2px solid #60a5fa;margin-bottom:-1px">
+        현재 기획서
+      </button>
+      <button id="spec-tab-history" onclick="specShowTab('history')"
+        style="background:none;border:none;color:#475569;font-size:13px;padding:8px 16px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px">
+        버전 이력
+      </button>
+    </div>
+
+    <!-- 현재 기획서 -->
+    <div id="spec-current-panel">
+      <div class="panel" style="padding:24px 28px">
+        <div id="spec-content" style="color:#cbd5e1;line-height:1.8;font-size:14px">
+          <span style="color:#334155">로딩 중...</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 버전 이력 -->
+    <div id="spec-history-panel" style="display:none">
+      <div class="panel">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width:60px">버전</th>
+              <th style="width:160px">날짜</th>
+              <th style="width:80px">커밋</th>
+              <th>변경 내용</th>
+              <th style="width:60px"></th>
+            </tr>
+          </thead>
+          <tbody id="spec-versions-list">
+            <tr><td colspan="5" class="loading"><span class="spinner"></span>로딩 중...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
 </main>
 
 <!-- ===== 모바일 하단 탭바 ===== -->
@@ -2560,7 +2619,7 @@ let signalPieChart       = null;
 const PAGE_TITLES = {
   dashboard:'대시보드', supply:'수급 현황', divergence:'수급↑ 가격↔',
   snapshot:'기간별 변화', signals:'매매 신호', report:'보유종목 리포트',
-  auditlog:'감사 로그', stocks:'감시 종목', batch:'배치 관리', usermgmt:'사용자 관리',
+  auditlog:'감사 로그', stocks:'감시 종목', batch:'배치 관리', spec:'기획서', usermgmt:'사용자 관리',
   'ext-holdings':'보유종목', 'price-mgmt':'현재가 관리', 'cash-assets':'현금성 자산', macro:'매크로 관리', 'common-codes':'공통코드 관리',
   rebalance:'현금 대 주식 리밸런싱', credit:'신용 관리', 'stock-rebalance':'주식 간 리밸런싱', 'theme-rebalance':'테마 리밸런싱',
 };
@@ -2581,7 +2640,7 @@ const NAV_GROUP_MAP = {
   'cash-assets':'navg-analysis', macro:'navg-analysis',
   rebalance:'navg-analysis', credit:'navg-analysis', 'stock-rebalance':'navg-analysis', 'theme-rebalance':'navg-analysis', qualitative:'navg-analysis',
   auditlog:'navg-system',    stocks:'navg-system',
-  batch:'navg-admin',        'common-codes':'navg-admin', usermgmt:'navg-admin',
+  batch:'navg-admin',        spec:'navg-admin', 'common-codes':'navg-admin', usermgmt:'navg-admin',
 };
 
 function toggleNavGroup(groupId) {
@@ -2620,6 +2679,7 @@ function showPage(name, fromHash) {
   if (name === 'auditlog')  loadEvents();
   if (name === 'stocks')    loadStocks();
   if (name === 'batch')     loadBatch();
+  if (name === 'spec')      loadSpec();
   if (name === 'report')        loadReportPage();
   if (name === 'usermgmt')      loadUserMgmt();
   if (name === 'ext-holdings')  loadExtHoldings();
@@ -3682,6 +3742,96 @@ async function batchStop(id) {
 function batchShowLog(id, name) {
   const url = `/batch/${id}/log-viewer?name=${encodeURIComponent(name)}`;
   window.open(url, `batch_log_${id}`, 'width=960,height=680,scrollbars=no,resizable=yes,noopener');
+}
+
+// ─── 기획서 ──────────────────────────────────────────────
+function specShowTab(tab) {
+  const isCurrent = tab === 'current';
+  document.getElementById('spec-current-panel').style.display = isCurrent ? '' : 'none';
+  document.getElementById('spec-history-panel').style.display = isCurrent ? 'none' : '';
+  document.getElementById('spec-tab-current').style.cssText =
+    `background:none;border:none;font-size:13px;padding:8px 16px;cursor:pointer;margin-bottom:-1px;` +
+    (isCurrent ? 'color:#60a5fa;border-bottom:2px solid #60a5fa' : 'color:#475569;border-bottom:2px solid transparent');
+  document.getElementById('spec-tab-history').style.cssText =
+    `background:none;border:none;font-size:13px;padding:8px 16px;cursor:pointer;margin-bottom:-1px;` +
+    (!isCurrent ? 'color:#60a5fa;border-bottom:2px solid #60a5fa' : 'color:#475569;border-bottom:2px solid transparent');
+  if (!isCurrent) _specLoadVersions();
+}
+
+async function loadSpec() {
+  try {
+    const res = await fetch('/api/spec');
+    if (!res.ok) return;
+    const data = await res.json();
+    _specRender(data);
+  } catch(e) {}
+}
+
+function _specRender(data) {
+  const el = document.getElementById('spec-content');
+  const meta = document.getElementById('spec-meta');
+  if (!data.content) {
+    el.innerHTML = '<p style="color:#475569;text-align:center;padding:40px">기획서가 없습니다. AI 갱신 버튼을 눌러 생성하세요.</p>';
+    meta.textContent = '';
+  } else {
+    el.innerHTML = _specMarkdownToHtml(data.content);
+    const dt = data.created_at ? new Date(data.created_at).toLocaleString('ko-KR') : '';
+    meta.textContent = `v${data.version} · ${dt}`;
+  }
+}
+
+function _specMarkdownToHtml(md) {
+  if (typeof marked !== 'undefined') return marked.parse(md);
+  return '<pre style="white-space:pre-wrap">' + md.replace(/</g,'&lt;') + '</pre>';
+}
+
+async function _specLoadVersions() {
+  const tbody = document.getElementById('spec-versions-list');
+  try {
+    const res = await fetch('/api/spec/versions');
+    if (!res.ok) throw new Error();
+    const versions = await res.json();
+    tbody.innerHTML = versions.length ? versions.map(v => `
+      <tr>
+        <td style="text-align:center;font-weight:600">v${v.version}</td>
+        <td style="font-size:12px;color:#64748b">${new Date(v.created_at).toLocaleString('ko-KR')}</td>
+        <td><code style="font-size:11px;color:#94a3b8">${(v.commit_sha||'').slice(0,7)||'—'}</code></td>
+        <td style="color:#94a3b8;font-size:12px">${v.summary||'—'}</td>
+        <td><button class="btn btn-ghost" style="font-size:11px;padding:3px 8px"
+            onclick="specViewVersion(${v.version})">보기</button></td>
+      </tr>`).join('') :
+      '<tr><td colspan="5" style="text-align:center;color:#475569;padding:24px">이력 없음</td></tr>';
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#f87171">로드 실패</td></tr>';
+  }
+}
+
+async function specViewVersion(ver) {
+  try {
+    const res = await fetch(`/api/spec/version/${ver}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    _specRender(data);
+    specShowTab('current');
+    document.getElementById('spec-meta').textContent += ' (과거 버전)';
+  } catch(e) {}
+}
+
+async function specRegenerate() {
+  if (!confirm('현재 프로젝트 상태를 AI가 분석하여 기획서를 갱신합니다.\n완료까지 30초~1분 소요될 수 있습니다.')) return;
+  const btn = document.querySelector('.spec-regen-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '갱신 중...'; }
+  try {
+    const res = await fetch('/api/spec/regenerate', {method:'POST'});
+    const d = await res.json();
+    if (!res.ok) { alert(d.error || '갱신 실패'); return; }
+    await loadSpec();
+    alert(`기획서가 v${d.version}으로 업데이트되었습니다.`);
+  } catch(e) {
+    alert('오류가 발생했습니다.');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'AI 갱신'; }
+  }
 }
 
 // ─── 스케줄 관리 ────────────────────────────────────────
