@@ -435,6 +435,12 @@ canvas { max-height: 220px; }
 .sw-param-desc { color:#94a3b8; }
 .spec-mf { padding:4px 12px; font-size:12px; font-weight:700; background:#1e2535; border:1px solid #2d3748; border-radius:5px; cursor:pointer; color:#94a3b8; transition:all .15s; }
 .spec-mf.active { background:#172035; border-color:#38bdf8; color:#e2e8f0; }
+.sw-group-header { display:flex; align-items:center; gap:10px; padding:8px 14px; background:#0f172a; border:1px solid #1e2535; border-radius:8px; cursor:pointer; margin-bottom:6px; user-select:none; }
+.sw-group-header:hover { background:#131f35; }
+.sw-group-label { font-size:13px; font-weight:700; color:#e2e8f0; }
+.sw-group-count { margin-left:auto; font-size:11px; background:#1e2535; color:#64748b; padding:1px 8px; border-radius:10px; }
+.sw-group-body { padding-left:8px; }
+.sw-group .sw-item { border-radius:6px; margin-bottom:6px; }
 .sw-highlight { box-shadow:0 0 0 2px #38bdf8; }
 
 /* ── 기획서 Markdown 렌더링 ────────────────────────────── */
@@ -3877,6 +3883,38 @@ function _highlightPath(path) {
   return path.replace(/\{([^}]+)\}/g, '<span class="sw-param">{$1}</span>');
 }
 
+const _API_GROUP_LABELS = {
+  dashboard:        '대시보드',
+  supply_demand:    '수급 현황',
+  supply_divergence:'수급↑ 가격↔',
+  snapshot:         '기간별 변화',
+  signals:          '매매 신호',
+  events:           '감사 로그',
+  stocks:           '감시 종목',
+  report:           '보유종목 리포트',
+  common_codes:     '공통코드',
+  manual_holdings:  '타사 보유종목',
+  price_sync:       '현재가 동기화',
+  rebalance:        '리밸런싱',
+  credit_positions: '신용 관리',
+  theme_rebalance:  '테마 리밸런싱',
+  macro_rates:      '매크로 관리',
+  cash_assets:      '현금성 자산',
+  qualitative:      '정성 평가',
+  users:            '사용자 관리',
+  me:               '인증',
+  login:            '인증',
+  logout:           '인증',
+  batch:            '배치 관리',
+  settings:         '앱 설정',
+  schedule:         '스케줄',
+  spec:             '기획서',
+};
+
+function _apiGroupKey(path) {
+  return path.split('/')[2] || 'etc';
+}
+
 function renderSpecApis(highlightPath) {
   const filter = (document.getElementById('spec-api-filter')?.value || '').toLowerCase();
   const rows = _specApiData.filter(r => {
@@ -3886,29 +3924,55 @@ function renderSpecApis(highlightPath) {
   });
   document.getElementById('spec-api-count').textContent = rows.length + '개';
 
-  document.getElementById('spec-api-list').innerHTML = rows.map((r, i) => {
-    const id = 'sw-' + i;
-    const hl = highlightPath && r.path === highlightPath;
-    const pathParams = (r.path_params || []).map(p =>
-      `<div class="sw-param-row"><span class="sw-param-name">${p}</span><span class="sw-param-in">path</span><span class="sw-param-desc">경로 파라미터</span></div>`
-    ).join('');
-    const hasDetail = pathParams || r.doc;
-    return `
-    <div class="sw-item${hl?' sw-highlight':''}" id="${id}">
-      <div class="sw-header${hl?' open':''}" onclick="swToggle('${id}')">
-        <div style="display:flex;gap:4px;flex-shrink:0">
-          ${r.methods.map(m=>`<span class="sw-badge ${m}">${m}</span>`).join('')}
-        </div>
-        <span class="sw-path">${_highlightPath(r.path)}</span>
-        <span class="sw-desc">${r.doc||''}</span>
-        ${hasDetail ? '<span class="sw-chevron">▼</span>' : ''}
+  // 그룹핑: 순서 유지하면서 group key별로 묶기
+  const groupOrder = [];
+  const groups = {};
+  rows.forEach((r, i) => {
+    const gk = _apiGroupKey(r.path);
+    if (!groups[gk]) { groups[gk] = []; groupOrder.push(gk); }
+    groups[gk].push({ r, i });
+  });
+
+  let html = '';
+  groupOrder.forEach(gk => {
+    const label = _API_GROUP_LABELS[gk] || gk;
+    const items = groups[gk];
+    const gid = 'swg-' + gk;
+    html += `
+    <div class="sw-group" style="margin-bottom:20px">
+      <div class="sw-group-header" onclick="swGroupToggle('${gid}')">
+        <span class="sw-group-label">${label}</span>
+        <span class="sw-group-path" style="font-family:monospace;font-size:11px;color:#475569">/api/${gk}</span>
+        <span class="sw-group-count">${items.length}</span>
+        <span class="sw-chevron" style="margin-left:4px">▼</span>
       </div>
-      ${hasDetail ? `<div class="sw-body${hl?' open':''}">
-        ${r.doc ? `<div class="sw-section"><div class="sw-section-title">설명</div><div style="font-size:13px;color:#cbd5e1">${r.doc}</div></div>` : ''}
-        ${pathParams ? `<div class="sw-section"><div class="sw-section-title">Path Parameters</div>${pathParams}</div>` : ''}
-      </div>` : ''}
-    </div>`;
-  }).join('');
+      <div class="sw-group-body" id="${gid}">`;
+    items.forEach(({ r, i }) => {
+      const id = 'sw-' + i;
+      const hl = highlightPath && r.path === highlightPath;
+      const pathParams = (r.path_params || []).map(p =>
+        `<div class="sw-param-row"><span class="sw-param-name">${p}</span><span class="sw-param-in">path</span><span class="sw-param-desc">경로 파라미터</span></div>`
+      ).join('');
+      const hasDetail = pathParams || r.doc;
+      html += `
+      <div class="sw-item${hl?' sw-highlight':''}" id="${id}">
+        <div class="sw-header${hl?' open':''}" onclick="swToggle('${id}')">
+          <div style="display:flex;gap:4px;flex-shrink:0">
+            ${r.methods.map(m=>`<span class="sw-badge ${m}">${m}</span>`).join('')}
+          </div>
+          <span class="sw-path">${_highlightPath(r.path)}</span>
+          <span class="sw-desc">${r.doc||''}</span>
+          ${hasDetail ? '<span class="sw-chevron">▼</span>' : ''}
+        </div>
+        ${hasDetail ? `<div class="sw-body${hl?' open':''}">
+          ${r.doc ? `<div class="sw-section"><div class="sw-section-title">설명</div><div style="font-size:13px;color:#cbd5e1">${r.doc}</div></div>` : ''}
+          ${pathParams ? `<div class="sw-section"><div class="sw-section-title">Path Parameters</div>${pathParams}</div>` : ''}
+        </div>` : ''}
+      </div>`;
+    });
+    html += `</div></div>`;
+  });
+  document.getElementById('spec-api-list').innerHTML = html;
 
   if (highlightPath) {
     const hlIdx = rows.findIndex(r => r.path === highlightPath);
@@ -3917,6 +3981,15 @@ function renderSpecApis(highlightPath) {
       if (el) setTimeout(() => el.scrollIntoView({behavior:'smooth', block:'center'}), 150);
     }
   }
+}
+
+function swGroupToggle(gid) {
+  const body = document.getElementById(gid);
+  if (!body) return;
+  const isOpen = body.style.display !== 'none';
+  body.style.display = isOpen ? 'none' : '';
+  const chevron = body.previousElementSibling?.querySelector('.sw-chevron');
+  if (chevron) chevron.style.transform = isOpen ? 'rotate(-90deg)' : '';
 }
 
 function swToggle(id) {
