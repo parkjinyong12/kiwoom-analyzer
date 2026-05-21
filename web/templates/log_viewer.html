@@ -128,7 +128,8 @@
   <script>
     const JOB_ID = {{ job_id | tojson }};
     const scrollEl = document.getElementById('log-wrap');
-    let _shownLines = 0; // 이미 렌더링된 줄 수
+    let _logTotal = 0;   // 서버 파일의 절대 줄 수 (마지막 수신 기준)
+    let _isFirst  = true; // 첫 로드 여부
 
     function isAtBottom() {
       return scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 60;
@@ -136,41 +137,41 @@
 
     async function fetchLogs() {
       try {
-        const res = await fetch(`/api/batch/${JOB_ID}/logs`);
+        // 첫 로드: from 없이 → 서버가 최근 500줄 반환
+        // 이후 폴링: ?from=N → 서버가 N줄 이후 새 줄만 반환 (변화 없으면 lines=[])
+        const url = _isFirst
+          ? `/api/batch/${JOB_ID}/logs`
+          : `/api/batch/${JOB_ID}/logs?from=${_logTotal}`;
+
+        const res = await fetch(url);
         if (!res.ok) return;
-        const lines = await res.json();
+        const data = await res.json();
         const body = document.getElementById('log-body');
         const wasAtBottom = isAtBottom();
 
-        if (lines.length === 0) {
-          // 로그 없음 — 전체 초기화
+        if (data.total === 0) {
           body.innerHTML = '<span class="log-empty">로그 없음</span>';
-          _shownLines = 0;
+          _logTotal = 0;
+          _isFirst = true;
           document.getElementById('line-count').textContent = '';
           return;
         }
 
-        if (lines.length < _shownLines) {
-          // 로그 파일이 교체된 경우 (새 실행) — 전체 교체
-          body.textContent = lines.join('\n');
-          _shownLines = lines.length;
-        } else if (lines.length > _shownLines) {
-          // 새 줄만 append — 깜박임 없음
-          if (_shownLines === 0) {
-            body.textContent = lines.join('\n');
-          } else {
-            const newText = '\n' + lines.slice(_shownLines).join('\n');
-            body.appendChild(document.createTextNode(newText));
-          }
-          _shownLines = lines.length;
+        if (_isFirst || data.rotated) {
+          // 첫 로드 또는 파일 교체 — 전체 교체
+          body.textContent = data.lines.join('\n');
+          _isFirst = false;
+        } else if (data.lines.length > 0) {
+          // 새 줄만 append — DOM 건드리지 않으면 깜박임 없음
+          body.appendChild(document.createTextNode('\n' + data.lines.join('\n')));
         }
-        // lines.length === _shownLines: 변화 없음 — DOM 건드리지 않음
+        // data.lines.length === 0: 변화 없음 — DOM 건드리지 않음
 
-        document.getElementById('line-count').textContent = `${lines.length}줄`;
+        _logTotal = data.total;
+        document.getElementById('line-count').textContent = `${_logTotal}줄`;
 
-        const autoScroll = document.getElementById('auto-scroll').checked;
-        if (autoScroll && wasAtBottom) {
-          scrollEl.scrollTop = scrollEl.scrollHeight;
+        if (document.getElementById('auto-scroll').checked && wasAtBottom && data.lines.length > 0) {
+          requestAnimationFrame(() => { scrollEl.scrollTop = scrollEl.scrollHeight; });
         }
       } catch (e) { /* 네트워크 오류 무시 */ }
     }

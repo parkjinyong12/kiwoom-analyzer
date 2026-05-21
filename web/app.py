@@ -2403,19 +2403,29 @@ def api_schedule_save(job_id: str):
 
 @app.route("/api/batch/<job_id>/logs")
 def api_batch_logs(job_id: str):
-    """배치 작업 로그 최근 200줄 조회."""
+    """배치 작업 로그 조회 — ?from=N 지정 시 N줄 이후 증분만 반환, 미지정 시 최근 500줄."""
     j = BATCH_JOBS.get(job_id)
     if not j:
-        return jsonify([])
+        return jsonify({"lines": [], "total": 0})
     log_path = _latest_log(j["log_prefix"])
     if not log_path:
-        return jsonify([])
+        return jsonify({"lines": [], "total": 0})
     try:
+        from_line = request.args.get("from", type=int, default=None)
         with open(log_path, "r", errors="replace") as f:
-            lines = f.readlines()
-        return jsonify([ln.rstrip() for ln in lines[-200:]])
+            all_lines = [ln.rstrip() for ln in f.readlines()]
+        total = len(all_lines)
+        if from_line is None:
+            # 첫 로드: 최근 500줄
+            start = max(0, total - 500)
+            return jsonify({"lines": all_lines[start:], "total": total})
+        if from_line > total:
+            # 파일 교체됨 (새 실행 시작) — 처음부터 반환
+            return jsonify({"lines": all_lines, "total": total, "rotated": True})
+        # 증분: from_line 이후 새 줄만 반환 (변화 없으면 lines=[] 반환)
+        return jsonify({"lines": all_lines[from_line:], "total": total})
     except Exception:
-        return jsonify([])
+        return jsonify({"lines": [], "total": 0})
 
 
 @app.route("/batch/<job_id>/log-viewer")

@@ -3786,48 +3786,79 @@ async function loadBatch() {
   }
 }
 
+function _batchRunDotHtml(running, manualStopped) {
+  return running
+    ? '<span style="color:#4ade80;font-size:15px" title="실행 중">●</span>'
+    : manualStopped
+      ? '<span style="color:#f97316;font-size:15px" title="수동 중지됨 (스케줄 자동 실행 억제)">●</span>'
+      : '<span style="color:#334155;font-size:15px" title="중지">●</span>';
+}
+function _batchSchDotHtml(enabled, manualStopped) {
+  return enabled
+    ? (manualStopped
+        ? '<span style="color:#f97316;font-size:15px" title="스케줄 활성이나 수동 중지로 억제됨">●</span>'
+        : '<span style="color:#60a5fa;font-size:15px" title="스케줄 활성">●</span>')
+    : '<span style="color:#334155;font-size:15px" title="스케줄 꺼짐">●</span>';
+}
+function _batchRunBtnHtml(jid, running) {
+  return running
+    ? `<button class="btn btn-danger"  style="font-size:11px;padding:3px 8px" onclick="batchStop('${jid}')">■ 중지</button>`
+    : `<button class="btn btn-primary" style="font-size:11px;padding:3px 8px" onclick="batchStart('${jid}')">▶ 실행</button>`;
+}
+
 function renderUnifiedBatch() {
   const tbody = document.getElementById('schedule-list');
   const jobMap = {};
   _batchJobs.forEach(j => { jobMap[j.id] = j; });
 
-  const rows = Object.entries(_scheduleData).map(([jid, s]) => {
-    const j       = jobMap[jid] || {};
-    const running       = j.running || false;
-    const manualStopped = j.manual_stopped || false;
-    const runDot  = running
-      ? '<span style="color:#4ade80;font-size:15px" title="실행 중">●</span>'
-      : manualStopped
-        ? '<span style="color:#f97316;font-size:15px" title="수동 중지됨 (스케줄 자동 실행 억제)">●</span>'
-        : '<span style="color:#334155;font-size:15px" title="중지">●</span>';
-    const schDot  = s.enabled
-      ? (manualStopped
-          ? '<span style="color:#f97316;font-size:15px" title="스케줄 활성이나 수동 중지로 억제됨">●</span>'
-          : '<span style="color:#60a5fa;font-size:15px" title="스케줄 활성">●</span>')
-      : '<span style="color:#334155;font-size:15px" title="스케줄 꺼짐">●</span>';
-    const runBtn  = running
-      ? `<button class="btn btn-danger"  style="font-size:11px;padding:3px 8px" onclick="batchStop('${jid}')">■ 중지</button>`
-      : `<button class="btn btn-primary" style="font-size:11px;padding:3px 8px" onclick="batchStart('${jid}')">▶ 실행</button>`;
-    const lastRun = s.last_run ? new Date(s.last_run).toLocaleString('ko-KR') : '—';
-    return `<tr>
-      <td>
-        <div style="font-weight:600;font-size:13px">${BATCH_LABELS[jid] || jid}</div>
-        <div style="font-size:11px;color:#475569;margin-top:2px">${BATCH_DESCS[jid] || ''}</div>
-      </td>
-      <td class="center">${runDot}</td>
-      <td class="center">${schDot}</td>
-      <td style="font-size:13px">${_schSummary(s)}</td>
-      <td class="center" style="font-size:11px;color:#64748b;white-space:nowrap">${lastRun}</td>
-      <td class="center" style="white-space:nowrap">
-        ${runBtn}
-        <button class="btn btn-ghost" style="font-size:11px;padding:3px 8px;margin-left:4px"
-                onclick="batchShowLog('${jid}','${BATCH_LABELS[jid]||jid}')">로그</button>
-        <button class="btn btn-ghost" style="font-size:11px;padding:3px 8px;margin-left:4px"
-                onclick="schOpenModal('${jid}')">설정</button>
-      </td>
-    </tr>`;
-  }).join('');
-  tbody.innerHTML = rows || '<tr><td colspan="6" style="text-align:center;padding:24px;color:#475569">배치 없음</td></tr>';
+  const entries = Object.entries(_scheduleData);
+  if (!entries.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:#475569">배치 없음</td></tr>';
+    return;
+  }
+
+  entries.forEach(([jid, s]) => {
+    const j           = jobMap[jid] || {};
+    const running     = j.running || false;
+    const manualStop  = j.manual_stopped || false;
+    const lastRun     = s.last_run ? new Date(s.last_run).toLocaleString('ko-KR') : '—';
+
+    let tr = tbody.querySelector(`tr[data-jid="${jid}"]`);
+    if (!tr) {
+      // 첫 렌더: 행 전체 생성
+      tr = document.createElement('tr');
+      tr.dataset.jid = jid;
+      tr.innerHTML = `
+        <td>
+          <div style="font-weight:600;font-size:13px">${BATCH_LABELS[jid] || jid}</div>
+          <div style="font-size:11px;color:#475569;margin-top:2px">${BATCH_DESCS[jid] || ''}</div>
+        </td>
+        <td class="center" data-cell="run-dot"></td>
+        <td class="center" data-cell="sch-dot"></td>
+        <td style="font-size:13px" data-cell="sch-summary"></td>
+        <td class="center" style="font-size:11px;color:#64748b;white-space:nowrap" data-cell="last-run"></td>
+        <td class="center" style="white-space:nowrap" data-cell="actions"></td>`;
+      tbody.appendChild(tr);
+    }
+
+    // 변경된 셀만 업데이트 — innerHTML 비교로 불필요한 DOM 조작 방지
+    function setCell(attr, html) {
+      const el = tr.querySelector(`[data-cell="${attr}"]`);
+      if (el && el.innerHTML !== html) el.innerHTML = html;
+    }
+
+    setCell('run-dot',     _batchRunDotHtml(running, manualStop));
+    setCell('sch-dot',     _batchSchDotHtml(s.enabled, manualStop));
+    setCell('sch-summary', _schSummary(s));
+    setCell('last-run',    lastRun);
+    setCell('actions',
+      _batchRunBtnHtml(jid, running) +
+      `<button class="btn btn-ghost" style="font-size:11px;padding:3px 8px;margin-left:4px"
+               onclick="batchShowLog('${jid}','${BATCH_LABELS[jid]||jid}')">로그</button>
+       <button class="btn btn-ghost" style="font-size:11px;padding:3px 8px;margin-left:4px"
+               onclick="schOpenModal('${jid}')">설정</button>`
+    );
+  });
 }
 
 async function loadSchedule() { /* loadBatch에서 통합 처리 */ }
