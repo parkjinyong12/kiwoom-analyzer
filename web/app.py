@@ -383,8 +383,22 @@ def _find_pid(match: str) -> int | None:
 
 
 def _latest_log(prefix: str) -> str | None:
+    # 단일 누적 파일 방식 (신규)
+    p = os.path.join(BASE_DIR, "logs", f"{prefix}.log")
+    if os.path.exists(p):
+        return p
+    # 구 타임스탬프 파일 방식 (하위 호환)
     files = sorted(glob.glob(os.path.join(BASE_DIR, "logs", f"{prefix}_*.log")))
     return files[-1] if files else None
+
+
+def _append_run_separator(log_file: str) -> None:
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(f"\n{'='*60}\n=== 새 실행 시작 · {ts} ===\n{'='*60}\n")
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -2151,12 +2165,12 @@ def api_batch_start(job_id: str):
         return jsonify({"error": "이미 실행 중입니다"}), 409
     settings = _get_app_settings()
     min_cap = settings.get("min_market_cap", str(5_000_000_000_000))
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     logs_dir = os.path.join(BASE_DIR, "logs")
     os.makedirs(logs_dir, exist_ok=True)
-    log_file = os.path.join(logs_dir, f"{j['log_prefix']}_{ts}.log")
+    log_file = os.path.join(logs_dir, f"{j['log_prefix']}.log")
+    _append_run_separator(log_file)
     subprocess.Popen(
-        f"PYTHONUNBUFFERED=1 MIN_MARKET_CAP={min_cap} nohup {j['cmd']} > {log_file} 2>&1",
+        f"PYTHONUNBUFFERED=1 MIN_MARKET_CAP={min_cap} nohup {j['cmd']} >> {log_file} 2>&1",
         shell=True, cwd=BASE_DIR,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
@@ -2305,13 +2319,13 @@ def _run_scheduled_job(job_id: str, interval_start: int = 0, interval_end: int =
         return
     settings = _get_app_settings()
     min_cap = settings.get("min_market_cap", str(5_000_000_000_000))
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     logs_dir = os.path.join(BASE_DIR, "logs")
     os.makedirs(logs_dir, exist_ok=True)
-    log_file = os.path.join(logs_dir, f"{j['log_prefix']}_{ts}.log")
+    log_file = os.path.join(logs_dir, f"{j['log_prefix']}.log")
+    _append_run_separator(log_file)
     logging.info("[scheduler] %s 자동 실행 시작 → %s", job_id, log_file)
     subprocess.Popen(
-        f"PYTHONUNBUFFERED=1 MIN_MARKET_CAP={min_cap} nohup {j['cmd']} > {log_file} 2>&1",
+        f"PYTHONUNBUFFERED=1 MIN_MARKET_CAP={min_cap} nohup {j['cmd']} >> {log_file} 2>&1",
         shell=True, cwd=BASE_DIR,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
