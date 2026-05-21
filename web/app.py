@@ -340,6 +340,13 @@ BATCH_JOBS = {
         "cmd": "python -u scripts/sync_prices.py",
         "log_prefix": "sync_prices",
     },
+    "run_once": {
+        "name": "매매신호 갱신",
+        "desc": "전 감시종목 파이프라인 1회 실행 (수급 수집 + 차트 분석 + 매매신호 생성)",
+        "match": "main.py.*--once",
+        "cmd": "python -u main.py --once",
+        "log_prefix": "run_once",
+    },
 }
 
 
