@@ -270,11 +270,25 @@ class Orchestrator:
             logger.info("감시 종목 %d개 설정 완료", len(config.watchlist))
 
     def _get_watchlist(self) -> list[str]:
-        """DB에서 watched=True 종목 반환. 없으면 config 폴백."""
+        """DB에서 watched=True 종목 반환. manual_holdings 종목도 항상 포함."""
         stocks = self._audit._db.get_watchlist()
-        if stocks:
-            return [s["stock_code"] for s in stocks]
-        return config.watchlist
+        codes = set(s["stock_code"] for s in stocks) if stocks else set(config.watchlist)
+
+        # 보유종목 화면의 종목은 시총 무관하게 수급 수집 대상에 포함
+        try:
+            import psycopg2
+            import psycopg2.extras
+            conn = psycopg2.connect(config.database_url, cursor_factory=psycopg2.extras.RealDictCursor)
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT DISTINCT stock_code FROM manual_holdings WHERE quantity > 0")
+                    for r in cur.fetchall():
+                        codes.add(r["stock_code"])
+            conn.close()
+        except Exception as e:
+            logger.warning("manual_holdings 종목 조회 실패: %s", e)
+
+        return list(codes)
 
     # ------------------------------------------------------------------
     # 스케줄 설정
