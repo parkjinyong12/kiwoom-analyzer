@@ -67,6 +67,8 @@ def _ensure_batch_schedules_table():
         """)
         cur.execute("ALTER TABLE batch_schedules ADD COLUMN IF NOT EXISTS interval_mode    BOOLEAN NOT NULL DEFAULT FALSE")
         cur.execute("ALTER TABLE batch_schedules ADD COLUMN IF NOT EXISTS interval_minutes INTEGER NOT NULL DEFAULT 60")
+        cur.execute("ALTER TABLE batch_schedules ADD COLUMN IF NOT EXISTS interval_start   SMALLINT NOT NULL DEFAULT 0")
+        cur.execute("ALTER TABLE batch_schedules ADD COLUMN IF NOT EXISTS interval_end     SMALLINT NOT NULL DEFAULT 1439")
 
 
 def _ensure_users_auth_columns():
@@ -2203,12 +2205,13 @@ def api_save_settings():
 
 @app.route("/api/schedule")
 def api_schedule_get():
-    rows = query("SELECT job_id, enabled, hour, minute, days, interval_mode, interval_minutes, last_run FROM batch_schedules")
+    rows = query("SELECT job_id, enabled, hour, minute, days, interval_mode, interval_minutes, interval_start, interval_end, last_run FROM batch_schedules")
     result = {r["job_id"]: dict(r) for r in rows}
     for jid in BATCH_JOBS:
         if jid not in result:
             result[jid] = {"job_id": jid, "enabled": False, "hour": 9, "minute": 0, "days": "weekdays",
-                           "interval_mode": False, "interval_minutes": 60, "last_run": None}
+                           "interval_mode": False, "interval_minutes": 60,
+                           "interval_start": 0, "interval_end": 1439, "last_run": None}
     return jsonify(result)
 
 
@@ -2223,11 +2226,13 @@ def api_schedule_save(job_id: str):
     days             = data.get("days", "weekdays")
     interval_mode    = bool(data.get("interval_mode", False))
     interval_minutes = max(1, int(data.get("interval_minutes", 60)))
+    interval_start   = max(0, min(1439, int(data.get("interval_start", 0))))
+    interval_end     = max(0, min(1439, int(data.get("interval_end", 1439))))
     with get_conn() as conn:
         cur = conn.cursor()
         cur.execute("""
-            INSERT INTO batch_schedules (job_id, enabled, hour, minute, days, interval_mode, interval_minutes, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+            INSERT INTO batch_schedules (job_id, enabled, hour, minute, days, interval_mode, interval_minutes, interval_start, interval_end, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
             ON CONFLICT (job_id) DO UPDATE
               SET enabled          = EXCLUDED.enabled,
                   hour             = EXCLUDED.hour,
@@ -2235,9 +2240,11 @@ def api_schedule_save(job_id: str):
                   days             = EXCLUDED.days,
                   interval_mode    = EXCLUDED.interval_mode,
                   interval_minutes = EXCLUDED.interval_minutes,
+                  interval_start   = EXCLUDED.interval_start,
+                  interval_end     = EXCLUDED.interval_end,
                   updated_at       = NOW()
-        """, (job_id, enabled, hour, minute, days, interval_mode, interval_minutes))
-    _reload_scheduler_job(job_id, enabled, hour, minute, days, interval_mode, interval_minutes)
+        """, (job_id, enabled, hour, minute, days, interval_mode, interval_minutes, interval_start, interval_end))
+    _reload_scheduler_job(job_id, enabled, hour, minute, days, interval_mode, interval_minutes, interval_start, interval_end)
     return jsonify({"ok": True})
 
 
@@ -2270,10 +2277,20 @@ _DAYS_MAP = {
 _scheduler = BackgroundScheduler(timezone="Asia/Seoul")
 
 
-def _run_scheduled_job(job_id: str):
+def _run_scheduled_job(job_id: str, interval_start: int = 0, interval_end: int = 1439):
     j = BATCH_JOBS.get(job_id)
     if not j:
         return
+    # 반복 주기 모드의 시간 범위 체크 (interval_start/end: 자정 기준 분)
+    if interval_start != 0 or interval_end != 1439:
+        now = datetime.now()
+        cur_min = now.hour * 60 + now.minute
+        if not (interval_start <= cur_min <= interval_end):
+            logging.info("[scheduler] %s 시간 범위 밖 — 스킵 (%02d:%02d, 허용 %02d:%02d~%02d:%02d)",
+                         job_id, now.hour, now.minute,
+                         interval_start // 60, interval_start % 60,
+                         interval_end   // 60, interval_end   % 60)
+            return
     if _find_pid(j["match"]):
         logging.info("[scheduler] %s 이미 실행 중 — 스킵", job_id)
         return
@@ -2299,7 +2316,8 @@ def _run_scheduled_job(job_id: str):
 
 
 def _reload_scheduler_job(job_id: str, enabled: bool, hour: int, minute: int, days: str,
-                          interval_mode: bool = False, interval_minutes: int = 60):
+                          interval_mode: bool = False, interval_minutes: int = 60,
+                          interval_start: int = 0, interval_end: int = 1439):
     sched_id = f"batch_{job_id}"
     if _scheduler.get_job(sched_id):
         _scheduler.remove_job(sched_id)
@@ -2307,7 +2325,9 @@ def _reload_scheduler_job(job_id: str, enabled: bool, hour: int, minute: int, da
         return
     if interval_mode:
         trigger = IntervalTrigger(minutes=interval_minutes, timezone="Asia/Seoul")
-        logging.info("[scheduler] %s 등록: %d분마다 반복", job_id, interval_minutes)
+        range_str = f" ({interval_start//60:02d}:{interval_start%60:02d}~{interval_end//60:02d}:{interval_end%60:02d})" \
+                    if (interval_start != 0 or interval_end != 1439) else " (24시간)"
+        logging.info("[scheduler] %s 등록: %d분마다 반복%s", job_id, interval_minutes, range_str)
     else:
         day_str = _DAYS_MAP.get(days, "mon,tue,wed,thu,fri")
         trigger = CronTrigger(day_of_week=day_str, hour=hour, minute=minute, timezone="Asia/Seoul")
@@ -2316,19 +2336,20 @@ def _reload_scheduler_job(job_id: str, enabled: bool, hour: int, minute: int, da
         _run_scheduled_job,
         trigger,
         id=sched_id,
-        args=[job_id],
+        args=[job_id, interval_start, interval_end],
         replace_existing=True,
     )
 
 
 def _init_scheduler():
     try:
-        rows = query("SELECT job_id, enabled, hour, minute, days, interval_mode, interval_minutes FROM batch_schedules")
+        rows = query("SELECT job_id, enabled, hour, minute, days, interval_mode, interval_minutes, interval_start, interval_end FROM batch_schedules")
         for r in rows:
             if r["enabled"]:
                 _reload_scheduler_job(
                     r["job_id"], True, r["hour"], r["minute"], r["days"],
                     bool(r.get("interval_mode", False)), int(r.get("interval_minutes", 60)),
+                    int(r.get("interval_start", 0)), int(r.get("interval_end", 1439)),
                 )
     except Exception as e:
         logging.warning("[scheduler] 초기화 실패: %s", e)

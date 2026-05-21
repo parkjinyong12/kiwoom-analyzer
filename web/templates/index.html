@@ -1029,8 +1029,101 @@ canvas { max-height: 220px; }
     <!-- 스케줄 설정 -->
     <div class="panel" style="margin-top:16px">
       <div class="panel-header">스케줄 설정</div>
-      <div id="schedule-list" style="padding:16px;display:flex;flex-direction:column;gap:16px">
-        <div class="loading"><span class="spinner"></span>로딩 중...</div>
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>배치명</th>
+              <th>설명</th>
+              <th style="text-align:center;width:70px">상태</th>
+              <th>스케줄</th>
+              <th style="text-align:center">마지막 실행</th>
+              <th style="text-align:center;width:60px">설정</th>
+            </tr>
+          </thead>
+          <tbody id="schedule-list">
+            <tr><td colspan="6" class="loading"><span class="spinner"></span>로딩 중...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 스케줄 설정 모달 -->
+    <div class="modal-overlay" id="sch-modal" style="display:none">
+      <div class="modal" style="width:460px">
+        <h3 id="sch-modal-title">스케줄 설정</h3>
+        <input type="hidden" id="sch-modal-jid"/>
+        <div style="display:grid;gap:16px;margin-top:12px">
+
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="sch-m-enabled" style="accent-color:#60a5fa;width:16px;height:16px">
+            <span style="font-size:14px">활성화</span>
+          </label>
+
+          <div>
+            <div style="font-size:12px;color:#64748b;margin-bottom:6px">실행 방식</div>
+            <select id="sch-m-mode" onchange="schModalToggleMode()"
+                    style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px">
+              <option value="once">지정 시간</option>
+              <option value="interval">반복 주기</option>
+            </select>
+          </div>
+
+          <div id="sch-m-once-wrap">
+            <div style="font-size:12px;color:#64748b;margin-bottom:6px">실행 시간</div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <input type="number" id="sch-m-hour" min="0" max="23" value="9"
+                     style="width:60px;padding:7px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;text-align:center"/>
+              <span style="color:#64748b">:</span>
+              <input type="number" id="sch-m-minute" min="0" max="59" value="0"
+                     style="width:60px;padding:7px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;text-align:center"/>
+              <select id="sch-m-days"
+                      style="padding:7px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px">
+                <option value="daily">매일</option>
+                <option value="weekdays">평일만</option>
+                <option value="weekends">주말만</option>
+              </select>
+            </div>
+          </div>
+
+          <div id="sch-m-interval-wrap" style="display:none">
+            <div style="font-size:12px;color:#64748b;margin-bottom:6px">반복 주기</div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+              <span style="font-size:13px;color:#94a3b8">매</span>
+              <input type="number" id="sch-m-intmin" min="1" max="1440" value="60"
+                     style="width:75px;padding:7px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;text-align:center"/>
+              <span style="font-size:13px;color:#94a3b8">분마다</span>
+            </div>
+            <div style="font-size:12px;color:#64748b;margin-bottom:6px">실행 허용 시간대 <span style="color:#475569">(비워두면 24시간)</span></div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <input type="time" id="sch-m-start" value="00:00"
+                     style="padding:7px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px"/>
+              <span style="color:#64748b">~</span>
+              <input type="time" id="sch-m-end" value="23:59"
+                     style="padding:7px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px"/>
+            </div>
+          </div>
+
+          <!-- holdings_report 이메일 수신자 (해당 배치만 노출) -->
+          <div id="sch-m-email-wrap" style="display:none;border-top:1px solid #1e2535;padding-top:14px">
+            <div style="font-size:12px;color:#94a3b8;font-weight:600;margin-bottom:10px">📧 발송 수신자</div>
+            <div style="display:flex;gap:6px;margin-bottom:10px">
+              <input type="email" id="batch-email-input" placeholder="이메일 주소 입력"
+                     style="flex:1;padding:7px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:12px"
+                     onkeydown="if(event.key==='Enter')batchEmailAdd()"/>
+              <button class="btn btn-primary" style="font-size:12px;padding:6px 12px" onclick="batchEmailAdd()">추가</button>
+            </div>
+            <div id="batch-email-list" style="display:flex;flex-direction:column;gap:6px;max-width:100%">
+              <div style="font-size:12px;color:#475569">로딩 중...</div>
+            </div>
+          </div>
+
+          <div id="sch-m-err" style="color:#f87171;font-size:12px;display:none"></div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" onclick="schCloseModal()">취소</button>
+          <button class="btn btn-primary" onclick="schSaveModal()">저장</button>
+        </div>
       </div>
     </div>
 
@@ -3633,126 +3726,127 @@ async function loadSchedule() {
   renderScheduleList();
 }
 
+const BATCH_LABELS = {
+  collect_history: '수급 히스토리 수집',
+  backfill_close:  '종가 백필',
+  holdings_report: '보유종목 리포트 발송',
+  sync_prices:     '현재가 동기화',
+  run_once:        '매매신호 갱신',
+};
+const BATCH_DESCS = {
+  collect_history: '시총 기준 종목 수급 500일치 수집',
+  backfill_close:  'close_price NULL 종목 종가 채우기',
+  holdings_report: '보유종목 가격·수급 변동 리포트 이메일 발송',
+  sync_prices:     '타사 보유종목 최신 종가 DB 업데이트',
+  run_once:        '전 감시종목 파이프라인 1회 실행 (수급+신호)',
+};
+
+function _schSummary(s) {
+  if (!s.enabled) return '<span style="color:#475569">비활성</span>';
+  if (s.interval_mode) {
+    const mins = s.interval_minutes || 60;
+    const st   = s.interval_start ?? 0;
+    const en   = s.interval_end   ?? 1439;
+    const range = (st === 0 && en === 1439)
+      ? '24시간'
+      : `${String(Math.floor(st/60)).padStart(2,'0')}:${String(st%60).padStart(2,'0')}~${String(Math.floor(en/60)).padStart(2,'0')}:${String(en%60).padStart(2,'0')}`;
+    return `<span style="color:#a78bfa">${mins}분마다</span> <span style="color:#64748b;font-size:11px">(${range})</span>`;
+  }
+  const h    = String(s.hour   ?? 9).padStart(2,'0');
+  const m    = String(s.minute ?? 0).padStart(2,'0');
+  const days = {daily:'매일', weekdays:'평일', weekends:'주말'}[s.days] || s.days;
+  return `<span style="color:#60a5fa">${days} ${h}:${m}</span>`;
+}
+
 function renderScheduleList() {
-  const batchNames = {};
-  document.querySelectorAll('.batch-card-name').forEach(el => {
-    const card = el.closest('.batch-card');
-    if (!card) return;
-    const btn = card.querySelector('[onclick^="batchStart"],  [onclick^="batchStop"]');
-    if (!btn) return;
-    const id = (btn.getAttribute('onclick').match(/'([^']+)'/) || [])[1];
-    if (id) batchNames[id] = el.textContent.trim();
-  });
-
-  const BATCH_LABELS = {
-    collect_history: '수급 히스토리 수집',
-    backfill_close:  '종가 백필',
-    holdings_report: '보유종목 리포트 발송',
-    sync_prices:     '현재가 동기화',
-    run_once:        '매매신호 갱신',
-  };
-
-  const html = Object.entries(_scheduleData).map(([jid, s]) => {
-    const label           = BATCH_LABELS[jid] || jid;
-    const enabled         = s.enabled;
-    const hour            = String(s.hour ?? 9).padStart(2,'0');
-    const minute          = String(s.minute ?? 0).padStart(2,'0');
-    const days            = s.days || 'weekdays';
-    const intervalMode    = s.interval_mode || false;
-    const intervalMinutes = s.interval_minutes || 60;
-    const lastRun         = s.last_run ? new Date(s.last_run).toLocaleString('ko-KR') : '실행 이력 없음';
-
-    return `
-    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:12px 0;border-bottom:1px solid #1e2535">
-      <div style="min-width:160px">
-        <div style="font-size:14px;font-weight:700;color:#e2e8f0">${label}</div>
-        <div style="font-size:11px;color:#475569;margin-top:2px">마지막 자동 실행: ${lastRun}</div>
-      </div>
-
-      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
-        <input type="checkbox" id="sch-enabled-${jid}" ${enabled ? 'checked' : ''}
-               style="accent-color:#60a5fa;width:16px;height:16px">
-        활성화
-      </label>
-
-      <div style="display:flex;align-items:center;gap:6px">
-        <label style="font-size:12px;color:#94a3b8">방식</label>
-        <select id="sch-mode-${jid}" onchange="schToggleMode('${jid}')"
-                style="padding:5px 10px;border-radius:6px;border:1px solid #2d3748;background:#0f1117;color:#e2e8f0;font-size:13px">
-          <option value="once"     ${!intervalMode ? 'selected':''}>지정 시간</option>
-          <option value="interval" ${intervalMode  ? 'selected':''}>반복 주기</option>
-        </select>
-      </div>
-
-      <div id="sch-once-${jid}" style="display:flex;align-items:center;gap:6px;${intervalMode ? 'display:none!important' : ''}">
-        <label style="font-size:12px;color:#94a3b8">시간</label>
-        <input type="number" id="sch-hour-${jid}" value="${hour}" min="0" max="23"
-               style="width:54px;padding:5px 8px;border-radius:6px;border:1px solid #2d3748;background:#0f1117;color:#e2e8f0;font-size:13px;text-align:center"/>
-        <span style="color:#64748b">:</span>
-        <input type="number" id="sch-min-${jid}" value="${minute}" min="0" max="59"
-               style="width:54px;padding:5px 8px;border-radius:6px;border:1px solid #2d3748;background:#0f1117;color:#e2e8f0;font-size:13px;text-align:center"/>
-        <label style="font-size:12px;color:#94a3b8;margin-left:6px">요일</label>
-        <select id="sch-days-${jid}"
-                style="padding:5px 10px;border-radius:6px;border:1px solid #2d3748;background:#0f1117;color:#e2e8f0;font-size:13px">
-          <option value="daily"    ${days==='daily'    ? 'selected':''}>매일</option>
-          <option value="weekdays" ${days==='weekdays' ? 'selected':''}>평일만</option>
-          <option value="weekends" ${days==='weekends' ? 'selected':''}>주말만</option>
-        </select>
-      </div>
-
-      <div id="sch-interval-${jid}" style="${intervalMode ? 'display:flex' : 'display:none'};align-items:center;gap:6px">
-        <label style="font-size:12px;color:#94a3b8">매</label>
-        <input type="number" id="sch-intmin-${jid}" value="${intervalMinutes}" min="1" max="1440"
-               style="width:70px;padding:5px 8px;border-radius:6px;border:1px solid #2d3748;background:#0f1117;color:#e2e8f0;font-size:13px;text-align:center"/>
-        <label style="font-size:12px;color:#94a3b8">분마다</label>
-      </div>
-
-      <button class="btn btn-primary" style="font-size:12px" onclick="saveSchedule('${jid}')">저장</button>
-      <span id="sch-msg-${jid}" style="font-size:12px;color:#4ade80;display:none">✓ 저장됨</span>
-
-      ${jid === 'holdings_report' ? `
-      <div style="width:100%;border-top:1px solid #1e2535;margin-top:14px;padding-top:14px">
-        <div style="font-size:12px;color:#94a3b8;font-weight:600;margin-bottom:10px">📧 발송 수신자</div>
-        <div style="display:flex;gap:6px;margin-bottom:10px">
-          <input type="email" id="batch-email-input" placeholder="이메일 주소 입력"
-                 style="flex:1;max-width:260px;padding:6px 10px;border-radius:6px;border:1px solid #2d3748;background:#0f1117;color:#e2e8f0;font-size:12px"
-                 onkeydown="if(event.key==='Enter')batchEmailAdd()"/>
-          <button class="btn btn-primary" style="font-size:12px;padding:6px 12px" onclick="batchEmailAdd()">추가</button>
-        </div>
-        <div id="batch-email-list" style="display:flex;flex-direction:column;gap:6px;max-width:420px">
-          <div style="font-size:12px;color:#475569">로딩 중...</div>
-        </div>
-      </div>` : ''}
-    </div>`;
+  const tbody = document.getElementById('schedule-list');
+  const rows = Object.entries(_scheduleData).map(([jid, s]) => {
+    const label   = BATCH_LABELS[jid]  || jid;
+    const desc    = BATCH_DESCS[jid]   || '';
+    const lastRun = s.last_run ? new Date(s.last_run).toLocaleString('ko-KR') : '—';
+    const statusDot = s.enabled
+      ? '<span style="color:#4ade80;font-size:16px">●</span>'
+      : '<span style="color:#334155;font-size:16px">●</span>';
+    return `<tr>
+      <td style="font-weight:600">${label}</td>
+      <td style="color:#64748b;font-size:12px">${desc}</td>
+      <td class="center">${statusDot}</td>
+      <td style="font-size:13px">${_schSummary(s)}</td>
+      <td class="center" style="font-size:11px;color:#64748b">${lastRun}</td>
+      <td class="center">
+        <button class="btn btn-ghost" style="font-size:11px;padding:3px 10px"
+                onclick="schOpenModal('${jid}')">설정</button>
+      </td>
+    </tr>`;
   }).join('');
-
-  document.getElementById('schedule-list').innerHTML = html || '<div class="empty">등록된 배치가 없습니다</div>';
-  // holdings_report 이메일 목록 로드
-  batchEmailLoad();
+  tbody.innerHTML = rows || '<tr><td colspan="6" style="text-align:center;padding:24px;color:#475569">스케줄 없음</td></tr>';
 }
 
-function schToggleMode(jid) {
-  const isInterval = document.getElementById(`sch-mode-${jid}`).value === 'interval';
-  document.getElementById(`sch-once-${jid}`).style.display     = isInterval ? 'none' : 'flex';
-  document.getElementById(`sch-interval-${jid}`).style.display = isInterval ? 'flex' : 'none';
+function schOpenModal(jid) {
+  const s = _scheduleData[jid] || {};
+  document.getElementById('sch-modal-jid').value  = jid;
+  document.getElementById('sch-modal-title').textContent = (BATCH_LABELS[jid] || jid) + ' 스케줄 설정';
+  document.getElementById('sch-m-enabled').checked = !!s.enabled;
+  const isInterval = !!s.interval_mode;
+  document.getElementById('sch-m-mode').value  = isInterval ? 'interval' : 'once';
+  document.getElementById('sch-m-hour').value  = s.hour   ?? 9;
+  document.getElementById('sch-m-minute').value= s.minute ?? 0;
+  document.getElementById('sch-m-days').value  = s.days   || 'weekdays';
+  document.getElementById('sch-m-intmin').value= s.interval_minutes || 60;
+  // 시간 범위 HH:MM 변환
+  const st = s.interval_start ?? 0;
+  const en = s.interval_end   ?? 1439;
+  document.getElementById('sch-m-start').value = `${String(Math.floor(st/60)).padStart(2,'0')}:${String(st%60).padStart(2,'0')}`;
+  document.getElementById('sch-m-end').value   = `${String(Math.floor(en/60)).padStart(2,'0')}:${String(en%60).padStart(2,'0')}`;
+  // 이메일 섹션
+  document.getElementById('sch-m-email-wrap').style.display = (jid === 'holdings_report') ? 'block' : 'none';
+  if (jid === 'holdings_report') batchEmailLoad();
+  schModalToggleMode();
+  document.getElementById('sch-m-err').style.display = 'none';
+  document.getElementById('sch-modal').style.display = 'flex';
 }
 
-async function saveSchedule(jid) {
-  const enabled         = document.getElementById(`sch-enabled-${jid}`).checked;
-  const hour            = parseInt(document.getElementById(`sch-hour-${jid}`)?.value) || 0;
-  const minute          = parseInt(document.getElementById(`sch-min-${jid}`)?.value) || 0;
-  const days            = document.getElementById(`sch-days-${jid}`)?.value || 'weekdays';
-  const intervalMode    = document.getElementById(`sch-mode-${jid}`).value === 'interval';
-  const intervalMinutes = parseInt(document.getElementById(`sch-intmin-${jid}`)?.value) || 60;
+function schCloseModal() {
+  document.getElementById('sch-modal').style.display = 'none';
+}
+
+function schModalToggleMode() {
+  const isInterval = document.getElementById('sch-m-mode').value === 'interval';
+  document.getElementById('sch-m-once-wrap').style.display     = isInterval ? 'none'  : 'block';
+  document.getElementById('sch-m-interval-wrap').style.display = isInterval ? 'block' : 'none';
+}
+
+function _timeToMin(hhmm) {
+  const [h, m] = (hhmm || '00:00').split(':').map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+async function schSaveModal() {
+  const jid            = document.getElementById('sch-modal-jid').value;
+  const enabled        = document.getElementById('sch-m-enabled').checked;
+  const intervalMode   = document.getElementById('sch-m-mode').value === 'interval';
+  const hour           = parseInt(document.getElementById('sch-m-hour').value)   || 0;
+  const minute         = parseInt(document.getElementById('sch-m-minute').value) || 0;
+  const days           = document.getElementById('sch-m-days').value;
+  const intervalMinutes= parseInt(document.getElementById('sch-m-intmin').value) || 60;
+  const intervalStart  = _timeToMin(document.getElementById('sch-m-start').value);
+  const intervalEnd    = _timeToMin(document.getElementById('sch-m-end').value);
+
   const res = await fetch(`/api/schedule/${jid}`, {
     method: 'PUT',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({enabled, hour, minute, days, interval_mode: intervalMode, interval_minutes: intervalMinutes}),
+    body: JSON.stringify({
+      enabled, hour, minute, days,
+      interval_mode: intervalMode, interval_minutes: intervalMinutes,
+      interval_start: intervalStart, interval_end: intervalEnd,
+    }),
   });
-  if (!res.ok) { alert('저장 실패'); return; }
-  const msg = document.getElementById(`sch-msg-${jid}`);
-  msg.style.display = 'inline';
-  setTimeout(() => msg.style.display = 'none', 2000);
+  if (!res.ok) {
+    document.getElementById('sch-m-err').textContent = '저장 실패';
+    document.getElementById('sch-m-err').style.display = 'block';
+    return;
+  }
+  schCloseModal();
   await loadSchedule();
 }
 
