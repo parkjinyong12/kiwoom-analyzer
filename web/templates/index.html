@@ -1004,45 +1004,25 @@ canvas { max-height: 220px; }
   <section id="page-batch" class="page">
     <div class="page-header">
       <div class="page-title">배치 관리</div>
-      <div class="page-sub">백그라운드 작업 실행 및 모니터링</div>
+      <div class="page-sub">백그라운드 작업 실행 · 스케줄 관리</div>
     </div>
 
-    <!-- 수집 설정 -->
-    <div class="panel" style="margin-bottom:16px">
-      <div class="panel-header">수집 설정</div>
-      <div style="padding:16px;display:flex;gap:20px;align-items:center;flex-wrap:wrap">
-        <div style="display:flex;align-items:center;gap:10px">
-          <label style="font-size:13px;color:#94a3b8;white-space:nowrap">시가총액 기준</label>
-          <input type="number" id="batch-min-cap-input" min="0" step="1"
-                 style="width:90px;padding:7px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;text-align:right"/>
-          <span style="font-size:13px;color:#64748b">조원 이상</span>
-        </div>
-        <button class="btn btn-primary" style="font-size:12px" onclick="saveCollectSettings()">저장</button>
-        <span id="batch-settings-msg" style="font-size:12px;color:#4ade80;display:none">✓ 저장됨</span>
-      </div>
-    </div>
-
-    <div id="batch-list">
-      <div class="loading"><span class="spinner"></span>로딩 중...</div>
-    </div>
-
-    <!-- 스케줄 설정 -->
-    <div class="panel" style="margin-top:16px">
-      <div class="panel-header">스케줄 설정</div>
+    <div class="panel">
       <div style="overflow-x:auto">
         <table class="data-table">
           <thead>
             <tr>
               <th>배치명</th>
-              <th>설명</th>
-              <th style="text-align:center;width:70px">상태</th>
-              <th>스케줄</th>
+              <th style="text-align:center;width:70px">실행</th>
+              <th style="text-align:center;width:70px">스케줄</th>
+              <th>스케줄 요약</th>
               <th style="text-align:center">마지막 실행</th>
-              <th style="text-align:center;width:60px">설정</th>
+              <th style="color:#475569;max-width:260px">최근 로그</th>
+              <th style="text-align:center;width:140px">액션</th>
             </tr>
           </thead>
           <tbody id="schedule-list">
-            <tr><td colspan="6" class="loading"><span class="spinner"></span>로딩 중...</td></tr>
+            <tr><td colspan="7" class="loading"><span class="spinner"></span>로딩 중...</td></tr>
           </tbody>
         </table>
       </div>
@@ -1101,6 +1081,16 @@ canvas { max-height: 220px; }
               <span style="color:#64748b">~</span>
               <input type="time" id="sch-m-end" value="23:59"
                      style="padding:7px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px"/>
+            </div>
+          </div>
+
+          <!-- 시가총액 기준 (collect_history / run_once 배치만 노출) -->
+          <div id="sch-m-mincap-wrap" style="display:none;border-top:1px solid #1e2535;padding-top:14px">
+            <div style="font-size:12px;color:#64748b;margin-bottom:6px">수집 대상 시가총액 기준</div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <input type="number" id="sch-m-mincap" min="0" step="1"
+                     style="width:90px;padding:7px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;text-align:right"/>
+              <span style="font-size:13px;color:#64748b">조원 이상</span>
             </div>
           </div>
 
@@ -3614,62 +3604,75 @@ function qtyColor(v) {
 // ─── 배치 관리 ────────────────────────────────────────
 let batchRefreshTimer = null;
 
+let _batchJobs = [];
+let _minMarketCap = 5;
+
 async function loadBatch() {
   clearInterval(batchRefreshTimer);
   try {
-    const [res, sRes] = await Promise.all([fetch('/api/batch'), fetch('/api/settings')]);
-    const jobs = await res.json();
-    renderBatchList(jobs);
-    if (sRes.ok) {
-      const s = await sRes.json();
-      if (s.min_market_cap != null) {
-        document.getElementById('batch-min-cap-input').value = (s.min_market_cap / 1e12).toFixed(0);
-      }
+    const [bRes, sRes, setRes] = await Promise.all([
+      fetch('/api/batch'), fetch('/api/schedule'), fetch('/api/settings'),
+    ]);
+    _batchJobs    = await bRes.json();
+    _scheduleData = await sRes.json();
+    if (setRes.ok) {
+      const s = await setRes.json();
+      if (s.min_market_cap != null) _minMarketCap = s.min_market_cap / 1e12;
     }
-    await loadSchedule();
+    renderUnifiedBatch();
     batchRefreshTimer = setInterval(async () => {
       const r = await fetch('/api/batch');
-      renderBatchList(await r.json());
+      _batchJobs = await r.json();
+      renderUnifiedBatch();
     }, 8000);
-  } catch(e) { document.getElementById('batch-list').innerHTML = '<div class="empty">로드 실패</div>'; }
+  } catch(e) {
+    document.getElementById('schedule-list').innerHTML =
+      '<tr><td colspan="7" style="text-align:center;padding:24px;color:#f87171">로드 실패</td></tr>';
+  }
 }
 
-function renderBatchList(jobs) {
-  document.getElementById('batch-list').innerHTML = jobs.map(j => {
-    const running = j.running;
-    const statusColor = running ? '#4ade80' : '#475569';
-    const startBtn = !running
-      ? `<button class="btn btn-primary" style="font-size:12px" onclick="batchStart('${j.id}')">▶ 실행</button>`
-      : `<button class="btn btn-danger"  style="font-size:12px" onclick="batchStop('${j.id}')">■ 중지</button>`;
-    return `
-    <div class="batch-card">
-      <div class="batch-status">
-        <div class="batch-dot ${running ? 'running' : 'stopped'}"></div>
-        <div class="batch-status-label" style="color:${statusColor}">${running ? '실행중' : '중지'}</div>
-      </div>
-      <div class="batch-card-info">
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          <div class="batch-card-name">${j.name}</div>
-          ${(() => {
-            const s = _scheduleData[j.id];
-            if (!s) return '';
-            if (!s.enabled) return '<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:#1e2535;color:#475569">스케줄 꺼짐</span>';
-            const hh = String(s.hour??0).padStart(2,'0'), mm = String(s.minute??0).padStart(2,'0');
-            const dl = s.days==='weekdays'?'평일':s.days==='weekends'?'주말':'매일';
-            return `<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:#1d3a5f;color:#60a5fa">⏰ ${dl} ${hh}:${mm}</span>`;
-          })()}
-        </div>
-        <div class="batch-card-desc">${j.desc}</div>
-        <div class="batch-card-log">${j.last_line ? `최근: ${j.last_line}` : '로그 없음'}</div>
-        ${j.log_file ? `<div style="font-size:10px;color:#334155;margin-top:3px">${j.log_file}</div>` : ''}
-      </div>
-      <div class="batch-actions">
-        ${startBtn}
-        <button class="btn btn-ghost" style="font-size:12px" onclick="batchShowLog('${j.id}','${j.name}')">로그 보기</button>
-      </div>
-    </div>`;
+function renderUnifiedBatch() {
+  const tbody = document.getElementById('schedule-list');
+  const jobMap = {};
+  _batchJobs.forEach(j => { jobMap[j.id] = j; });
+
+  const rows = Object.entries(_scheduleData).map(([jid, s]) => {
+    const j       = jobMap[jid] || {};
+    const running = j.running || false;
+    const runDot  = running
+      ? '<span style="color:#4ade80;font-size:15px" title="실행 중">●</span>'
+      : '<span style="color:#334155;font-size:15px" title="중지">●</span>';
+    const schDot  = s.enabled
+      ? '<span style="color:#60a5fa;font-size:15px" title="스케줄 활성">●</span>'
+      : '<span style="color:#334155;font-size:15px" title="스케줄 꺼짐">●</span>';
+    const runBtn  = running
+      ? `<button class="btn btn-danger"  style="font-size:11px;padding:3px 8px" onclick="batchStop('${jid}')">■ 중지</button>`
+      : `<button class="btn btn-primary" style="font-size:11px;padding:3px 8px" onclick="batchStart('${jid}')">▶ 실행</button>`;
+    const lastRun = s.last_run ? new Date(s.last_run).toLocaleString('ko-KR') : '—';
+    const logLine = j.last_line ? `<span style="color:#475569;font-size:11px;font-family:monospace">${j.last_line}</span>` : '<span style="color:#334155;font-size:11px">—</span>';
+    return `<tr>
+      <td>
+        <div style="font-weight:600;font-size:13px">${BATCH_LABELS[jid] || jid}</div>
+        <div style="font-size:11px;color:#475569;margin-top:2px">${BATCH_DESCS[jid] || ''}</div>
+      </td>
+      <td class="center">${runDot}</td>
+      <td class="center">${schDot}</td>
+      <td style="font-size:13px">${_schSummary(s)}</td>
+      <td class="center" style="font-size:11px;color:#64748b;white-space:nowrap">${lastRun}</td>
+      <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${logLine}</td>
+      <td class="center" style="white-space:nowrap">
+        ${runBtn}
+        <button class="btn btn-ghost" style="font-size:11px;padding:3px 8px;margin-left:4px"
+                onclick="batchShowLog('${jid}','${BATCH_LABELS[jid]||jid}')">로그</button>
+        <button class="btn btn-ghost" style="font-size:11px;padding:3px 8px;margin-left:4px"
+                onclick="schOpenModal('${jid}')">설정</button>
+      </td>
+    </tr>`;
   }).join('');
+  tbody.innerHTML = rows || '<tr><td colspan="7" style="text-align:center;padding:24px;color:#475569">배치 없음</td></tr>';
 }
+
+async function loadSchedule() { /* loadBatch에서 통합 처리 */ }
 
 async function batchStart(id) {
   const res = await fetch(`/api/batch/${id}/start`, {method:'POST'});
@@ -3801,6 +3804,10 @@ function schOpenModal(jid) {
   // 이메일 섹션
   document.getElementById('sch-m-email-wrap').style.display = (jid === 'holdings_report') ? 'block' : 'none';
   if (jid === 'holdings_report') batchEmailLoad();
+  // 시가총액 기준 섹션 (collect_history / run_once 만 노출)
+  const showCap = (jid === 'collect_history' || jid === 'run_once');
+  document.getElementById('sch-m-mincap-wrap').style.display = showCap ? 'block' : 'none';
+  if (showCap) document.getElementById('sch-m-mincap').value = _minMarketCap;
   schModalToggleMode();
   document.getElementById('sch-m-err').style.display = 'none';
   document.getElementById('sch-modal').style.display = 'flex';
@@ -3832,22 +3839,38 @@ async function schSaveModal() {
   const intervalStart  = _timeToMin(document.getElementById('sch-m-start').value);
   const intervalEnd    = _timeToMin(document.getElementById('sch-m-end').value);
 
-  const res = await fetch(`/api/schedule/${jid}`, {
-    method: 'PUT',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({
-      enabled, hour, minute, days,
-      interval_mode: intervalMode, interval_minutes: intervalMinutes,
-      interval_start: intervalStart, interval_end: intervalEnd,
+  const reqs = [
+    fetch(`/api/schedule/${jid}`, {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        enabled, hour, minute, days,
+        interval_mode: intervalMode, interval_minutes: intervalMinutes,
+        interval_start: intervalStart, interval_end: intervalEnd,
+      }),
     }),
-  });
-  if (!res.ok) {
+  ];
+  // 시가총액 기준 저장
+  const capWrap = document.getElementById('sch-m-mincap-wrap');
+  if (capWrap && capWrap.style.display !== 'none') {
+    const capVal = parseFloat(document.getElementById('sch-m-mincap').value);
+    if (!isNaN(capVal) && capVal >= 0) {
+      _minMarketCap = capVal;
+      reqs.push(fetch('/api/settings', {
+        method: 'PUT',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({min_market_cap: Math.round(capVal * 1_000_000_000_000)}),
+      }));
+    }
+  }
+  const results = await Promise.all(reqs);
+  if (!results[0].ok) {
     document.getElementById('sch-m-err').textContent = '저장 실패';
     document.getElementById('sch-m-err').style.display = 'block';
     return;
   }
   schCloseModal();
-  await loadSchedule();
+  await loadBatch();
 }
 
 async function saveCollectSettings() {
