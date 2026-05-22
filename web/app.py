@@ -181,14 +181,15 @@ _DEFAULT_BROKERAGES = [
 ]
 
 _DEFAULT_ASSET_TYPES = [
-    ("ASSET_TYPE", "KRW",   "원화",   1),
-    ("ASSET_TYPE", "USD",   "달러",   2),
-    ("ASSET_TYPE", "JPY",   "엔화",   3),
-    ("ASSET_TYPE", "GOLD",  "금",     4),
-    ("ASSET_TYPE", "ETF",   "ETF",    5),
-    ("ASSET_TYPE", "BOND",  "채권",   6),
-    ("ASSET_TYPE", "REIT",  "리츠",   7),
-    ("ASSET_TYPE", "OTHER", "기타",   8),
+    ("ASSET_TYPE", "KRW",        "원화",           1),
+    ("ASSET_TYPE", "USD",        "달러",           2),
+    ("ASSET_TYPE", "JPY",        "엔화",           3),
+    ("ASSET_TYPE", "GOLD",       "금",             4),
+    ("ASSET_TYPE", "ETF",        "ETF",            5),
+    ("ASSET_TYPE", "BOND",       "채권",           6),
+    ("ASSET_TYPE", "REIT",       "리츠",           7),
+    ("ASSET_TYPE", "LOAN_AVAIL", "대출가능잔고",   8),
+    ("ASSET_TYPE", "OTHER",      "기타",           9),
 ]
 
 
@@ -1358,6 +1359,7 @@ def api_credit_positions_list():
         SELECT brokerage, SUM(amount) AS cash_eval
         FROM cash_assets
         WHERE brokerage != ''
+          AND asset_type_code != 'LOAN_AVAIL'
         GROUP BY brokerage
     """)
     broker_cash_eval = {(r["brokerage"] or ""): round(float(r["cash_eval"] or 0)) for r in cash_rows}
