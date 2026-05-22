@@ -180,17 +180,7 @@ _DEFAULT_BROKERAGES = [
     ("BROKERAGE", "MZ",   "메리츠증권",    10),
 ]
 
-_DEFAULT_ASSET_TYPES = [
-    ("ASSET_TYPE", "KRW",        "원화",           1),
-    ("ASSET_TYPE", "USD",        "달러",           2),
-    ("ASSET_TYPE", "JPY",        "엔화",           3),
-    ("ASSET_TYPE", "GOLD",       "금",             4),
-    ("ASSET_TYPE", "ETF",        "ETF",            5),
-    ("ASSET_TYPE", "BOND",       "채권",           6),
-    ("ASSET_TYPE", "REIT",       "리츠",           7),
-    ("ASSET_TYPE", "LOAN_AVAIL", "대출가능잔고",   8),
-    ("ASSET_TYPE", "OTHER",      "기타",           9),
-]
+_DEFAULT_ASSET_TYPES: list = []  # 자산종류 코드는 사용자가 직접 공통코드 관리에서 추가
 
 
 def _ensure_qualitative_tables():
@@ -353,12 +343,18 @@ def _ensure_common_codes_table():
                 UNIQUE (code_group, code)
             )
         """)
-        for grp, code, name, sort in [*_DEFAULT_BROKERAGES, *_DEFAULT_ASSET_TYPES]:
+        for grp, code, name, sort in _DEFAULT_BROKERAGES:
             cur.execute("""
                 INSERT INTO common_codes (code_group, code, name, sort_order)
                 VALUES (%s, %s, %s, %s)
                 ON CONFLICT (code_group, code) DO NOTHING
             """, (grp, code, name, sort))
+        # 이전에 잘못 자동 삽입된 ASSET_TYPE 기본 코드 제거 (사용자가 직접 추가한 것만 유지)
+        _auto_inserted = ["KRW", "USD", "JPY", "GOLD", "ETF", "BOND", "REIT", "LOAN_AVAIL", "OTHER"]
+        cur.execute(
+            "DELETE FROM common_codes WHERE code_group = 'ASSET_TYPE' AND code = ANY(%s)",
+            (_auto_inserted,),
+        )
 
 BATCH_JOBS = {
     "collect_history": {
@@ -1359,7 +1355,7 @@ def api_credit_positions_list():
         SELECT brokerage, SUM(amount) AS cash_eval
         FROM cash_assets
         WHERE brokerage != ''
-          AND asset_type_code != 'LOAN_AVAIL'
+          AND asset_type_code != 'LAD'
         GROUP BY brokerage
     """)
     broker_cash_eval = {(r["brokerage"] or ""): round(float(r["cash_eval"] or 0)) for r in cash_rows}
