@@ -1439,8 +1439,9 @@ canvas { max-height: 220px; }
 
     <!-- 그룹 탭 -->
     <div style="display:flex;gap:4px;margin-bottom:20px;border-bottom:1px solid #1e2535;padding-bottom:0">
-      <button class="snap-tab snap-tab-active" id="cc-tab-BROKERAGE" onclick="ccSelectGroup('BROKERAGE')">🏦 증권사</button>
-      <button class="snap-tab" id="cc-tab-THEME" onclick="ccSelectGroup('THEME')">🏷️ 테마</button>
+      <button class="snap-tab snap-tab-active" id="cc-tab-BROKERAGE"   onclick="ccSelectGroup('BROKERAGE')">🏦 증권사</button>
+      <button class="snap-tab"                  id="cc-tab-THEME"      onclick="ccSelectGroup('THEME')">🏷️ 테마</button>
+      <button class="snap-tab"                  id="cc-tab-ASSET_TYPE" onclick="ccSelectGroup('ASSET_TYPE')">💰 자산종류</button>
     </div>
 
     <div class="panel" id="cc-panel">
@@ -1639,6 +1640,7 @@ canvas { max-height: 220px; }
           <thead>
             <tr>
               <th>증권사</th>
+              <th style="text-align:center">자산종류</th>
               <th>자산명 / 연동</th>
               <th style="text-align:right">수량</th>
               <th style="text-align:right">단가(원)</th>
@@ -1666,11 +1668,18 @@ canvas { max-height: 220px; }
       <h3 id="ca-modal-title">현금성 자산 추가</h3>
       <input type="hidden" id="ca-modal-id"/>
       <div style="display:grid;gap:14px;margin-top:8px">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:10px">
           <div>
             <div style="font-size:12px;color:#64748b;margin-bottom:4px">자산명 <span style="color:#f87171">*</span></div>
             <input type="text" id="ca-modal-name" placeholder="예: 현금, 달러, 금현물ETF" maxlength="100"
                    style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
+          </div>
+          <div>
+            <div style="font-size:12px;color:#64748b;margin-bottom:4px">자산종류</div>
+            <select id="ca-modal-asset-type"
+                    style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none">
+              <option value="">-</option>
+            </select>
           </div>
           <div>
             <div style="font-size:12px;color:#64748b;margin-bottom:4px">증권사</div>
@@ -7507,28 +7516,34 @@ async function qaDeleteItem(id, name) {
 }
 
 // ─── 현금성 자산 ─────────────────────────────────────
-let caData      = { items: [], total: 0 };
-let caMacroList = [];   // 매크로 지표 목록 (연동 드롭다운용)
+let caData        = { items: [], total: 0 };
+let caMacroList   = [];   // 매크로 지표 목록 (연동 드롭다운용)
+let caAssetTypeMap = {};  // code → name (자산종류 코드 매핑)
 
 async function loadCashAssets() {
   document.getElementById('ca-tbody').innerHTML =
-    '<tr><td colspan="12" class="loading">로딩 중...</td></tr>';
+    '<tr><td colspan="13" class="loading">로딩 중...</td></tr>';
   try {
-    const [caRes, rbRes, macroRes] = await Promise.all([
+    const [caRes, rbRes, macroRes, atRes] = await Promise.all([
       fetch('/api/cash_assets'),
       fetch('/api/rebalance'),
       fetch('/api/macro_rates'),
+      fetch('/api/common_codes/ASSET_TYPE'),
     ]);
     caData      = await caRes.json();
     caMacroList = await macroRes.json();
+    const atList = await atRes.json();
+    caAssetTypeMap = {};
+    atList.filter(a => a.active !== false).forEach(a => { caAssetTypeMap[a.code] = a.name; });
     const rb   = await rbRes.json();
     const stockTotal = (rb.portfolio_total || 0) - (rb.total_cash || 0);
     caRenderSummary(stockTotal);
     caRenderTable();
     caPopulateBrokerageSelect();
+    caPopulateAssetTypeSelect();
   } catch(e) {
     document.getElementById('ca-tbody').innerHTML =
-      '<tr><td colspan="10" style="text-align:center;color:#f87171;padding:32px">로드 실패</td></tr>';
+      '<tr><td colspan="13" style="text-align:center;color:#f87171;padding:32px">로드 실패</td></tr>';
   }
 }
 
@@ -7578,9 +7593,25 @@ async function caPopulateBrokerageSelect() {
   } catch(e) {}
 }
 
+async function caPopulateAssetTypeSelect() {
+  const sel = document.getElementById('ca-modal-asset-type');
+  if (!sel) return;
+  const list = Object.entries(caAssetTypeMap);
+  const opts = list.map(([code, name]) =>
+    `<option value="${code}">${code} — ${name}</option>`
+  ).join('');
+  sel.innerHTML = '<option value="">-</option>' + opts;
+}
+
 function caBrokerLabel(broker) {
   if (!broker) return '<span style="color:#475569">-</span>';
   return `<span style="font-size:11px;background:#1a2535;color:#94a3b8;padding:1px 7px;border-radius:8px">${broker}</span>`;
+}
+
+function caAssetTypeLabel(code) {
+  if (!code) return '<span style="color:#475569">-</span>';
+  const name = caAssetTypeMap[code];
+  return `<span style="font-size:10px;background:#1e3a5f;color:#93c5fd;padding:1px 7px;border-radius:8px;white-space:nowrap">${name ? name : code}</span>`;
 }
 
 function caRenderTable() {
@@ -7589,7 +7620,7 @@ function caRenderTable() {
   const total = caData.total || 0;
 
   if (!items.length) {
-    tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;padding:40px;color:#475569">' +
+    tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;padding:40px;color:#475569">' +
       '등록된 자산이 없습니다. <button class="btn btn-primary" style="font-size:12px;margin-left:8px" onclick="caOpenModal()">+ 자산 추가</button></td></tr>';
     return;
   }
@@ -7621,6 +7652,7 @@ function caRenderTable() {
 
     return `<tr>
       <td style="text-align:center">${caBrokerLabel(r.brokerage)}</td>
+      <td style="text-align:center">${caAssetTypeLabel(r.asset_type_code)}</td>
       <td style="font-weight:600">${r.name}<br>${caLinkBadge(r)}</td>
       <td class="num" style="color:#94a3b8">${qtyStr}</td>
       <td class="num" style="color:#94a3b8">${priceStr}</td>
@@ -7648,7 +7680,7 @@ function caRenderTable() {
     : '<td class="num" style="color:#64748b">—</td>';
 
   tbody.innerHTML = rows.join('') + `<tr style="border-top:2px solid #334155;background:rgba(148,163,184,0.06)">
-    <td colspan="4" style="font-weight:600;color:#94a3b8;padding:10px 12px">합계</td>
+    <td colspan="5" style="font-weight:600;color:#94a3b8;padding:10px 12px">합계</td>
     <td></td>
     <td class="num" style="font-weight:700;color:#60a5fa;font-size:15px">${total.toLocaleString()}</td>
     ${totalProfitCell}
@@ -7793,10 +7825,11 @@ function caOpenModal(id) {
   if (id) {
     const item = (caData.items || []).find(r => r.id === id);
     if (!item) return;
-    document.getElementById('ca-modal-title').textContent = '현금성 자산 수정';
-    document.getElementById('ca-modal-id').value          = id;
-    document.getElementById('ca-modal-name').value        = item.name;
-    document.getElementById('ca-modal-brokerage').value   = item.brokerage || '';
+    document.getElementById('ca-modal-title').textContent      = '현금성 자산 수정';
+    document.getElementById('ca-modal-id').value               = id;
+    document.getElementById('ca-modal-name').value             = item.name;
+    document.getElementById('ca-modal-asset-type').value       = item.asset_type_code || '';
+    document.getElementById('ca-modal-brokerage').value        = item.brokerage || '';
     document.getElementById('ca-modal-qty').value            = item.quantity       ?? '';
     document.getElementById('ca-modal-price').value          = item.unit_price     ?? '';
     document.getElementById('ca-modal-purchase-price').value = item.purchase_price ?? '';
@@ -7828,10 +7861,11 @@ function caOpenModal(id) {
     caOnLinkTypeChange();
     caAutoCalc();
   } else {
-    document.getElementById('ca-modal-title').textContent = '현금성 자산 추가';
-    document.getElementById('ca-modal-id').value          = '';
-    document.getElementById('ca-modal-name').value        = '';
-    document.getElementById('ca-modal-brokerage').value   = '';
+    document.getElementById('ca-modal-title').textContent      = '현금성 자산 추가';
+    document.getElementById('ca-modal-id').value               = '';
+    document.getElementById('ca-modal-name').value             = '';
+    document.getElementById('ca-modal-asset-type').value       = '';
+    document.getElementById('ca-modal-brokerage').value        = '';
     document.getElementById('ca-modal-qty').value            = '';
     document.getElementById('ca-modal-price').value          = '';
     document.getElementById('ca-modal-purchase-price').value = '';
@@ -7853,9 +7887,10 @@ function caCloseModal() {
 async function caSave() {
   const errEl = document.getElementById('ca-modal-err');
   errEl.style.display = 'none';
-  const id        = document.getElementById('ca-modal-id').value;
-  const name      = document.getElementById('ca-modal-name').value.trim();
-  const brokerage = document.getElementById('ca-modal-brokerage').value;
+  const id             = document.getElementById('ca-modal-id').value;
+  const name           = document.getElementById('ca-modal-name').value.trim();
+  const assetTypeCode  = document.getElementById('ca-modal-asset-type').value;
+  const brokerage      = document.getElementById('ca-modal-brokerage').value;
   const qty           = document.getElementById('ca-modal-qty').value;
   const price         = document.getElementById('ca-modal-price').value;
   const purchasePrice = document.getElementById('ca-modal-purchase-price').value;
@@ -7872,6 +7907,7 @@ async function caSave() {
 
   const payload = {
     name,
+    asset_type_code: assetTypeCode,
     brokerage,
     quantity:       qty           !== '' ? parseFloat(qty)                          : null,
     unit_price:     price         !== '' ? parseInt(price)                          : null,
@@ -8199,7 +8235,7 @@ async function cpDelete(id, brokerage) {
 // ─── 공통코드 관리 ────────────────────────────────────
 let ccCurrentGroup = 'BROKERAGE';
 let ccData = [];
-const CC_GROUP_LABELS = { BROKERAGE: '증권사 코드', THEME: '테마 코드' };
+const CC_GROUP_LABELS = { BROKERAGE: '증권사 코드', THEME: '테마 코드', ASSET_TYPE: '자산종류 코드' };
 
 async function loadCommonCodes() {
   await ccLoadGroup(ccCurrentGroup);

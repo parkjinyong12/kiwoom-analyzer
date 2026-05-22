@@ -180,6 +180,17 @@ _DEFAULT_BROKERAGES = [
     ("BROKERAGE", "MZ",   "메리츠증권",    10),
 ]
 
+_DEFAULT_ASSET_TYPES = [
+    ("ASSET_TYPE", "KRW",   "원화",   1),
+    ("ASSET_TYPE", "USD",   "달러",   2),
+    ("ASSET_TYPE", "JPY",   "엔화",   3),
+    ("ASSET_TYPE", "GOLD",  "금",     4),
+    ("ASSET_TYPE", "ETF",   "ETF",    5),
+    ("ASSET_TYPE", "BOND",  "채권",   6),
+    ("ASSET_TYPE", "REIT",  "리츠",   7),
+    ("ASSET_TYPE", "OTHER", "기타",   8),
+]
+
 
 def _ensure_qualitative_tables():
     with get_conn() as conn:
@@ -274,7 +285,8 @@ def _ensure_cash_assets_table():
         cur.execute("ALTER TABLE cash_assets ADD COLUMN IF NOT EXISTS link_type      VARCHAR(20) NOT NULL DEFAULT 'none'")
         cur.execute("ALTER TABLE cash_assets ADD COLUMN IF NOT EXISTS link_key       VARCHAR(50) NOT NULL DEFAULT ''")
         cur.execute("ALTER TABLE cash_assets ADD COLUMN IF NOT EXISTS brokerage      VARCHAR(50) NOT NULL DEFAULT ''")
-        cur.execute("ALTER TABLE cash_assets ADD COLUMN IF NOT EXISTS purchase_price BIGINT DEFAULT NULL")
+        cur.execute("ALTER TABLE cash_assets ADD COLUMN IF NOT EXISTS purchase_price   BIGINT       DEFAULT NULL")
+        cur.execute("ALTER TABLE cash_assets ADD COLUMN IF NOT EXISTS asset_type_code VARCHAR(20)  NOT NULL DEFAULT ''")
 
 
 def _ensure_credit_positions_table():
@@ -340,7 +352,7 @@ def _ensure_common_codes_table():
                 UNIQUE (code_group, code)
             )
         """)
-        for grp, code, name, sort in _DEFAULT_BROKERAGES:
+        for grp, code, name, sort in [*_DEFAULT_BROKERAGES, *_DEFAULT_ASSET_TYPES]:
             cur.execute("""
                 INSERT INTO common_codes (code_group, code, name, sort_order)
                 VALUES (%s, %s, %s, %s)
@@ -1803,7 +1815,7 @@ def api_macro_rates_sync_naver(mid):
 # ---------------------------------------------------------------------------
 
 def _parse_cash_asset_body(data: dict):
-    """Request body → (name, brokerage, qty, up, purchase_price, amount, link_type, link_key, note)."""
+    """Request body → (name, brokerage, qty, up, purchase_price, amount, link_type, link_key, note, asset_type_code)."""
     name = (data.get("name") or "").strip()
     if not name:
         raise ValueError("자산명 필수")
@@ -1821,10 +1833,11 @@ def _parse_cash_asset_body(data: dict):
             amount = int(str(data.get("amount") or 0).replace(",", ""))
         except (ValueError, TypeError):
             raise ValueError("평가금액 오류")
-    link_type = (data.get("link_type") or "none").strip()
-    link_key  = (data.get("link_key")  or "").strip()
-    note = (data.get("note") or "").strip()
-    return name, brokerage, qty_val, up_val, pp_val, amount, link_type, link_key, note
+    link_type       = (data.get("link_type")       or "none").strip()
+    link_key        = (data.get("link_key")        or "").strip()
+    note            = (data.get("note")            or "").strip()
+    asset_type_code = (data.get("asset_type_code") or "").strip().upper()
+    return name, brokerage, qty_val, up_val, pp_val, amount, link_type, link_key, note, asset_type_code
 
 
 def _resolve_linked_price(link_type: str, link_key: str):
@@ -1851,7 +1864,7 @@ def _resolve_linked_price(link_type: str, link_key: str):
 def api_cash_assets_list():
     """현금성 자산 목록 및 합계 조회."""
     rows = query("""
-        SELECT id, name, brokerage, quantity, unit_price, purchase_price, amount, link_type, link_key, note,
+        SELECT id, name, brokerage, asset_type_code, quantity, unit_price, purchase_price, amount, link_type, link_key, note,
                TO_CHAR(updated_at, 'YYYY-MM-DD HH24:MI') AS updated_at
         FROM cash_assets ORDER BY brokerage, id
     """)
@@ -1861,17 +1874,18 @@ def api_cash_assets_list():
         amt = int(r["amount"])
         total += amt
         items.append({
-            "id":             r["id"],
-            "name":           r["name"],
-            "brokerage":      r["brokerage"] or "",
-            "quantity":       float(r["quantity"])       if r["quantity"]       is not None else None,
-            "unit_price":     int(r["unit_price"])       if r["unit_price"]     is not None else None,
-            "purchase_price": int(r["purchase_price"])   if r["purchase_price"] is not None else None,
-            "amount":         amt,
-            "link_type":      r["link_type"] or "none",
-            "link_key":       r["link_key"]  or "",
-            "note":           r["note"] or "",
-            "updated_at":     r["updated_at"],
+            "id":               r["id"],
+            "name":             r["name"],
+            "brokerage":        r["brokerage"]       or "",
+            "asset_type_code":  r["asset_type_code"] or "",
+            "quantity":         float(r["quantity"])       if r["quantity"]       is not None else None,
+            "unit_price":       int(r["unit_price"])       if r["unit_price"]     is not None else None,
+            "purchase_price":   int(r["purchase_price"])   if r["purchase_price"] is not None else None,
+            "amount":           amt,
+            "link_type":        r["link_type"] or "none",
+            "link_key":         r["link_key"]  or "",
+            "note":             r["note"] or "",
+            "updated_at":       r["updated_at"],
         })
     return jsonify({"items": items, "total": total})
 
@@ -1880,13 +1894,13 @@ def api_cash_assets_list():
 def api_cash_assets_create():
     """현금성 자산 추가."""
     try:
-        name, brokerage, qty, up, pp, amount, lt, lk, note = _parse_cash_asset_body(request.get_json() or {})
+        name, brokerage, qty, up, pp, amount, lt, lk, note, atc = _parse_cash_asset_body(request.get_json() or {})
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     with get_conn() as conn:
         conn.cursor().execute(
-            "INSERT INTO cash_assets (name, brokerage, quantity, unit_price, purchase_price, amount, link_type, link_key, note) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-            (name, brokerage, qty, up, pp, amount, lt, lk, note),
+            "INSERT INTO cash_assets (name, brokerage, asset_type_code, quantity, unit_price, purchase_price, amount, link_type, link_key, note) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            (name, brokerage, atc, qty, up, pp, amount, lt, lk, note),
         )
     return jsonify({"ok": True})
 
@@ -1895,13 +1909,13 @@ def api_cash_assets_create():
 def api_cash_assets_update(aid):
     """현금성 자산 수정."""
     try:
-        name, brokerage, qty, up, pp, amount, lt, lk, note = _parse_cash_asset_body(request.get_json() or {})
+        name, brokerage, qty, up, pp, amount, lt, lk, note, atc = _parse_cash_asset_body(request.get_json() or {})
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     with get_conn() as conn:
         conn.cursor().execute(
-            "UPDATE cash_assets SET name=%s, brokerage=%s, quantity=%s, unit_price=%s, purchase_price=%s, amount=%s, link_type=%s, link_key=%s, note=%s, updated_at=NOW() WHERE id=%s",
-            (name, brokerage, qty, up, pp, amount, lt, lk, note, aid),
+            "UPDATE cash_assets SET name=%s, brokerage=%s, asset_type_code=%s, quantity=%s, unit_price=%s, purchase_price=%s, amount=%s, link_type=%s, link_key=%s, note=%s, updated_at=NOW() WHERE id=%s",
+            (name, brokerage, atc, qty, up, pp, amount, lt, lk, note, aid),
         )
     return jsonify({"ok": True})
 
