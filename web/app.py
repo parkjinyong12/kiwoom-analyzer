@@ -23,6 +23,7 @@ import glob
 import signal
 import shlex
 import logging
+import threading
 import secrets
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask import Flask, jsonify, render_template, request, session, redirect
@@ -2252,6 +2253,12 @@ def _batch_launch(job_id: str, log_file: str, min_cap: str) -> int:
         )
     _batch_pids[job_id] = proc.pid
     _batch_manual_stopped.discard(job_id)   # 수동 중지 플래그 해제
+    # 데몬 스레드에서 wait() 호출: zombie 수거 + 완료 시 _batch_pids 자동 정리
+    def _reap(p=proc, jid=job_id):
+        p.wait()
+        if _batch_pids.get(jid) == p.pid:
+            _batch_pids.pop(jid, None)
+    threading.Thread(target=_reap, daemon=True).start()
     return proc.pid
 
 
@@ -2509,6 +2516,8 @@ def _reload_scheduler_job(job_id: str, enabled: bool, hour: int, minute: int, da
         id=sched_id,
         args=[job_id, interval_start, interval_end],
         replace_existing=True,
+        misfire_grace_time=None,   # 지연된 fire도 취소하지 않음
+        coalesce=True,             # 밀린 여러 fire는 1회로 합산
     )
 
 
