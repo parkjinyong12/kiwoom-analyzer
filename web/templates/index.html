@@ -4040,6 +4040,9 @@ function renderUnifiedBatch() {
   const jobMap = {};
   _batchJobs.forEach(j => { jobMap[j.id] = j; });
 
+  // 초기 로딩 스피너 행 제거 (data-jid 없는 placeholder 행)
+  tbody.querySelectorAll('tr:not([data-jid])').forEach(r => r.remove());
+
   const entries = Object.entries(_scheduleData);
   if (!entries.length) {
     tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:#475569">배치 없음</td></tr>';
