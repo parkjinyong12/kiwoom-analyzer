@@ -2740,8 +2740,11 @@ def api_chart_data(ticker: str):
             return jsonify({"error": "데이터 없음"}), 404
 
         from agents.chart_analysis import _analyze_market_structure
-        vol_ma20 = df["volume"].rolling(20, min_periods=1).mean()
+        vol_ma20 = float(df["volume"].rolling(20, min_periods=1).mean().iloc[-1])
         ms = _analyze_market_structure(df, vol_ma20)
+
+        if ms is None:
+            return jsonify({"error": f"데이터 부족 (최소 {30}봉 필요)"}), 422
 
         is_daily = (timeframe == "D")
         candles = [{
