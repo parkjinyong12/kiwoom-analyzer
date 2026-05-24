@@ -155,14 +155,13 @@
             body.innerHTML = '<span class="log-empty">로그 없음</span>';
             document.getElementById('line-count').textContent = '';
           }
-          // 이전에 로그가 있었으면 현재 표시 유지 — 파일 교체 대비 다음 폴링에서 전체 재조회
-          _logTotal = 0;
-          _isFirst = true;
+          // 이전 로그 있으면 _isFirst · _logTotal 그대로 유지
+          // → 다음 폴링도 ?from=N 계속 사용, DOM 건드리지 않음
           return;
         }
 
-        if (_isFirst || data.rotated) {
-          // 첫 로드 또는 파일 교체 — 전체 교체
+        if (_isFirst || (data.rotated && data.lines.length > 0)) {
+          // 첫 로드 또는 파일 교체 (내용 있을 때만) — 전체 교체
           body.textContent = data.lines.join('\n');
           _isFirst = false;
         } else if (data.lines.length > 0) {

@@ -2504,6 +2504,9 @@ def api_batch_logs(job_id: str):
             start = max(0, total - 500)
             return jsonify({"lines": all_lines[start:], "total": total})
         if from_line > total:
+            if total == 0:
+                # 파일 일시적 비어있음 — rotated 아님, 클라이언트 상태 유지
+                return jsonify({"lines": [], "total": 0})
             # 파일 교체됨 (새 실행 시작) — 처음부터 반환
             return jsonify({"lines": all_lines, "total": total, "rotated": True})
         # 증분: from_line 이후 새 줄만 반환 (변화 없으면 lines=[] 반환)
