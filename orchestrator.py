@@ -19,6 +19,9 @@ import signal
 import sys
 from datetime import date, datetime, timedelta
 from typing import Optional
+from zoneinfo import ZoneInfo
+
+KST = ZoneInfo("Asia/Seoul")
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -105,7 +108,7 @@ class Pipeline:
         # ── 1-b. 수급 데이터 수집 ─────────────────────────
         if self._market:
             try:
-                today_str = datetime.now().strftime("%Y%m%d")
+                today_str = datetime.now(tz=KST).strftime("%Y%m%d")
                 holding_rows = self._market.get_foreign_holding(ticker)
                 netbuy = self._market.get_investor_netbuy(ticker, today_str)
 
@@ -130,7 +133,7 @@ class Pipeline:
 
         # ── 1-c. 수급 트렌드 분석 및 알림 ────────────────────
         if self._market:
-            today = datetime.now().date()
+            today = datetime.now(tz=KST).date()
             if self._supply_alerted.get(ticker) != today:
                 try:
                     finding = self._audit.analyze_supply_demand(ticker)
@@ -361,7 +364,7 @@ class Orchestrator:
 
     def _job_intraday(self) -> None:
         """장 중 주기 분석."""
-        now = datetime.now()
+        now = datetime.now(tz=KST)
         logger.info("=== 장 중 분석 시작 (%s) ===", now.strftime("%H:%M"))
         self._audit.monitor.record_pipeline_run()
 
@@ -520,7 +523,7 @@ class Orchestrator:
 def setup_logging(log_dir: str = "logs") -> None:
     import os
     os.makedirs(log_dir, exist_ok=True)
-    log_file = os.path.join(log_dir, f"{datetime.now().strftime('%Y%m%d')}.log")
+    log_file = os.path.join(log_dir, f"{datetime.now(tz=KST).strftime('%Y%m%d')}.log")
 
     logging.basicConfig(
         level=logging.INFO,

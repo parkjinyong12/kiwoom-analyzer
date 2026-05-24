@@ -150,10 +150,14 @@
         const wasAtBottom = isAtBottom();
 
         if (data.total === 0) {
-          body.innerHTML = '<span class="log-empty">로그 없음</span>';
+          if (_logTotal === 0) {
+            // 한 번도 로그가 없었을 때만 빈 상태 표시
+            body.innerHTML = '<span class="log-empty">로그 없음</span>';
+            document.getElementById('line-count').textContent = '';
+          }
+          // 이전에 로그가 있었으면 현재 표시 유지 — 파일 교체 대비 다음 폴링에서 전체 재조회
           _logTotal = 0;
           _isFirst = true;
-          document.getElementById('line-count').textContent = '';
           return;
         }
 

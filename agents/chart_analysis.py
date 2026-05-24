@@ -10,6 +10,9 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
+from zoneinfo import ZoneInfo
+
+KST = ZoneInfo("Asia/Seoul")
 
 import numpy as np
 import pandas as pd
@@ -511,7 +514,7 @@ class ChartAnalysisAgent:
         return ChartSignal(
             ticker=ticker,
             timeframe=timeframe,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(tz=KST),
             indicators=indicators,
             patterns=patterns,
             support=support,

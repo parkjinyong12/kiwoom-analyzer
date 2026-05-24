@@ -18,6 +18,9 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from typing import Any, Literal, Optional
+from zoneinfo import ZoneInfo
+
+KST = ZoneInfo("Asia/Seoul")
 
 import psycopg2
 import psycopg2.extras
@@ -49,7 +52,7 @@ class AuditEvent:
 
     def __post_init__(self) -> None:
         if self.timestamp is None:
-            self.timestamp = datetime.now()
+            self.timestamp = datetime.now(tz=KST)
 
 
 # ---------------------------------------------------------------------------
@@ -332,7 +335,7 @@ class AuditDB:
 
     def purge_old_events(self, days: int = 90) -> int:
         """days일 초과 이벤트 삭제. 삭제 건수 반환."""
-        cutoff = datetime.now() - timedelta(days=days)
+        cutoff = datetime.now(tz=KST) - timedelta(days=days)
         with self._connect() as conn:
             cur = conn.cursor()
             cur.execute("DELETE FROM events WHERE timestamp < %s", (cutoff,))
@@ -343,7 +346,7 @@ class AuditDB:
     # ------------------------------------------------------------------
 
     def get_recent_errors(self, hours: int = 1) -> list[dict]:
-        cutoff = datetime.now() - timedelta(hours=hours)
+        cutoff = datetime.now(tz=KST) - timedelta(hours=hours)
         with self._connect() as conn:
             cur = conn.cursor()
             cur.execute(
@@ -358,7 +361,7 @@ class AuditDB:
 
     def get_signal_stats(self, days: int = 30) -> dict:
         """최근 N일 신호 통계."""
-        cutoff = datetime.now() - timedelta(days=days)
+        cutoff = datetime.now(tz=KST) - timedelta(days=days)
         with self._connect() as conn:
             cur = conn.cursor()
             cur.execute(
@@ -374,7 +377,7 @@ class AuditDB:
 
     def get_daily_event_count(self) -> dict:
         """오늘 이벤트 타입별 카운트."""
-        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        today = datetime.now(tz=KST).replace(hour=0, minute=0, second=0, microsecond=0)
         with self._connect() as conn:
             cur = conn.cursor()
             cur.execute(
@@ -1007,7 +1010,7 @@ class SystemMonitor:
 
     def record_pipeline_run(self) -> None:
         """파이프라인 실행 시점 기록."""
-        self._last_pipeline_run = datetime.now()
+        self._last_pipeline_run = datetime.now(tz=KST)
 
     def _loop(self) -> None:
         while not self._stop_event.wait(self._interval):

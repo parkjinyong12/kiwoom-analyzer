@@ -12,6 +12,9 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
+from zoneinfo import ZoneInfo
+
+KST = ZoneInfo("Asia/Seoul")
 
 from slack_sdk.webhook import WebhookClient
 from slack_sdk.errors import SlackApiError
@@ -41,7 +44,7 @@ class SendResult:
 
 @dataclass
 class DailySummary:
-    date: str = field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d"))
+    date: str = field(default_factory=lambda: datetime.now(tz=KST).strftime("%Y-%m-%d"))
     buy_count: int = 0
     sell_count: int = 0
     blocked_count: int = 0
@@ -60,7 +63,7 @@ class DailySummary:
         self.error_count += 1
 
     def reset(self) -> None:
-        self.date = datetime.now().strftime("%Y-%m-%d")
+        self.date = datetime.now(tz=KST).strftime("%Y-%m-%d")
         self.buy_count = 0
         self.sell_count = 0
         self.blocked_count = 0
@@ -132,7 +135,7 @@ class BlockKitBuilder:
                                     f"⚠️ *[시스템 에러]* {title}\n"
                                     f"━━━━━━━━━━━━━━━\n"
                                     f"```{detail}```\n"
-                                    f"_발생 시각: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}_"
+                                    f"_발생 시각: {datetime.now(tz=KST).strftime('%Y-%m-%d %H:%M:%S')}_"
                                 ),
                             },
                         }
@@ -197,7 +200,7 @@ class BlockKitBuilder:
         if detail_lines:
             header += "\n\n*📋 최근 수치*\n" + "\n".join(detail_lines)
 
-        header += f"\n\n_분석 시각: {datetime.now().strftime('%Y-%m-%d %H:%M')}_"
+        header += f"\n\n_분석 시각: {datetime.now(tz=KST).strftime('%Y-%m-%d %H:%M')}_"
 
         return {
             "attachments": [
@@ -215,7 +218,7 @@ class BlockKitBuilder:
 
     def build_system_status(self, status: str, detail: str = "") -> dict:
         emoji = "🟢" if status == "시작" else "🔴"
-        text = f"{emoji} *[시스템 {status}]* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        text = f"{emoji} *[시스템 {status}]* {datetime.now(tz=KST).strftime('%Y-%m-%d %H:%M:%S')}"
         if detail:
             text += f"\n{detail}"
         return {"text": text}

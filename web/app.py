@@ -440,7 +440,7 @@ def _latest_log(prefix: str) -> str | None:
 
 
 def _append_run_separator(log_file: str) -> None:
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ts = datetime.now(tz=KST).strftime("%Y-%m-%d %H:%M:%S")
     try:
         with open(log_file, "a", encoding="utf-8") as f:
             f.write(f"\n{'='*60}\n=== 새 실행 시작 · {ts} ===\n{'='*60}\n")
@@ -597,7 +597,7 @@ def api_dashboard():
         GROUP BY signal
         ORDER BY cnt DESC
         """,
-        (datetime.now() - timedelta(days=30),),
+        (datetime.now(tz=KST) - timedelta(days=30),),
     )
 
     return jsonify({
@@ -2441,7 +2441,7 @@ def api_save_settings():
 @app.route("/api/schedule")
 def api_schedule_get():
     """배치 스케줄 설정 전체 조회."""
-    rows = query("SELECT job_id, enabled, hour, minute, days, interval_mode, interval_minutes, interval_start, interval_end, last_run FROM batch_schedules")
+    rows = query("SELECT job_id, enabled, hour, minute, days, interval_mode, interval_minutes, interval_start, interval_end, last_run AT TIME ZONE 'Asia/Seoul' AS last_run FROM batch_schedules")
     result = {r["job_id"]: dict(r) for r in rows}
     for jid in BATCH_JOBS:
         if jid not in result:
@@ -2544,7 +2544,7 @@ def _run_scheduled_job(job_id: str, interval_start: int = 0, interval_end: int =
         return
     # 반복 주기 모드의 시간 범위 체크 (interval_start/end: 자정 기준 분)
     if interval_start != 0 or interval_end != 1439:
-        now = datetime.now()
+        now = datetime.now(tz=KST)
         cur_min = now.hour * 60 + now.minute
         if not (interval_start <= cur_min <= interval_end):
             logging.info("[scheduler] %s 시간 범위 밖 — 스킵 (%02d:%02d, 허용 %02d:%02d~%02d:%02d)",
@@ -2747,9 +2747,14 @@ def api_chart_data(ticker: str):
             return jsonify({"error": f"데이터 부족 (최소 {30}봉 필요)"}), 422
 
         is_daily = (timeframe == "D")
+        def _to_time(d):
+            if is_daily:
+                return d.strftime("%Y-%m-%d")
+            kst = d if d.tzinfo else d.replace(tzinfo=KST)
+            return int(kst.timestamp())
+
         candles = [{
-            "time":   row["date"].strftime("%Y-%m-%d") if is_daily
-                      else int(row["date"].timestamp()),
+            "time":   _to_time(row["date"]),
             "open":   int(row["open"]),
             "high":   int(row["high"]),
             "low":    int(row["low"]),

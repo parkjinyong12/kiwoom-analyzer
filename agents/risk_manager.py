@@ -11,6 +11,9 @@ import logging
 import threading
 from datetime import datetime, timedelta
 from typing import Literal, Optional
+from zoneinfo import ZoneInfo
+
+KST = ZoneInfo("Asia/Seoul")
 
 from config import config
 from models import RiskCheckResult, TradeSignal
@@ -51,7 +54,7 @@ class CooldownStore:
             last = self._store.get(ticker, {}).get(direction)
             if last is None:
                 return False, None
-            elapsed = (datetime.now() - last).total_seconds() / 3600
+            elapsed = (datetime.now(tz=KST) - last).total_seconds() / 3600
             remaining = cooldown_hours - elapsed
             return remaining > 0, round(remaining, 1) if remaining > 0 else None
 
@@ -59,7 +62,7 @@ class CooldownStore:
         with self._lock:
             if ticker not in self._store:
                 self._store[ticker] = {}
-            self._store[ticker][direction] = datetime.now()
+            self._store[ticker][direction] = datetime.now(tz=KST)
 
     def clear(self, ticker: Optional[str] = None) -> None:
         with self._lock:
@@ -87,7 +90,7 @@ class MarketContext:
     def update(self, kospi_change_rate: float) -> None:
         with self._lock:
             self._kospi_change_rate = kospi_change_rate
-            self._updated_at = datetime.now()
+            self._updated_at = datetime.now(tz=KST)
         logger.debug("MarketContext 업데이트: 코스피 %.2f%%", kospi_change_rate)
 
     def is_market_crash(self, threshold: float) -> bool:
@@ -96,7 +99,7 @@ class MarketContext:
             if self._kospi_change_rate is None:
                 return False
             # 데이터가 30분 이상 오래되면 신뢰 불가 → 차단하지 않음
-            if self._updated_at and (datetime.now() - self._updated_at) > timedelta(minutes=30):
+            if self._updated_at and (datetime.now(tz=KST) - self._updated_at) > timedelta(minutes=30):
                 logger.warning("MarketContext 데이터 오래됨 (30분 초과), 시장 급락 체크 스킵")
                 return False
             return self._kospi_change_rate <= threshold

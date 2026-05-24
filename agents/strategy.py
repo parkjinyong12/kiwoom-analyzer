@@ -12,6 +12,9 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, Optional
+from zoneinfo import ZoneInfo
+
+KST = ZoneInfo("Asia/Seoul")
 
 from models import (
     ChartSignal, TradeSignal,
@@ -568,7 +571,7 @@ class StrategyAgent:
             strategy_name=strategy_names,
             reasons=all_reasons,
             timeframe=chart_signal.timeframe,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(tz=KST),
             price=float(close),
             target_price=round(target, 0),
             stop_loss=round(stop, 0),
@@ -583,6 +586,6 @@ class StrategyAgent:
             strategy_name="없음",
             reasons=[],
             timeframe=chart_signal.timeframe,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(tz=KST),
             price=float(chart_signal.indicators.get("close", 0.0)),
         )

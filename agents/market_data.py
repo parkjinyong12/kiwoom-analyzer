@@ -19,6 +19,9 @@ import threading
 import time
 from datetime import datetime
 from typing import Optional
+from zoneinfo import ZoneInfo
+
+KST = ZoneInfo("Asia/Seoul")
 
 import pandas as pd
 import requests
@@ -138,8 +141,8 @@ class TokenManager:
         self._token = data["token"]
         expires_dt = data.get("expires_dt", "")
         if expires_dt:
-            exp = datetime.strptime(expires_dt, "%Y%m%d%H%M%S")
-            expires_in = max(0, (exp - datetime.now()).total_seconds())
+            exp = datetime.strptime(expires_dt, "%Y%m%d%H%M%S").replace(tzinfo=KST)
+            expires_in = max(0, (exp - datetime.now(tz=KST)).total_seconds())
         else:
             expires_in = 86400
         self._expires_at = time.monotonic() + expires_in
@@ -201,7 +204,7 @@ class MarketDataAgent:
         """일봉 데이터 조회 (최근 count개 봉)."""
         body = {
             "stk_cd": ticker,
-            "base_dt": datetime.now().strftime("%Y%m%d"),
+            "base_dt": datetime.now(tz=KST).strftime("%Y%m%d"),
             "upd_stkpc_tp": "1",
         }
         data = self._post("/api/dostk/chart", "ka10081", body)
@@ -220,7 +223,7 @@ class MarketDataAgent:
             "stk_cd": ticker,
             "tic_scope": timeframe,
             "upd_stkpc_tp": "1",
-            "base_dt": datetime.now().strftime("%Y%m%d"),
+            "base_dt": datetime.now(tz=KST).strftime("%Y%m%d"),
         }
         data = self._post("/api/dostk/chart", "ka10080", body)
         rows = data.get("stk_min_pole_chart_qry", [])
@@ -239,7 +242,7 @@ class MarketDataAgent:
         """
         self._limiter.wait()
         url = f"{self._base_url}/api/dostk/stkinfo"
-        fetched_at = datetime.now()
+        fetched_at = datetime.now(tz=KST)
         results: list[dict] = []
         cont_yn = ""
         next_key = ""
@@ -296,7 +299,7 @@ class MarketDataAgent:
             "market_name": data.get("marketName", ""),
             "state": data.get("state", ""),
             "last_price": data.get("lastPrice", ""),
-            "fetched_at": datetime.now(),
+            "fetched_at": datetime.now(tz=KST),
         }
 
     # ------------------------------------------------------------------
@@ -597,7 +600,7 @@ class MarketDataAgent:
         records = []
         for row in rows:
             try:
-                dt = datetime.strptime(row["dt"], "%Y%m%d")
+                dt = datetime.strptime(row["dt"], "%Y%m%d").replace(tzinfo=KST)
 
                 def to_float(val: str) -> float:
                     return float(val.replace(",", "").replace("+", "").lstrip("-") or "0")
@@ -624,7 +627,7 @@ class MarketDataAgent:
         records = []
         for row in rows:
             try:
-                dt = datetime.strptime(row["cntr_tm"], "%Y%m%d%H%M%S")
+                dt = datetime.strptime(row["cntr_tm"], "%Y%m%d%H%M%S").replace(tzinfo=KST)
 
                 def to_float(val: str) -> float:
                     return float(val.replace(",", "").replace("+", "").lstrip("-") or "0")
