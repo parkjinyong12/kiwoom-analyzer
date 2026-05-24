@@ -2708,6 +2708,96 @@ def api_spec_apis():
 
 
 # ---------------------------------------------------------------------------
+# 차트 데이터 (키움 REST API 직접 호출 + 시장구조 분석)
+# ---------------------------------------------------------------------------
+
+_chart_market_agent = None
+_chart_agent_lock = threading.Lock()
+
+def _get_chart_agent():
+    global _chart_market_agent
+    with _chart_agent_lock:
+        if _chart_market_agent is None:
+            from agents.market_data import MarketDataAgent
+            _chart_market_agent = MarketDataAgent()
+    return _chart_market_agent
+
+
+@app.route("/api/chart_data/<ticker>")
+def api_chart_data(ticker: str):
+    """종목 OHLCV + 시장구조 분석 결과 반환 (TradingView Lightweight Charts 형식)."""
+    timeframe = request.args.get("timeframe", "D")
+    count     = min(int(request.args.get("count", "150")), 300)
+
+    try:
+        agent = _get_chart_agent()
+        if timeframe == "D":
+            df = agent.get_daily_ohlcv(ticker, count)
+        else:
+            df = agent.get_minute_ohlcv(ticker, timeframe, count)
+
+        if df.empty:
+            return jsonify({"error": "데이터 없음"}), 404
+
+        from agents.chart_analysis import _analyze_market_structure
+        vol_ma20 = df["volume"].rolling(20, min_periods=1).mean()
+        ms = _analyze_market_structure(df, vol_ma20)
+
+        is_daily = (timeframe == "D")
+        candles = [{
+            "time":   row["date"].strftime("%Y-%m-%d") if is_daily
+                      else int(row["date"].timestamp()),
+            "open":   int(row["open"]),
+            "high":   int(row["high"]),
+            "low":    int(row["low"]),
+            "close":  int(row["close"]),
+            "volume": int(row["volume"]),
+        } for _, row in df.iterrows()]
+
+        times = [c["time"] for c in candles]
+        def idx2t(i):
+            return times[max(0, min(int(i), len(times) - 1))]
+
+        return jsonify({
+            "ticker":    ticker,
+            "timeframe": timeframe,
+            "candles":   candles,
+            "swing_points": [{
+                "time":       idx2t(sp.index),
+                "price":      sp.price,
+                "swing_type": sp.swing_type.value,
+                "is_high":    sp.is_high,
+            } for sp in ms.swing_points],
+            "structure_breaks": [{
+                "time":               idx2t(sb.bar_index),
+                "break_type":         sb.break_type.value,
+                "direction":          sb.direction,
+                "price":              sb.price,
+                "broken_swing_price": sb.broken_swing_price,
+                "volume_confirmed":   sb.volume_confirmed,
+            } for sb in ms.structure_breaks],
+            "liquidity_pools": [{
+                "price":       lp.price,
+                "touch_count": lp.touch_count,
+                "is_high":     lp.is_high,
+            } for lp in ms.liquidity_pools],
+            "liquidity_sweeps": [{
+                "time":          idx2t(ls.bar_index),
+                "pool_price":    ls.pool_price,
+                "is_high":       ls.is_high,
+                "direction":     ls.direction,
+                "close_reverted": ls.close_reverted,
+            } for ls in ms.liquidity_sweeps],
+            "market_state":  ms.market_state.value,
+            "effort_result": ms.effort_result.value,
+        })
+
+    except Exception as e:
+        app.logger.error("chart_data error [%s]: %s", ticker, e)
+        return jsonify({"error": str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
 # 엔트리포인트
 # ---------------------------------------------------------------------------
 

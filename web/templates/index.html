@@ -13,6 +13,7 @@
 <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 <style>
 /* ── 리셋 & 베이스 ─────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -120,6 +121,26 @@ body { font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
 .btn-ghost:hover { background: #1e2535; color: #e2e8f0; }
 .btn-danger { background: transparent; color: #f87171; border: 1px solid #f8717140; font-size: 12px; padding: 5px 10px; }
 .btn-danger:hover { background: #f8717120; }
+
+/* ── 차트 모달 ────────────────────────────────────────── */
+#ms-chart-modal {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,0.78); z-index: 1000;
+  align-items: center; justify-content: center;
+}
+#ms-chart-modal.open { display: flex; }
+.ms-chart-inner {
+  background: #161b27; border: 1px solid #1e2535; border-radius: 12px;
+  width: 980px; max-width: 96vw; max-height: 94vh;
+  display: flex; flex-direction: column; padding: 20px; gap: 10px;
+}
+.ms-tf-btn {
+  padding: 4px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;
+  background: transparent; border: 1px solid #1e2535; color: #94a3b8;
+  transition: all 0.15s;
+}
+.ms-tf-btn:hover  { background: #1e2535; color: #e2e8f0; }
+.ms-tf-btn.active { background: #1d3a5f; color: #60a5fa; border-color: #3b82f6; }
 
 /* ── 사용자 목록 ────────────────────────────────────── */
 .user-list-item {
@@ -1085,6 +1106,7 @@ canvas { max-height: 220px; }
             <th class="num">손절가</th>
             <th class="num">신뢰도</th>
             <th>분석 근거</th>
+            <th class="center"></th>
           </tr></thead>
           <tbody id="ms-body"></tbody>
         </table>
@@ -3832,8 +3854,10 @@ function renderMsSignals(list) {
       : `<span class="badge" style="${m[st]||'background:#1e293b;color:#94a3b8'}">${st}</span>`;
   };
 
-  tbody.innerHTML = list.map(s => `
-    <tr>
+  tbody.innerHTML = list.map(s => {
+    const safeTicker = (s.ticker || '').replace(/'/g, "\\'");
+    const safeName   = (s.stock_name || '').replace(/'/g, "\\'");
+    return `<tr>
       <td style="color:#64748b;white-space:nowrap">${s.ts}</td>
       <td><b>${s.ticker}</b><br><span style="color:#64748b;font-size:11px">${s.stock_name}</span></td>
       <td class="center"><span class="badge badge-${(s.signal||'').toLowerCase()}">${signalLabel(s.signal)}</span></td>
@@ -3848,8 +3872,137 @@ function renderMsSignals(list) {
           ? s.reasons.map(r => '• ' + r).join('\n')
           : (s.reasons_text || '-')
       }</td>
-    </tr>
-  `).join('');
+      <td class="center">
+        <button class="btn btn-ghost" style="font-size:11px;padding:3px 10px;white-space:nowrap"
+                onclick="openMsChart('${safeTicker}','${safeName}')">📈 차트</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+// ─── 시장구조 차트 ─────────────────────────────────────────
+let _msChartInst   = null;
+let _msChartTicker = '';
+let _msChartName   = '';
+let _msChartTf     = 'D';
+
+async function openMsChart(ticker, name) {
+  _msChartTicker = ticker;
+  _msChartName   = name;
+  _msChartTf     = 'D';
+  ['D','60','30','15'].forEach(t =>
+    document.getElementById('ms-tf-' + t)?.classList.toggle('active', t === 'D'));
+  document.getElementById('ms-chart-title').textContent = `${ticker}  ${name}`;
+  document.getElementById('ms-chart-badge').innerHTML = '';
+  document.getElementById('ms-chart-modal').classList.add('open');
+  await _renderMsChart();
+}
+
+function closeMsChart() {
+  document.getElementById('ms-chart-modal').classList.remove('open');
+  if (_msChartInst) { _msChartInst.remove(); _msChartInst = null; }
+}
+
+async function msChartTf(tf) {
+  _msChartTf = tf;
+  ['D','60','30','15'].forEach(t =>
+    document.getElementById('ms-tf-' + t)?.classList.toggle('active', t === tf));
+  await _renderMsChart();
+}
+
+async function _renderMsChart() {
+  const wrap   = document.getElementById('ms-chart-el');
+  const loadEl = document.getElementById('ms-chart-loading');
+  loadEl.style.display = 'flex';
+  if (_msChartInst) { _msChartInst.remove(); _msChartInst = null; }
+  wrap.innerHTML = '';
+
+  try {
+    const res = await fetch(`/api/chart_data/${_msChartTicker}?timeframe=${_msChartTf}&count=150`);
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.status); }
+    const d = await res.json();
+    loadEl.style.display = 'none';
+
+    _msChartInst = LightweightCharts.createChart(wrap, {
+      width:  wrap.clientWidth,
+      height: wrap.clientHeight || 460,
+      layout: { background: { color: '#0f1117' }, textColor: '#94a3b8' },
+      grid:   { vertLines: { color: '#1a2233' }, horzLines: { color: '#1a2233' } },
+      crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+      rightPriceScale: { borderColor: '#1e2535' },
+      timeScale: {
+        borderColor: '#1e2535',
+        timeVisible: _msChartTf !== 'D',
+        secondsVisible: false,
+      },
+    });
+
+    const cSeries = _msChartInst.addCandlestickSeries({
+      upColor:        '#4ade80', downColor:        '#f87171',
+      borderUpColor:  '#4ade80', borderDownColor:  '#f87171',
+      wickUpColor:    '#86efac', wickDownColor:    '#fca5a5',
+    });
+    cSeries.setData(d.candles);
+
+    // 스윙 포인트 마커 + 스윕 마커 통합
+    const markers = [
+      ...d.swing_points.map(sp => ({
+        time:     sp.time,
+        position: sp.is_high ? 'aboveBar' : 'belowBar',
+        color:    sp.is_high ? '#4ade80' : '#f87171',
+        shape:    sp.is_high ? 'arrowDown' : 'arrowUp',
+        text:     sp.swing_type,
+        size:     1,
+      })),
+      ...d.liquidity_sweeps.map(ls => ({
+        time:     ls.time,
+        position: ls.is_high ? 'aboveBar' : 'belowBar',
+        color:    '#f59e0b',
+        shape:    'circle',
+        text:     'Sweep',
+        size:     1,
+      })),
+    ].sort((a, b) => a.time > b.time ? 1 : a.time < b.time ? -1 : 0);
+    if (markers.length) cSeries.setMarkers(markers);
+
+    // BOS / CHoCH 수평선
+    d.structure_breaks.forEach(sb => {
+      cSeries.createPriceLine({
+        price:            sb.broken_swing_price,
+        color:            sb.break_type === 'CHoCH' ? '#a78bfa' : '#60a5fa',
+        lineWidth:        1,
+        lineStyle:        LightweightCharts.LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: `${sb.break_type} ${sb.direction === 'BUY' ? '↑' : '↓'}${sb.volume_confirmed ? '' : '?'}`,
+      });
+    });
+
+    // 유동성 풀 점선
+    d.liquidity_pools.forEach(lp => {
+      cSeries.createPriceLine({
+        price:            lp.price,
+        color:            '#475569',
+        lineWidth:        1,
+        lineStyle:        LightweightCharts.LineStyle.Dotted,
+        axisLabelVisible: false,
+        title:            `LP×${lp.touch_count}`,
+      });
+    });
+
+    // 상태 배지
+    const SC = { UPTREND:'#4ade80', DOWNTREND:'#f87171', RANGING:'#f59e0b', CHOPPY:'#94a3b8' };
+    const EC = { TREND_CONFIRM:'#4ade80', ABSORPTION:'#f87171', TRAP:'#f59e0b', EXHAUSTION:'#94a3b8' };
+    document.getElementById('ms-chart-badge').innerHTML =
+      `<span style="color:${SC[d.market_state]||'#94a3b8'};font-weight:600">${d.market_state}</span>` +
+      ` <span style="color:#334155">·</span>` +
+      ` <span style="color:${EC[d.effort_result]||'#94a3b8'};font-size:11px">${d.effort_result}</span>`;
+
+    _msChartInst.timeScale().fitContent();
+
+  } catch(e) {
+    loadEl.style.display = 'none';
+    wrap.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#f87171;font-size:13px">오류: ${e.message}</div>`;
+  }
 }
 
 // ─── 감사 로그 ─────────────────────────────────────────
@@ -8737,5 +8890,43 @@ if ('serviceWorker' in navigator) {
   });
 })();
 </script>
+
+<!-- ===== 시장구조 차트 모달 ===== -->
+<div id="ms-chart-modal">
+  <div class="ms-chart-inner">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+      <div>
+        <span id="ms-chart-title" style="font-size:16px;font-weight:700;color:#f1f5f9"></span>
+        <span id="ms-chart-badge" style="margin-left:12px;font-size:12px"></span>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <button onclick="msChartTf('D')"  class="ms-tf-btn active" id="ms-tf-D">일봉</button>
+        <button onclick="msChartTf('60')" class="ms-tf-btn" id="ms-tf-60">60분</button>
+        <button onclick="msChartTf('30')" class="ms-tf-btn" id="ms-tf-30">30분</button>
+        <button onclick="msChartTf('15')" class="ms-tf-btn" id="ms-tf-15">15분</button>
+        <button onclick="closeMsChart()"
+                style="margin-left:8px;background:transparent;border:none;color:#64748b;font-size:20px;cursor:pointer;line-height:1;padding:0 4px">✕</button>
+      </div>
+    </div>
+
+    <div id="ms-chart-wrap" style="position:relative;height:460px;border-radius:8px;overflow:hidden;background:#0f1117">
+      <div id="ms-chart-loading"
+           style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:8px;color:#64748b;z-index:10;background:#0f1117">
+        <span class="spinner"></span> 차트 로딩 중...
+      </div>
+      <div id="ms-chart-el" style="height:100%;width:100%"></div>
+    </div>
+
+    <div style="display:flex;gap:20px;flex-wrap:wrap;font-size:11px;color:#64748b;padding-top:4px;border-top:1px solid #1e2535">
+      <span><span style="color:#a78bfa">- -</span> CHoCH (추세전환)</span>
+      <span><span style="color:#60a5fa">- -</span> BOS (추세지속)</span>
+      <span><span style="color:#4ade80">▼</span> HH · HL 스윙</span>
+      <span><span style="color:#f87171">▲</span> LH · LL 스윙</span>
+      <span><span style="color:#64748b">···</span> 유동성 풀</span>
+      <span><span style="color:#f59e0b">●</span> 유동성 스윕</span>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
