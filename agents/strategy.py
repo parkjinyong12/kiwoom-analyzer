@@ -13,7 +13,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, Optional
 
-from models import ChartSignal, TradeSignal
+from models import (
+    ChartSignal, TradeSignal,
+    MarketState, EffortResult, BreakType,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -331,6 +334,101 @@ class CandlePatternStrategy(BaseStrategy):
 
 
 # ---------------------------------------------------------------------------
+# 전략 5: 시장 구조 분석 (BOS / CHoCH / 유동성 트랩)
+# ---------------------------------------------------------------------------
+
+class MarketStructureStrategy(BaseStrategy):
+    """
+    시장 구조(Market Structure) 기반 매매 신호.
+
+    우선순위:
+    1. 유동성 스윕(Liquidity Sweep) — Smart Money 트랩 활용
+    2. CHoCH(Change of Character)  — 추세 전환
+    3. BOS(Break of Structure)     — 추세 지속
+    Choppy 시장은 필터링(None 반환).
+    와이코프 Effort vs Result로 신뢰도 보정.
+    """
+
+    name   = "시장구조"
+    weight = 1.5
+
+    _STATE_LABEL: dict[str, str] = {
+        "UPTREND":   "상승추세",
+        "DOWNTREND": "하락추세",
+        "RANGING":   "횡보",
+        "CHOPPY":    "혼조",
+    }
+
+    def _evaluate(self, signal: ChartSignal) -> Optional[StrategyResult]:
+        ms = signal.market_structure
+        if ms is None:
+            return None
+
+        if ms.market_state == MarketState.CHOPPY:
+            return None
+
+        reasons:    list[str]        = []
+        confidence: float            = 0.0
+        direction:  Optional[Direction] = None
+
+        # 1. 유동성 스윕 (꼬리 이탈 후 종가 복귀 → 역방향 진입)
+        recent_sweeps = [sw for sw in ms.liquidity_sweeps if sw.close_reverted]
+        if recent_sweeps:
+            sw = recent_sweeps[-1]
+            direction  = sw.direction
+            confidence = 0.70
+            pool_side  = "저항" if sw.is_high else "지지"
+            reasons.append(
+                f"{pool_side} 유동성 스윕 감지 ({sw.pool_price:,.0f}) — "
+                f"꼬리 이탈 후 종가 복귀 → {sw.direction} 트랩 해소"
+            )
+
+        # 2. CHoCH — 추세 전환 (유동성 스윕보다 약하면 덮어씀)
+        if ms.last_choch is not None:
+            choch     = ms.last_choch
+            choch_c   = 0.75 if choch.volume_confirmed else 0.55
+            if direction is None or choch_c > confidence:
+                direction  = choch.direction
+                confidence = choch_c
+                vol_note   = "거래량 동반" if choch.volume_confirmed else "거래량 미동반"
+                reasons    = [
+                    f"CHoCH({choch.direction}) 확인 — {vol_note}",
+                    f"돌파가: {choch.price:,.0f} / 기준 스윙: {choch.broken_swing_price:,.0f}",
+                ]
+
+        # 3. BOS — 추세 지속 (CHoCH 없을 때만 적용)
+        elif ms.last_bos is not None and direction is None:
+            bos = ms.last_bos
+            if bos.volume_confirmed:
+                state_str  = self._STATE_LABEL.get(ms.market_state.value, ms.market_state.value)
+                direction  = bos.direction
+                confidence = 0.65
+                reasons    = [
+                    f"BOS({bos.direction}) 확인 — {state_str} 지속",
+                    f"거래량 동반 구조 돌파: {bos.price:,.0f}",
+                ]
+
+        if direction is None or confidence < 0.55:
+            return None
+
+        # 4. Effort vs Result 보정
+        if ms.effort_result == EffortResult.ABSORPTION:
+            confidence -= 0.10
+            reasons.append("흡수 캔들: 대량 거래량 대비 이동 작음 — 반전 가능성 경고")
+        elif ms.effort_result == EffortResult.TRAP:
+            confidence -= 0.08
+            reasons.append("트랩 캔들: 거래량 없는 큰 이동 — 지속 불가능")
+        elif ms.effort_result == EffortResult.TREND_CONFIRM:
+            confidence = min(confidence + 0.05, 1.0)
+            reasons.append("추세 확인 캔들: 대량 거래량 + 강한 몸통")
+
+        if confidence < 0.55:
+            return None
+
+        return self._result(self.name, direction, round(confidence, 4), reasons, self.weight)
+
+
+# ---------------------------------------------------------------------------
 # Strategy Agent
 # ---------------------------------------------------------------------------
 
@@ -350,6 +448,7 @@ class StrategyAgent:
             RSIReversalStrategy(),
             BollingerBreakoutStrategy(),
             CandlePatternStrategy(),
+            MarketStructureStrategy(),
         ]
 
     def run(

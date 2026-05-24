@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Literal
+from enum import Enum
+from typing import Literal, Optional
 
 
 @dataclass
@@ -26,6 +27,87 @@ class CurrentPrice:
     timestamp: datetime
 
 
+# ---------------------------------------------------------------------------
+# 시장 구조 분석 모델 (Market Structure Analysis)
+# ---------------------------------------------------------------------------
+
+class MarketState(str, Enum):
+    UPTREND   = "UPTREND"
+    DOWNTREND = "DOWNTREND"
+    RANGING   = "RANGING"
+    CHOPPY    = "CHOPPY"
+
+
+class SwingType(str, Enum):
+    HH = "HH"  # Higher High
+    HL = "HL"  # Higher Low
+    LH = "LH"  # Lower High
+    LL = "LL"  # Lower Low
+
+
+class EffortResult(str, Enum):
+    TREND_CONFIRM = "TREND_CONFIRM"  # High Vol + Long Body  — Real Money 참여
+    ABSORPTION    = "ABSORPTION"     # High Vol + Short Body — 흡수, 반전 경고
+    TRAP          = "TRAP"           # Low Vol  + Long Body  — 거래량 없는 이동
+    EXHAUSTION    = "EXHAUSTION"     # Low Vol  + Short Body — 에너지 고갈
+
+
+class BreakType(str, Enum):
+    BOS   = "BOS"    # Break of Structure  — 추세 지속
+    CHOCH = "CHoCH"  # Change of Character — 추세 전환
+
+
+@dataclass
+class SwingPoint:
+    index:      int
+    price:      float
+    swing_type: SwingType
+    is_high:    bool
+
+
+@dataclass
+class StructureBreak:
+    bar_index:          int
+    break_type:         BreakType
+    direction:          Literal['BUY', 'SELL']
+    price:              float
+    broken_swing_price: float
+    volume:             float
+    volume_confirmed:   bool
+
+
+@dataclass
+class LiquidityPool:
+    price:       float
+    touch_count: int
+    is_high:     bool  # True = 저항 클러스터, False = 지지 클러스터
+
+
+@dataclass
+class LiquiditySweep:
+    bar_index:      int
+    pool_price:     float
+    is_high:        bool
+    direction:      Literal['BUY', 'SELL']  # 스윕 후 예상 방향
+    close_reverted: bool                     # 꼬리만 이탈, 종가는 경계 안쪽으로 복귀
+
+
+@dataclass
+class MarketStructureResult:
+    market_state:     MarketState
+    swing_points:     list[SwingPoint]
+    structure_breaks: list[StructureBreak]
+    liquidity_pools:  list[LiquidityPool]
+    liquidity_sweeps: list[LiquiditySweep]
+    last_bos:         Optional[StructureBreak]
+    last_choch:       Optional[StructureBreak]
+    effort_result:    EffortResult
+
+
+# ---------------------------------------------------------------------------
+# 차트 분석 신호
+# ---------------------------------------------------------------------------
+
 @dataclass
 class ChartSignal:
     ticker: str
@@ -35,6 +117,7 @@ class ChartSignal:
     patterns: list[str] = field(default_factory=list)
     support: float = 0.0
     resistance: float = 0.0
+    market_structure: Optional[MarketStructureResult] = None
 
 
 @dataclass
