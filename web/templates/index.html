@@ -2901,7 +2901,8 @@ function showPage(name, fromHash) {
   if (name === 'supply')      loadSupplyStocksAndRestore();
   if (name === 'divergence')  loadDivergence();
   if (name === 'snapshot')    loadSnapshot();
-  if (name === 'signals')     loadSignals();
+  if (name === 'signals')          loadSignals();
+  if (name === 'market-structure') loadMsSignals();
   if (name === 'auditlog')  loadEvents();
   if (name === 'stocks')    loadStocks();
   if (name === 'batch')     loadBatch();
