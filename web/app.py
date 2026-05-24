@@ -2777,6 +2777,14 @@ except Exception:
     pass
 
 try:
+    with get_conn() as conn:
+        conn.cursor().execute(
+            "ALTER TABLE signals ADD COLUMN IF NOT EXISTS reasons JSONB"
+        )
+except Exception:
+    pass
+
+try:
     _ensure_spec_table()
     _sync_spec_to_db()
 except Exception as e:
