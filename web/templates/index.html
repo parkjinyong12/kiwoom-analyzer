@@ -553,6 +553,9 @@ canvas { max-height: 220px; }
         <div class="nav-item" data-page="signals" onclick="showPage('signals')">
           <span class="icon">📈</span> 매매 신호
         </div>
+        <div class="nav-item" data-page="market-structure" onclick="showPage('market-structure')">
+          <span class="icon">🏗️</span> 시장 구조
+        </div>
         <div class="nav-item" data-page="report" onclick="showPage('report')">
           <span class="icon">📧</span> 보유종목 리포트
         </div>
@@ -1017,6 +1020,110 @@ canvas { max-height: 220px; }
         <div id="signals-empty" class="empty" style="display:none">
           <div class="empty-icon">📭</div>해당 조건의 신호가 없습니다
         </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── 시장 구조 분석 ─── -->
+  <section id="page-market-structure" class="page">
+    <div class="page-header">
+      <div class="page-title">시장 구조 분석</div>
+      <div class="page-sub">BOS / CHoCH / 유동성 스윕 · 시장구조 전략 신호 이력</div>
+    </div>
+
+    <!-- 요약 카드 -->
+    <div class="cards-row" id="ms-cards" style="margin-bottom:16px">
+      <div class="card">
+        <div class="card-label">오늘 신호</div>
+        <div class="card-value" id="ms-stat-today">-</div>
+      </div>
+      <div class="card">
+        <div class="card-label">CHoCH (추세 전환)</div>
+        <div class="card-value" id="ms-stat-choch" style="color:#a78bfa">-</div>
+      </div>
+      <div class="card">
+        <div class="card-label">BOS (추세 지속)</div>
+        <div class="card-value" id="ms-stat-bos" style="color:#60a5fa">-</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Sweep (유동성 트랩)</div>
+        <div class="card-value" id="ms-stat-sweep" style="color:#f59e0b">-</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="filter-bar">
+        <label>구조 유형</label>
+        <select id="ms-type-filter" onchange="filterMsSignals()">
+          <option value="">전체</option>
+          <option value="CHoCH">CHoCH (추세 전환)</option>
+          <option value="BOS">BOS (추세 지속)</option>
+          <option value="Sweep">Sweep (유동성 트랩)</option>
+        </select>
+        <label>방향</label>
+        <select id="ms-dir-filter" onchange="filterMsSignals()">
+          <option value="">전체</option>
+          <option value="BUY">매수</option>
+          <option value="SELL">매도</option>
+        </select>
+        <label>종목 검색</label>
+        <input type="text" id="ms-search" placeholder="종목코드 또는 종목명"
+               oninput="filterMsSignals()" style="width:160px"/>
+        <button onclick="loadMsSignals()" style="margin-left:8px">새로고침</button>
+      </div>
+      <div class="panel-body">
+        <div id="ms-loading" class="loading"><span class="spinner"></span>로딩 중...</div>
+        <table class="data-table" id="ms-table" style="display:none">
+          <thead><tr>
+            <th>시간</th>
+            <th>종목</th>
+            <th class="center">방향</th>
+            <th class="center">구조 유형</th>
+            <th class="center">시장 상태</th>
+            <th class="num">현재가</th>
+            <th class="num">목표가</th>
+            <th class="num">손절가</th>
+            <th class="num">신뢰도</th>
+            <th>분석 근거</th>
+          </tr></thead>
+          <tbody id="ms-body"></tbody>
+        </table>
+        <div id="ms-empty" class="empty" style="display:none">
+          <div class="empty-icon">🏗️</div>시장구조 신호가 없습니다
+        </div>
+      </div>
+    </div>
+
+    <!-- 개념 가이드 -->
+    <div class="panel" style="margin-top:16px">
+      <div class="panel-header" style="cursor:pointer;user-select:none"
+           onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">
+        📖 시장 구조 용어 가이드 <span style="color:#64748b;font-size:12px">(클릭하여 펼치기)</span>
+      </div>
+      <div class="panel-body" style="display:none">
+        <table class="data-table" style="font-size:12px">
+          <thead><tr><th>용어</th><th>의미</th><th>알고리즘 조건</th></tr></thead>
+          <tbody>
+            <tr><td><span class="badge" style="background:#3b1f6e;color:#a78bfa">CHoCH</span></td>
+                <td>Change of Character — 추세 전환</td>
+                <td>하락추세 중 종가가 직전 스윙 고점 돌파 + 거래량 동반</td></tr>
+            <tr><td><span class="badge" style="background:#1e3a5f;color:#60a5fa">BOS</span></td>
+                <td>Break of Structure — 추세 지속</td>
+                <td>상승추세 중 종가가 직전 고점 돌파 + 거래량 동반</td></tr>
+            <tr><td><span class="badge" style="background:#422006;color:#f59e0b">Sweep</span></td>
+                <td>Liquidity Sweep — 유동성 트랩</td>
+                <td>꼬리만 지지/저항 이탈, 종가는 경계 안쪽 복귀</td></tr>
+            <tr><td><span style="color:#34d399">TREND_CONFIRM</span></td>
+                <td>거래량 동반 강한 캔들 (와이코프)</td>
+                <td>High Vol + Long Body → 신뢰도 +5%</td></tr>
+            <tr><td><span style="color:#fbbf24">ABSORPTION</span></td>
+                <td>흡수 캔들 — 대량 거래량 대비 이동 없음</td>
+                <td>High Vol + Short Body → 반전 경고, 신뢰도 -10%</td></tr>
+            <tr><td><span style="color:#f87171">TRAP</span></td>
+                <td>트랩 캔들 — 거래량 없는 큰 이동</td>
+                <td>Low Vol + Long Body → 지속 불가, 신뢰도 -8%</td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
   </section>
@@ -3646,6 +3753,99 @@ function renderSignals(list) {
       <td class="num" style="color:#f87171">${s.stop_loss}</td>
       <td class="num">${s.confidence}</td>
       <td style="color:#94a3b8;font-size:12px">${s.strategy}</td>
+    </tr>
+  `).join('');
+}
+
+// ─── 시장 구조 분석 ─────────────────────────────────────
+let allMsSignals = [];
+
+async function loadMsSignals() {
+  const loading = document.getElementById('ms-loading');
+  const table   = document.getElementById('ms-table');
+  const empty   = document.getElementById('ms-empty');
+  loading.style.display = 'block';
+  table.style.display = 'none';
+  empty.style.display = 'none';
+  try {
+    const res = await fetch('/api/market_structure_signals');
+    if (!res.ok) throw new Error(res.status);
+    allMsSignals = await res.json();
+    loading.style.display = 'none';
+    renderMsStats(allMsSignals);
+    renderMsSignals(allMsSignals);
+  } catch(e) {
+    loading.style.display = 'none';
+    empty.style.display = 'block';
+  }
+}
+
+function renderMsStats(list) {
+  const today = new Date().toISOString().slice(0,10);
+  const todayList = list.filter(s => s.ts.startsWith(today));
+  document.getElementById('ms-stat-today').textContent = todayList.length;
+  document.getElementById('ms-stat-choch').textContent = list.filter(s => s.struct_type === 'CHoCH').length;
+  document.getElementById('ms-stat-bos').textContent   = list.filter(s => s.struct_type === 'BOS').length;
+  document.getElementById('ms-stat-sweep').textContent = list.filter(s => s.struct_type === 'Sweep').length;
+}
+
+function filterMsSignals() {
+  const type   = document.getElementById('ms-type-filter').value;
+  const dir    = document.getElementById('ms-dir-filter').value;
+  const search = document.getElementById('ms-search').value.toLowerCase();
+  const filtered = allMsSignals.filter(s => {
+    if (type   && s.struct_type !== type) return false;
+    if (dir    && s.signal !== dir)       return false;
+    if (search && !s.ticker.includes(search) && !s.stock_name.toLowerCase().includes(search)) return false;
+    return true;
+  });
+  renderMsSignals(filtered);
+}
+
+function renderMsSignals(list) {
+  const table = document.getElementById('ms-table');
+  const empty = document.getElementById('ms-empty');
+  const tbody = document.getElementById('ms-body');
+  if (!list.length) { table.style.display='none'; empty.style.display='block'; return; }
+  empty.style.display = 'none';
+  table.style.display = 'table';
+
+  const typeBadge = t => {
+    const styles = {
+      'CHoCH': 'background:#3b1f6e;color:#a78bfa',
+      'BOS':   'background:#1e3a5f;color:#60a5fa',
+      'Sweep': 'background:#422006;color:#f59e0b',
+    };
+    return t === '-' ? '<span style="color:#475569">-</span>'
+      : `<span class="badge" style="${styles[t]||''}">${t}</span>`;
+  };
+
+  const stateBadge = st => {
+    const m = {
+      'UPTREND':   'background:#14532d;color:#4ade80',
+      'DOWNTREND': 'background:#450a0a;color:#f87171',
+      '전환':       'background:#3b1f6e;color:#c4b5fd',
+    };
+    return st === '-' ? '<span style="color:#475569">-</span>'
+      : `<span class="badge" style="${m[st]||'background:#1e293b;color:#94a3b8'}">${st}</span>`;
+  };
+
+  tbody.innerHTML = list.map(s => `
+    <tr>
+      <td style="color:#64748b;white-space:nowrap">${s.ts}</td>
+      <td><b>${s.ticker}</b><br><span style="color:#64748b;font-size:11px">${s.stock_name}</span></td>
+      <td class="center"><span class="badge badge-${(s.signal||'').toLowerCase()}">${signalLabel(s.signal)}</span></td>
+      <td class="center">${typeBadge(s.struct_type)}</td>
+      <td class="center">${stateBadge(s.market_state)}</td>
+      <td class="num">${s.price != null ? s.price.toLocaleString() : '-'}</td>
+      <td class="num" style="color:#4ade80">${s.target_price != null ? s.target_price.toLocaleString() : '-'}</td>
+      <td class="num" style="color:#f87171">${s.stop_loss != null ? s.stop_loss.toLocaleString() : '-'}</td>
+      <td class="num">${s.confidence != null ? s.confidence + '%' : '-'}</td>
+      <td style="font-size:11px;color:#94a3b8;max-width:280px;white-space:pre-wrap">${
+        s.reasons && s.reasons.length
+          ? s.reasons.map(r => '• ' + r).join('\n')
+          : (s.reasons_text || '-')
+      }</td>
     </tr>
   `).join('');
 }
@@ -8402,8 +8602,9 @@ if ('serviceWorker' in navigator) {
     'supply':          () => loadSupplyStocksAndRestore(),
     'divergence':      () => loadDivergence(),
     'snapshot':        () => loadSnapshot(),
-    'signals':         () => loadSignals(),
-    'auditlog':        () => loadEvents(),
+    'signals':            () => loadSignals(),
+    'market-structure':   () => loadMsSignals(),
+    'auditlog':           () => loadEvents(),
     'stocks':          () => loadStocks(),
     'batch':           () => loadBatch(),
     'report':          () => loadReportPage(),

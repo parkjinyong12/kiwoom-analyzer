@@ -154,6 +154,7 @@ class AuditDB:
             cur.execute("ALTER TABLE supply_demand ADD COLUMN IF NOT EXISTS close_price BIGINT")
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS login_id VARCHAR(50) UNIQUE")
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255)")
+            cur.execute("ALTER TABLE signals ADD COLUMN IF NOT EXISTS reasons JSONB")
 
     # ------------------------------------------------------------------
     # 쓰기
@@ -184,8 +185,8 @@ class AuditDB:
                 """
                 INSERT INTO signals
                     (timestamp, ticker, signal, price, target_price, stop_loss,
-                     confidence, strategy)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                     confidence, strategy, reasons)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     signal.timestamp,
@@ -196,6 +197,7 @@ class AuditDB:
                     signal.stop_loss,
                     signal.confidence,
                     signal.strategy_name,
+                    json.dumps(signal.reasons, ensure_ascii=False) if signal.reasons else None,
                 ),
             )
 

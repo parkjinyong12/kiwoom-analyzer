@@ -760,6 +760,72 @@ def api_signals():
 
 
 # ---------------------------------------------------------------------------
+# API — 시장 구조 분석 신호
+# ---------------------------------------------------------------------------
+
+@app.route("/api/market_structure_signals")
+def api_market_structure_signals():
+    """시장구조 전략이 포함된 매매신호 목록 (최근 200건)."""
+    rows = query(
+        """
+        SELECT s.ticker,
+               COALESCE(st.stock_name, '') AS stock_name,
+               s.signal, s.price, s.target_price, s.stop_loss,
+               s.confidence, s.strategy, s.reasons,
+               s.timestamp AT TIME ZONE 'Asia/Seoul' AS ts
+        FROM signals s
+        LEFT JOIN stocks st ON st.stock_code = s.ticker
+        WHERE s.strategy LIKE '%시장구조%'
+        ORDER BY s.timestamp DESC
+        LIMIT 200
+        """
+    )
+    result = []
+    for r in rows:
+        reasons = r["reasons"] if r["reasons"] else []
+        reasons_text = " | ".join(reasons) if isinstance(reasons, list) else str(reasons)
+
+        # 구조 유형 추론 (reasons 텍스트 파싱)
+        struct_type = "-"
+        if any("CHoCH" in s for s in reasons):
+            struct_type = "CHoCH"
+        elif any("BOS" in s for s in reasons):
+            struct_type = "BOS"
+        elif any("스윕" in s for s in reasons):
+            struct_type = "Sweep"
+
+        # 시장 상태 추론
+        market_state = "-"
+        for rr in reasons:
+            if "상승추세" in rr:
+                market_state = "UPTREND"
+                break
+            if "하락추세" in rr:
+                market_state = "DOWNTREND"
+                break
+            if "CHoCH(BUY)" in rr or "CHoCH(SELL)" in rr:
+                market_state = "전환"
+                break
+
+        result.append({
+            "ticker":       r["ticker"],
+            "stock_name":   r["stock_name"],
+            "signal":       r["signal"],
+            "price":        int(r["price"]) if r["price"] else None,
+            "target_price": int(r["target_price"]) if r["target_price"] else None,
+            "stop_loss":    int(r["stop_loss"]) if r["stop_loss"] else None,
+            "confidence":   round(float(r["confidence"]) * 100) if r["confidence"] else None,
+            "strategy":     r["strategy"] or "-",
+            "struct_type":  struct_type,
+            "market_state": market_state,
+            "reasons":      reasons if isinstance(reasons, list) else [],
+            "reasons_text": reasons_text,
+            "ts":           r["ts"].strftime("%Y-%m-%d %H:%M") if r["ts"] else "",
+        })
+    return jsonify(result)
+
+
+# ---------------------------------------------------------------------------
 # API — 감사 로그
 # ---------------------------------------------------------------------------
 
