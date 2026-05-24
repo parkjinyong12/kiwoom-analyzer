@@ -775,7 +775,7 @@ def api_market_structure_signals():
                s.timestamp AT TIME ZONE 'Asia/Seoul' AS ts
         FROM signals s
         LEFT JOIN stocks st ON st.stock_code = s.ticker
-        WHERE s.strategy LIKE '%시장구조%'
+        WHERE s.strategy LIKE '%%시장구조%%'
         ORDER BY s.timestamp DESC
         LIMIT 200
         """
