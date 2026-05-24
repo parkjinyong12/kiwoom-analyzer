@@ -2958,7 +2958,8 @@ async function loadDashboard() {
     drawSignalPie(d.signal_stats_30d || {});
 
   } catch (e) {
-    loading.textContent = '로드 실패';
+    loading.style.display = 'none';
+    empty.style.display = 'block';
   }
 }
 
@@ -3863,7 +3864,7 @@ async function loadEvents() {
     allEvents = await res.json();
     loading.style.display = 'none';
     renderEvents(allEvents);
-  } catch(e) { loading.style.display = 'none'; }
+  } catch(e) { loading.style.display = 'none'; document.getElementById('events-empty').style.display = 'block'; }
 }
 
 function filterEvents() {
@@ -3914,7 +3915,7 @@ async function loadStocks() {
     allStocks = await res.json();
     loading.style.display = 'none';
     renderStocks(allStocks);
-  } catch(e) { loading.style.display = 'none'; }
+  } catch(e) { loading.style.display = 'none'; document.getElementById('stocks-empty').style.display = 'block'; }
 }
 
 function filterStocks() {
@@ -4873,16 +4874,21 @@ async function loadReportHistory() {
 
 // ─── 사용자 관리 페이지 ──────────────────────────────
 async function loadUserMgmt() {
-  const res = await fetch('/api/users');
-  allUsers = await res.json();
-  if (!allStockOptions.length) {
-    try {
-      const sr = await fetch('/api/supply_demand/stocks');
-      const list = await sr.json();
-      allStockOptions = list.map(s => ({code: s.stock_code, name: s.stock_name}));
-    } catch {}
+  try {
+    const res = await fetch('/api/users');
+    allUsers = await res.json();
+    if (!allStockOptions.length) {
+      try {
+        const sr = await fetch('/api/supply_demand/stocks');
+        const list = await sr.json();
+        allStockOptions = list.map(s => ({code: s.stock_code, name: s.stock_name}));
+      } catch {}
+    }
+    renderPermMatrix();
+  } catch(e) {
+    document.getElementById('um-table-wrap').innerHTML =
+      '<div style="text-align:center;color:#f87171;padding:32px">로드 실패</div>';
   }
-  renderPermMatrix();
 }
 
 function renderPermMatrix() {
@@ -5318,11 +5324,16 @@ async function saveCredentials() {
 let pmPollTimer = null;
 
 async function loadPriceMgmt() {
-  const res  = await fetch('/api/price_sync/stocks');
-  const rows = await res.json();
-  pmRenderSummary(rows);
-  pmRenderTable(rows);
-  await pmCheckRunning();
+  try {
+    const res  = await fetch('/api/price_sync/stocks');
+    const rows = await res.json();
+    pmRenderSummary(rows);
+    pmRenderTable(rows);
+    await pmCheckRunning();
+  } catch(e) {
+    document.getElementById('pm-tbody').innerHTML =
+      '<tr><td colspan="7" style="text-align:center;color:#f87171;padding:32px">로드 실패</td></tr>';
+  }
 }
 
 function pmRenderSummary(rows) {
@@ -5514,27 +5525,32 @@ async function loadExtHoldings(reloadCash = true) {
   await ehLoadBrokerages();
   if (!allStockOptions.length) await _ensureStockOptions();
 
-  const reqs = [fetch('/api/manual_holdings')];
-  if (reloadCash) reqs.push(fetch('/api/settings'));
-  const [holdRes, settRes] = await Promise.all(reqs);
+  try {
+    const reqs = [fetch('/api/manual_holdings')];
+    if (reloadCash) reqs.push(fetch('/api/settings'));
+    const [holdRes, settRes] = await Promise.all(reqs);
 
-  ehData = await holdRes.json();
+    ehData = await holdRes.json();
 
-  if (reloadCash && settRes) {
-    const settings = await settRes.json();
-    ehCashMap = {};
-    Object.entries(settings).forEach(([k, v]) => {
-      if (k.startsWith('portfolio_cash_')) {
-        const broker = k.slice('portfolio_cash_'.length);
-        ehCashMap[broker] = parseInt((v || '0').replace(/,/g, ''), 10) || 0;
-      }
-    });
-    ehRefreshCashInput();
+    if (reloadCash && settRes) {
+      const settings = await settRes.json();
+      ehCashMap = {};
+      Object.entries(settings).forEach(([k, v]) => {
+        if (k.startsWith('portfolio_cash_')) {
+          const broker = k.slice('portfolio_cash_'.length);
+          ehCashMap[broker] = parseInt((v || '0').replace(/,/g, ''), 10) || 0;
+        }
+      });
+      ehRefreshCashInput();
+    }
+
+    ehRenderFilterBtns();
+    ehUpdateSummary();
+    ehRender();
+  } catch(e) {
+    document.getElementById('eh-tbody').innerHTML =
+      '<tr><td colspan="12" style="text-align:center;color:#f87171;padding:32px">로드 실패</td></tr>';
   }
-
-  ehRenderFilterBtns();
-  ehUpdateSummary();
-  ehRender();
 }
 
 async function ehSaveCash() {
@@ -7396,10 +7412,15 @@ function qaUpdateScoreColor() {
 }
 
 async function loadQualitative() {
-  const res = await fetch('/api/qualitative/items');
-  qaItems = await res.json();
-  qaRenderSummary();
-  qaRenderItems();
+  try {
+    const res = await fetch('/api/qualitative/items');
+    qaItems = await res.json();
+    qaRenderSummary();
+    qaRenderItems();
+  } catch(e) {
+    document.getElementById('qa-items-tbody').innerHTML =
+      '<tr><td colspan="7" style="text-align:center;color:#f87171;padding:32px">로드 실패</td></tr>';
+  }
 }
 
 function qaRenderSummary() {
@@ -8140,9 +8161,14 @@ let macroData = [];
 async function loadMacro() {
   document.getElementById('macro-tbody').innerHTML =
     '<tr><td colspan="6" class="loading">로딩 중...</td></tr>';
-  const res = await fetch('/api/macro_rates');
-  macroData = await res.json();
-  macroRender();
+  try {
+    const res = await fetch('/api/macro_rates');
+    macroData = await res.json();
+    macroRender();
+  } catch(e) {
+    document.getElementById('macro-tbody').innerHTML =
+      '<tr><td colspan="6" style="text-align:center;color:#f87171;padding:32px">로드 실패</td></tr>';
+  }
 }
 
 const MACRO_NAVER_KEYS = new Set(['USD_KRW','EUR_KRW','JPY_KRW','CNY_KRW','GBP_KRW','GOLD_KRX']);
