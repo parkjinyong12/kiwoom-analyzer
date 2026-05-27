@@ -4,6 +4,8 @@ Risk Manager Agent 단위 테스트.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+KST = ZoneInfo("Asia/Seoul")
 
 import pytest
 
@@ -108,7 +110,7 @@ class TestMarketContext:
         ctx = MarketContext()
         ctx.update(-3.0)
         # 강제로 업데이트 시간을 31분 전으로 조작
-        ctx._updated_at = datetime.now() - timedelta(minutes=31)
+        ctx._updated_at = datetime.now(tz=KST) - timedelta(minutes=31)
         assert ctx.is_market_crash(-2.0) is False
 
 
