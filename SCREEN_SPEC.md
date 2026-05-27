@@ -529,7 +529,22 @@
 ## 테마 리밸런싱 (theme-rebalance)
 
 **개요**  
-종목에 테마·섹터 태그를 붙이고 테마별 목표 비중을 설정해 포트폴리오를 관리한다. 리밸런싱 계획을 현금/신용 매수 모드로 시뮬레이션.
+종목에 테마·섹터 태그를 붙이고 테마별 목표 비중을 설정해 포트폴리오를 관리한다.  
+핵심 철학: **강제 목표비중 맞추기가 아닌 큰 방향 점검 + 테마 간 자금이동 한도 + 종목별 충돌 방지**.
+
+**3단계 신호 체계**
+
+| 단계 | 조건 | 조정비율 |
+|------|------|----------|
+| 정상 | relDev 기준 이하 | 없음 |
+| 주의 | alert×50% < relDev <= alert | 20% |
+| 리밸런싱 필요 | relDev > alert | 40% |
+
+**충돌 방지 규칙**
+- 매도: 개별비중 낮은 종목 제외, 개별 과다 종목 우선
+- 매수: 개별비중 높은 종목 제외, 개별 부족 종목 우선
+- 현금 목표 미달: 매수 = 매도 이내로 자동 제한
+- 5만원 미만: 관망 처리
 
 **레이아웃 구성**
 
@@ -564,7 +579,7 @@
 
 | 메서드 | 경로 | 파라미터 | 주요 응답 |
 |--------|------|----------|-----------|
-| GET | `/api/theme_rebalance` | 없음 | `{themes[], stocks[], portfolio_total, stock_total, total_cash, alert_up, alert_down}` |
+| GET | `/api/theme_rebalance` | 없음 | `{themes[], stocks[{rb_dev_rel,...}], portfolio_total, stock_total, total_cash, alert_up, alert_down, watch_up, watch_down, cash_target_ratio}` |
 | PUT | `/api/theme_rebalance/stock_themes` | Body: `{stock_code, themes[]}` | `{ok}` |
 | PUT | `/api/theme_rebalance/theme_target` | Body: `{theme, target_ratio}` | `{ok}` |
 | PUT | `/api/theme_rebalance/theme_alert` | Body: `{theme, alert_up, alert_down}` | `{ok}` |
