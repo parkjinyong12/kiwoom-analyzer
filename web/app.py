@@ -326,6 +326,8 @@ def _ensure_rebalance_targets_table():
         """)
         cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS alert_up   DECIMAL(6,2) DEFAULT NULL")
         cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS alert_down DECIMAL(6,2) DEFAULT NULL")
+        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS watch_up   DECIMAL(6,2) DEFAULT NULL")
+        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS watch_down DECIMAL(6,2) DEFAULT NULL")
 
 
 def _ensure_common_codes_table():
@@ -1265,7 +1267,7 @@ def api_rebalance():
                 CASE WHEN st.last_price ~ '^[0-9]+$' THEN st.last_price::BIGINT ELSE NULL END
             ) AS current_price,
             COALESCE(rt.target_ratio, 0) AS target_ratio,
-            rt.alert_up, rt.alert_down
+            rt.alert_up, rt.alert_down, rt.watch_up, rt.watch_down
         FROM holdings_agg ha
         LEFT JOIN latest_close lc ON lc.stock_code = ha.stock_code
         LEFT JOIN stocks st ON st.stock_code = ha.stock_code
@@ -1277,6 +1279,8 @@ def api_rebalance():
     total_cash        = _get_total_cash()
     alert_up          = float(settings.get("rebalance_alert_up",   30))
     alert_down        = float(settings.get("rebalance_alert_down", 25))
+    watch_up          = float(settings.get("rebalance_watch_up",   round(alert_up  * 0.5, 1)))
+    watch_down        = float(settings.get("rebalance_watch_down", round(alert_down * 0.5, 1)))
     cash_target_ratio = float(settings.get("cash_target_ratio",    0))
 
     result = []
@@ -1298,6 +1302,8 @@ def api_rebalance():
             "target_ratio": float(r["target_ratio"] or 0),
             "alert_up":     float(r["alert_up"])   if r["alert_up"]   is not None else None,
             "alert_down":   float(r["alert_down"]) if r["alert_down"] is not None else None,
+            "watch_up":     float(r["watch_up"])   if r["watch_up"]   is not None else None,
+            "watch_down":   float(r["watch_down"]) if r["watch_down"] is not None else None,
         })
 
     portfolio_total = stock_total + total_cash
@@ -1318,6 +1324,8 @@ def api_rebalance():
         "total_cash":        total_cash,
         "alert_up":          alert_up,
         "alert_down":        alert_down,
+        "watch_up":          watch_up,
+        "watch_down":        watch_down,
         "cash_target_ratio": cash_target_ratio,
     })
 
@@ -1337,16 +1345,20 @@ def api_rebalance_stock_setting():
     target_ratio = _to_float_or_none(data.get("target_ratio"))
     alert_up     = _to_float_or_none(data.get("alert_up"))
     alert_down   = _to_float_or_none(data.get("alert_down"))
+    watch_up     = _to_float_or_none(data.get("watch_up"))
+    watch_down   = _to_float_or_none(data.get("watch_down"))
     with get_conn() as conn:
         conn.cursor().execute("""
-            INSERT INTO rebalance_targets (stock_code, target_ratio, alert_up, alert_down, updated_at)
-            VALUES (%s, COALESCE(%s, 0), %s, %s, NOW())
+            INSERT INTO rebalance_targets (stock_code, target_ratio, alert_up, alert_down, watch_up, watch_down, updated_at)
+            VALUES (%s, COALESCE(%s, 0), %s, %s, %s, %s, NOW())
             ON CONFLICT (stock_code) DO UPDATE SET
                 target_ratio = COALESCE(EXCLUDED.target_ratio, rebalance_targets.target_ratio),
                 alert_up     = EXCLUDED.alert_up,
                 alert_down   = EXCLUDED.alert_down,
+                watch_up     = EXCLUDED.watch_up,
+                watch_down   = EXCLUDED.watch_down,
                 updated_at   = NOW()
-        """, (stock_code, target_ratio, alert_up, alert_down))
+        """, (stock_code, target_ratio, alert_up, alert_down, watch_up, watch_down))
     return jsonify({"ok": True})
 
 

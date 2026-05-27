@@ -2003,6 +2003,16 @@ canvas { max-height: 220px; }
                  style="width:55px;padding:5px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#60a5fa;font-size:13px;text-align:center;outline:none"/>
           <span style="font-size:12px;color:#64748b">% 이하 → 추가매수</span>
         </div>
+        <div style="width:1px;height:18px;background:#334155;flex-shrink:0"></div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:12px;color:#f59e0b">주의 상향</span>
+          <input type="number" id="rb-watch-up" value="15" min="0.5" max="500" step="0.5"
+                 style="width:55px;padding:5px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#f59e0b;font-size:13px;text-align:center;outline:none"/>
+          <span style="font-size:12px;color:#64748b">% / 하향</span>
+          <input type="number" id="rb-watch-down" value="12.5" min="0.5" max="500" step="0.5"
+                 style="width:55px;padding:5px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#f59e0b;font-size:13px;text-align:center;outline:none"/>
+          <span style="font-size:12px;color:#f59e0b;font-weight:500">% → 주의</span>
+        </div>
         <button class="btn btn-primary" style="font-size:12px;padding:6px 14px" onclick="rbSaveThresholds()">저장</button>
       </div>
     </div>
@@ -2289,7 +2299,7 @@ canvas { max-height: 220px; }
       <div class="panel" style="margin-bottom:12px">
         <div class="panel-header">
           <span>매매 추천 내역</span>
-          <span style="font-size:11px;color:#64748b">과다/부족 기준 초과 종목만 표시 · 수량은 1주 단위 절사</span>
+          <span style="font-size:11px;color:#64748b">리밸런싱 필요: 60% · 주의: 33% 부분 조정 · 5만원 미만은 관망</span>
         </div>
         <div style="overflow-x:auto">
           <table class="data-table">
@@ -2364,6 +2374,7 @@ canvas { max-height: 220px; }
           <div style="border-top:1px solid #1e2535;padding-top:16px">
             <div style="font-size:12px;color:#94a3b8;margin-bottom:12px;font-weight:600">편차 알림 기준 <span style="font-weight:400;color:#475569">(비워두면 전체 기준 적용)</span></div>
             <div style="display:flex;flex-direction:column;gap:10px">
+              <div style="font-size:11px;color:#64748b;font-weight:600">리밸런싱 필요 (초과분 60% 조정)</div>
               <!-- 과다보유: 편차 +X% 초과 시 차익실현 -->
               <div style="display:flex;align-items:center;gap:8px">
                 <span style="font-size:13px;color:#f87171;font-weight:600;white-space:nowrap">+ 편차</span>
@@ -2383,6 +2394,27 @@ canvas { max-height: 220px; }
                   <span style="padding:0 8px;color:#60a5fa;font-size:13px;background:#0f1117;border-left:1px solid #1e2535">%</span>
                 </div>
                 <span style="font-size:12px;color:#64748b;white-space:nowrap">초과 → 추가매수 고려</span>
+              </div>
+              <div style="font-size:11px;color:#64748b;font-weight:600;margin-top:6px">주의 구간 (초과분 33% 조정)</div>
+              <!-- 주의 과다 -->
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="font-size:13px;color:#f59e0b;font-weight:600;white-space:nowrap">+ 편차</span>
+                <div style="display:flex;align-items:center;border:1px solid #f59e0b;border-radius:6px;overflow:hidden;flex:1;max-width:140px">
+                  <input type="text" inputmode="decimal" id="ss-watch-up" placeholder="기본"
+                         style="width:100%;padding:8px 10px;background:#0f1117;color:#f59e0b;font-size:14px;outline:none;border:none;text-align:right"/>
+                  <span style="padding:0 8px;color:#f59e0b;font-size:13px;background:#0f1117;border-left:1px solid #1e2535">%</span>
+                </div>
+                <span style="font-size:12px;color:#64748b;white-space:nowrap">초과 → 주의 (과다)</span>
+              </div>
+              <!-- 주의 부족 -->
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="font-size:13px;color:#f59e0b;font-weight:600;white-space:nowrap">− 편차</span>
+                <div style="display:flex;align-items:center;border:1px solid #f59e0b;border-radius:6px;overflow:hidden;flex:1;max-width:140px">
+                  <input type="text" inputmode="decimal" id="ss-watch-down" placeholder="기본"
+                         style="width:100%;padding:8px 10px;background:#0f1117;color:#f59e0b;font-size:14px;outline:none;border:none;text-align:right"/>
+                  <span style="padding:0 8px;color:#f59e0b;font-size:13px;background:#0f1117;border-left:1px solid #1e2535">%</span>
+                </div>
+                <span style="font-size:12px;color:#64748b;white-space:nowrap">초과 → 주의 (부족)</span>
               </div>
             </div>
           </div>
@@ -6056,6 +6088,11 @@ async function ehDelete(id, name) {
 let rbData = [];
 let rbAlertUp            = 30;
 let rbAlertDown          = 25;
+let rbWatchUp            = 15;
+let rbWatchDown          = 12.5;
+const RB_ALERT_ADJ_RATIO = 0.60;
+const RB_WATCH_ADJ_RATIO = 0.33;
+const RB_MIN_ACTION_AMT  = 50000;
 let rbPortfolioTotal     = 0;
 let rbStockTotal         = 0;
 let rbTotalCash          = 0;
@@ -6076,6 +6113,8 @@ async function loadRebalance() {
     rbData              = json.holdings || [];
     rbAlertUp           = json.alert_up          ?? 30;
     rbAlertDown         = json.alert_down        ?? 25;
+    rbWatchUp           = json.watch_up          ?? Math.round(rbAlertUp  * 0.5 * 10) / 10;
+    rbWatchDown         = json.watch_down        ?? Math.round(rbAlertDown * 0.5 * 10) / 10;
     rbPortfolioTotal    = json.portfolio_total   || 0;
     rbStockTotal        = json.stock_total       || 0;
     rbTotalCash         = json.total_cash        || 0;
@@ -6084,6 +6123,10 @@ async function loadRebalance() {
     document.getElementById('rb-threshold-up').value        = rbAlertUp;
     document.getElementById('rb-threshold-down').value      = rbAlertDown;
     document.getElementById('rb-cash-target-input').value   = rbCashTargetRatio || 0;
+    const wUpEl = document.getElementById('rb-watch-up');
+    if (wUpEl) wUpEl.value = rbWatchUp;
+    const wDownEl = document.getElementById('rb-watch-down');
+    if (wDownEl) wDownEl.value = rbWatchDown;
 
     rbUpdateSummary(json);
     rbRenderMarginPanel();
@@ -6128,6 +6171,19 @@ function rbUpdateSummary(json) {
     const aDown = r.alert_down !== null ? r.alert_down : rbAlertDown;
     return relDev > aUp || relDev < -aDown;
   }).length;
+  const stockWatchCnt = rbData.filter(r => {
+    if (!r.target_ratio) return false;
+    const cur    = isStockPage && rbStockTotal > 0
+      ? r.eval_amt / rbStockTotal * 100
+      : r.current_ratio;
+    const relDev = r.target_ratio > 0 ? (cur - r.target_ratio) / r.target_ratio * 100 : null;
+    if (relDev === null) return false;
+    const aUp   = r.alert_up   !== null ? r.alert_up   : rbAlertUp;
+    const aDown = r.alert_down !== null ? r.alert_down : rbAlertDown;
+    const wUp   = r.watch_up   !== null ? r.watch_up   : rbWatchUp;
+    const wDown = r.watch_down !== null ? r.watch_down : rbWatchDown;
+    return (relDev > wUp && relDev <= aUp) || (relDev < -wDown && relDev >= -aDown);
+  }).length;
 
   // 현금 편차 알림 — 주식간 페이지에서는 현금 무관
   let cashAlerted = false;
@@ -6138,13 +6194,23 @@ function rbUpdateSummary(json) {
   }
 
   const alertCnt = stockAlertCnt + (cashAlerted ? 1 : 0);
+  const watchCnt = stockWatchCnt;
   // 주식간 페이지에서는 현금 목표 미설정 카운트 제외
   const unsetCnt = rbData.filter(r => !r.target_ratio).length + (isStockPage || rbCashTargetRatio ? 0 : 1);
 
   const alertEl = document.getElementById('rb-alert-cnt');
   alertEl.textContent = alertCnt;
-  alertEl.style.color = alertCnt > 0 ? '#f59e0b' : '#4ade80';
-  document.getElementById('rb-alert-note').textContent = alertCnt > 0 ? '즉시 검토 필요' : '이상 없음';
+  alertEl.style.color = alertCnt > 0 ? '#f87171' : watchCnt > 0 ? '#f59e0b' : '#4ade80';
+  const noteEl = document.getElementById('rb-alert-note');
+  if (alertCnt > 0) {
+    noteEl.textContent = watchCnt > 0 ? `+ 주의 ${watchCnt}종목` : '즉시 검토 필요';
+  } else if (watchCnt > 0) {
+    noteEl.textContent = `주의 ${watchCnt}종목`;
+    noteEl.style.color = '#f59e0b';
+  } else {
+    noteEl.textContent = '이상 없음';
+    noteEl.style.color = '#64748b';
+  }
   document.getElementById('rb-unset-cnt').textContent = unsetCnt;
 }
 
@@ -6448,47 +6514,58 @@ function rbRender() {
     // 종목별 임계값 (없으면 전체 기준)
     const aUp   = r.alert_up   !== null ? r.alert_up   : rbAlertUp;
     const aDown = r.alert_down !== null ? r.alert_down : rbAlertDown;
+    const wUp   = r.watch_up   !== null ? r.watch_up   : rbWatchUp;
+    const wDown = r.watch_down !== null ? r.watch_down : rbWatchDown;
 
     // 편차 표시
     let devStr = '-', devColor = '#64748b';
     if (tgt > 0 && relDev !== null) {
       const sign = relDev >= 0 ? '+' : '';
       devStr = `${sign}${relDev.toFixed(1)}%<br><span style="font-size:10px;color:#64748b">${absDev >= 0 ? '+' : ''}${absDev.toFixed(2)}pp</span>`;
-      if (relDev > aUp)                        devColor = '#f87171';
-      else if (relDev < -aDown)                devColor = '#60a5fa';
-      else if (Math.abs(relDev) > aUp * 0.6)  devColor = '#f59e0b';
+      if      (relDev > aUp)                       devColor = '#f87171';
+      else if (relDev < -aDown)                    devColor = '#60a5fa';
+      else if (relDev > wUp || relDev < -wDown)    devColor = '#f59e0b';
     }
 
-    // 신호
+    // 신호 (정상 / 주의 / 리밸런싱 필요 3단계)
     let signal = '', sigColor = '#64748b', sigBg = '';
     if (tgt > 0 && relDev !== null) {
-      if      (relDev > aUp)   { signal = '차익실현 검토'; sigColor = '#f87171'; sigBg = 'background:rgba(248,113,113,0.1);'; }
-      else if (relDev < -aDown){ signal = '추가매수 검토'; sigColor = '#60a5fa'; sigBg = 'background:rgba(96,165,250,0.1);'; }
-      else                     { signal = '정상 범위';    sigColor = '#4ade80'; }
+      if      (relDev > aUp)    { signal = '차익실현 검토';  sigColor = '#f87171'; sigBg = 'background:rgba(248,113,113,0.1);'; }
+      else if (relDev < -aDown) { signal = '추가매수 검토';  sigColor = '#60a5fa'; sigBg = 'background:rgba(96,165,250,0.1);'; }
+      else if (relDev > wUp)    { signal = '⚠ 주의 (과다)'; sigColor = '#f59e0b'; sigBg = 'background:rgba(245,158,11,0.08);'; }
+      else if (relDev < -wDown) { signal = '⚠ 주의 (부족)'; sigColor = '#f59e0b'; sigBg = 'background:rgba(245,158,11,0.08);'; }
+      else                      { signal = '정상 범위';      sigColor = '#4ade80'; }
     } else if (!tgt) {
       signal = '목표 미설정'; sigColor = '#64748b';
     }
 
-    // 조정수량 계산
+    // 조정수량 (부분 조정: 주의 33%, 리밸런싱 필요 60%)
     let adjCell = '<td class="center" style="color:#475569">-</td>';
     const adjBase = isStockRebalancePage ? rbStockTotal : rbPortfolioTotal;
-    if (tgt > 0 && r.current_price != null && adjBase > 0) {
-      const targetEval = adjBase * tgt / 100;
-      const diff       = targetEval - r.eval_amt;
-      const shares     = Math.floor(Math.abs(diff) / r.current_price);
-      const adjAmt     = shares * r.current_price;
-      if (shares === 0) {
+    if (tgt > 0 && r.current_price != null && adjBase > 0 && relDev !== null) {
+      let adjRatio = 0;
+      if      (relDev > aUp   || relDev < -aDown) adjRatio = RB_ALERT_ADJ_RATIO;
+      else if (relDev > wUp   || relDev < -wDown)  adjRatio = RB_WATCH_ADJ_RATIO;
+      if (adjRatio === 0) {
         adjCell = `<td class="center" style="color:#4ade80;font-size:12px">유지</td>`;
-      } else if (diff > 0) {
-        adjCell = `<td class="center">
-          <span style="color:#60a5fa;font-weight:600;font-size:13px">매수 ${shares.toLocaleString()}주</span>
-          <br><span style="font-size:10px;color:#64748b">약 ${adjAmt.toLocaleString()}원</span>
-        </td>`;
       } else {
-        adjCell = `<td class="center">
-          <span style="color:#f87171;font-weight:600;font-size:13px">매도 ${shares.toLocaleString()}주</span>
-          <br><span style="font-size:10px;color:#64748b">약 ${adjAmt.toLocaleString()}원</span>
-        </td>`;
+        const targetEval  = adjBase * tgt / 100;
+        const partialDiff = (targetEval - r.eval_amt) * adjRatio;
+        const shares      = Math.floor(Math.abs(partialDiff) / r.current_price);
+        const adjAmt      = shares * r.current_price;
+        if (shares === 0 || adjAmt < RB_MIN_ACTION_AMT) {
+          adjCell = `<td class="center" style="color:#f59e0b;font-size:12px">관망</td>`;
+        } else if (partialDiff > 0) {
+          adjCell = `<td class="center">
+            <span style="color:#60a5fa;font-weight:600;font-size:13px">매수 ${shares.toLocaleString()}주</span>
+            <br><span style="font-size:10px;color:#64748b">약 ${adjAmt.toLocaleString()}원</span>
+          </td>`;
+        } else {
+          adjCell = `<td class="center">
+            <span style="color:#f87171;font-weight:600;font-size:13px">매도 ${shares.toLocaleString()}주</span>
+            <br><span style="font-size:10px;color:#64748b">약 ${adjAmt.toLocaleString()}원</span>
+          </td>`;
+        }
       }
     } else if (tgt > 0 && r.current_price == null) {
       adjCell = `<td class="center" style="color:#475569;font-size:11px">현재가 없음</td>`;
@@ -6510,9 +6587,9 @@ function rbRender() {
       onkeydown="if(event.key==='Enter'&&!event.isComposing)this.blur()"/>
     <span style="font-size:11px;color:#64748b">%</span>`;
 
-    const hasCustom = r.alert_up !== null || r.alert_down !== null;
-    const upColor   = r.alert_up   !== null ? '#f87171' : '#7f1d1d';
-    const downColor = r.alert_down !== null ? '#60a5fa' : '#1e3a5f';
+    const upColor    = r.alert_up   !== null ? '#f87171' : '#7f1d1d';
+    const downColor  = r.alert_down !== null ? '#60a5fa' : '#1e3a5f';
+    const watchColor = (r.watch_up !== null || r.watch_down !== null) ? '#f59e0b' : '#78530a';
     return `<tr>
       <td>
         <span style="font-weight:500;cursor:pointer;color:#60a5fa;text-decoration:underline;text-underline-offset:3px"
@@ -6521,6 +6598,8 @@ function rbRender() {
           <span style="color:${upColor}">▼${aUp}%</span>
           <span style="color:#334155;margin:0 2px">·</span>
           <span style="color:${downColor}">▲${aDown}%</span>
+          <span style="color:#334155;margin:0 3px">|</span>
+          <span style="color:${watchColor};font-size:9px">○${wUp}·${wDown}%</span>
         </span>
       </td>
       <td class="num">${r.eval_amt.toLocaleString()}원${r.has_price ? '' : '<br><span style="font-size:10px;color:#64748b">매입가 기준</span>'}</td>
@@ -6548,6 +6627,10 @@ function showStockSetting(stockCode) {
   document.getElementById('ss-alert-down').value     = r.alert_down !== null ? r.alert_down : '';
   document.getElementById('ss-alert-up').placeholder   = `기본값 ${rbAlertUp}%`;
   document.getElementById('ss-alert-down').placeholder = `기본값 ${rbAlertDown}%`;
+  document.getElementById('ss-watch-up').value       = r.watch_up   !== null ? r.watch_up   : '';
+  document.getElementById('ss-watch-down').value     = r.watch_down !== null ? r.watch_down : '';
+  document.getElementById('ss-watch-up').placeholder   = `기본값 ${rbWatchUp}%`;
+  document.getElementById('ss-watch-down').placeholder = `기본값 ${rbWatchDown}%`;
   document.getElementById('ss-save-msg').style.display = 'none';
 }
 
@@ -6559,17 +6642,21 @@ function hideStockSetting() {
 
 async function ssSave() {
   if (!ssCurrentCode) return;
-  const target   = document.getElementById('ss-target').value;
-  const alertUp  = document.getElementById('ss-alert-up').value;
-  const alertDown= document.getElementById('ss-alert-down').value;
+  const target    = document.getElementById('ss-target').value;
+  const alertUp   = document.getElementById('ss-alert-up').value;
+  const alertDown = document.getElementById('ss-alert-down').value;
+  const watchUp   = document.getElementById('ss-watch-up').value;
+  const watchDown = document.getElementById('ss-watch-down').value;
   await fetch('/api/rebalance/stock_setting', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       stock_code:   ssCurrentCode,
-      target_ratio: target   !== '' ? parseFloat(target)    : null,
-      alert_up:     alertUp  !== '' ? Math.abs(parseFloat(alertUp))   : null,
-      alert_down:   alertDown!== '' ? Math.abs(parseFloat(alertDown)) : null,
+      target_ratio: target    !== '' ? parseFloat(target)                : null,
+      alert_up:     alertUp   !== '' ? Math.abs(parseFloat(alertUp))     : null,
+      alert_down:   alertDown !== '' ? Math.abs(parseFloat(alertDown))   : null,
+      watch_up:     watchUp   !== '' ? Math.abs(parseFloat(watchUp))     : null,
+      watch_down:   watchDown !== '' ? Math.abs(parseFloat(watchDown))   : null,
     }),
   });
   const msg = document.getElementById('ss-save-msg');
@@ -6582,6 +6669,8 @@ async function ssSave() {
     document.getElementById('ss-target').value     = updated.target_ratio || '';
     document.getElementById('ss-alert-up').value   = updated.alert_up   !== null ? updated.alert_up   : '';
     document.getElementById('ss-alert-down').value = updated.alert_down !== null ? updated.alert_down : '';
+    document.getElementById('ss-watch-up').value   = updated.watch_up   !== null ? updated.watch_up   : '';
+    document.getElementById('ss-watch-down').value = updated.watch_down !== null ? updated.watch_down : '';
     // 재로드로 뷰가 리셋됐을 수 있으므로 설정뷰 다시 표시
     document.getElementById('srb-list-view').style.display    = 'none';
     document.getElementById('srb-setting-view').style.display = 'block';
@@ -6592,6 +6681,8 @@ async function ssClear() {
   if (!ssCurrentCode) return;
   document.getElementById('ss-alert-up').value   = '';
   document.getElementById('ss-alert-down').value = '';
+  document.getElementById('ss-watch-up').value   = '';
+  document.getElementById('ss-watch-down').value = '';
   await ssSave();
 }
 
@@ -6623,6 +6714,8 @@ async function rbSaveCashTarget(inputEl) {
 async function rbSaveThresholds() {
   rbAlertUp         = parseFloat(document.getElementById('rb-threshold-up').value)       || 30;
   rbAlertDown       = parseFloat(document.getElementById('rb-threshold-down').value)     || 25;
+  rbWatchUp         = parseFloat(document.getElementById('rb-watch-up')?.value)          || Math.round(rbAlertUp  * 0.5 * 10) / 10;
+  rbWatchDown       = parseFloat(document.getElementById('rb-watch-down')?.value)        || Math.round(rbAlertDown * 0.5 * 10) / 10;
   rbCashTargetRatio = parseFloat(document.getElementById('rb-cash-target-input').value)  || 0;
   await fetch('/api/settings', {
     method: 'PUT',
@@ -6630,6 +6723,8 @@ async function rbSaveThresholds() {
     body: JSON.stringify({
       rebalance_alert_up:   String(rbAlertUp),
       rebalance_alert_down: String(rbAlertDown),
+      rebalance_watch_up:   String(rbWatchUp),
+      rebalance_watch_down: String(rbWatchDown),
       cash_target_ratio:    String(rbCashTargetRatio),
     }),
   });
@@ -6656,7 +6751,8 @@ function rbToggleRecommendation() {
 }
 
 function rbRenderRecommendation() {
-  const items = [];
+  const actionItems = [];  // 실제 매매 (>= 5만원)
+  const observeItems = []; // 관망 (주의 또는 소액)
   let totalBuy = 0, totalSell = 0;
   let noPriceCnt = 0;
 
@@ -6664,60 +6760,65 @@ function rbRenderRecommendation() {
     if (!r.target_ratio) continue;
     if (r.current_price == null) { noPriceCnt++; continue; }
 
-    // 주식총액 기준 — 현금 고려 안함
     const cur    = rbStockTotal > 0 ? r.eval_amt / rbStockTotal * 100 : r.current_ratio;
     const tgt    = r.target_ratio;
-    const absDev = parseFloat((cur - tgt).toFixed(2));
     const relDev = tgt > 0 ? parseFloat(((cur - tgt) / tgt * 100).toFixed(1)) : null;
+    if (relDev === null) continue;
 
-    // 종목별 임계값 (없으면 전체 기준)
     const aUp   = r.alert_up   !== null ? r.alert_up   : rbAlertUp;
     const aDown = r.alert_down !== null ? r.alert_down : rbAlertDown;
-    // 정상 범위 종목은 추천 제외
-    if (relDev === null || (relDev <= aUp && relDev >= -aDown)) continue;
+    const wUp   = r.watch_up   !== null ? r.watch_up   : rbWatchUp;
+    const wDown = r.watch_down !== null ? r.watch_down : rbWatchDown;
 
-    const targetEval = rbStockTotal * tgt / 100;
-    const diff       = targetEval - r.eval_amt;
-    let adjQty, adjAmt;
+    const isAlert = relDev > aUp || relDev < -aDown;
+    const isWatch = !isAlert && (relDev > wUp || relDev < -wDown);
+    if (!isAlert && !isWatch) continue;
 
-    if (diff > 0) {
-      adjQty = Math.floor(diff / r.current_price);
-      adjAmt = adjQty * r.current_price;
-      totalBuy += adjAmt;
-    } else {
-      adjQty = -Math.floor(Math.abs(diff) / r.current_price);
-      adjAmt = Math.abs(adjQty) * r.current_price;
-      totalSell += adjAmt;
-    }
+    const adjRatio    = isAlert ? RB_ALERT_ADJ_RATIO : RB_WATCH_ADJ_RATIO;
+    const targetEval  = rbStockTotal * tgt / 100;
+    const fullDiff    = targetEval - r.eval_amt;
+    const partialDiff = fullDiff * adjRatio;
+    const shares      = Math.floor(Math.abs(partialDiff) / r.current_price);
+    const adjAmt      = shares * r.current_price;
+    const isObserve   = shares === 0 || adjAmt < RB_MIN_ACTION_AMT;
 
-    const targetQty = Math.floor(targetEval / r.current_price);
-    items.push({
-      type: adjQty > 0 ? 'buy' : adjQty < 0 ? 'sell' : 'hold',
-      stock_code: r.stock_code,
+    const item = {
+      tier: isAlert ? 'alert' : 'watch',
+      type: isObserve ? 'observe' : (partialDiff > 0 ? 'buy' : 'sell'),
       stock_name: r.stock_name || r.stock_code,
       current_price: r.current_price,
       current_qty: r.total_qty,
-      target_qty: targetQty,
-      adj_qty: adjQty,   // 부호 있음: 매수 양수, 매도 음수
+      adj_qty: isObserve ? 0 : (partialDiff > 0 ? shares : -shares),
       adj_amt: adjAmt,
       eval_amt: r.eval_amt,
       current_ratio: cur,
       target_ratio: tgt,
-    });
+      adj_ratio: adjRatio,
+    };
+
+    if (!isObserve) {
+      if (partialDiff > 0) totalBuy  += adjAmt;
+      else                 totalSell += adjAmt;
+      actionItems.push(item);
+    } else {
+      observeItems.push(item);
+    }
+  }
+
+  // 거래 후 최종 비율 (주식총액 기준)
+  const newStockTotal = rbStockTotal + totalBuy - totalSell;
+  for (const item of actionItems) {
+    item.final_eval  = item.eval_amt + item.adj_qty * item.current_price;
+    item.final_ratio = newStockTotal > 0 ? item.final_eval / newStockTotal * 100 : 0;
+  }
+  for (const item of observeItems) {
+    item.final_ratio = rbStockTotal > 0 ? item.eval_amt / rbStockTotal * 100 : 0;
   }
 
   const netCashChange = totalSell - totalBuy;
   const resultCash    = rbTotalCash + netCashChange;
-  const sellItems     = items.filter(i => i.type === 'sell').sort((a, b) => b.adj_amt - a.adj_amt);
-  const buyItems      = items.filter(i => i.type === 'buy').sort((a, b) => b.adj_amt - a.adj_amt);
-
-  // ── 거래 후 종목별 최종 비율 (주식총액 기준) ──
-  const newStockTotal = rbStockTotal + totalBuy - totalSell;
-  for (const item of items) {
-    const tradeValue   = item.adj_qty * item.current_price;
-    item.final_eval    = item.eval_amt + tradeValue;
-    item.final_ratio   = newStockTotal > 0 ? item.final_eval / newStockTotal * 100 : 0;
-  }
+  const sellItems     = actionItems.filter(i => i.type === 'sell').sort((a, b) => b.adj_amt - a.adj_amt);
+  const buyItems      = actionItems.filter(i => i.type === 'buy').sort((a, b) => b.adj_amt - a.adj_amt);
 
   // ── 요약 카드 ──
   document.getElementById('rr-total-buy').textContent  = totalBuy.toLocaleString() + '원';
@@ -6745,63 +6846,72 @@ function rbRenderRecommendation() {
 
   // ── 추천 테이블 ──
   const tbody = document.getElementById('rr-tbody');
-  if (!items.length) {
+  if (!actionItems.length && !observeItems.length) {
     tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:28px;color:#475569">목표 비율·현재가가 설정된 종목 없음</td></tr>';
     return;
   }
 
-  function renderRrRow(r) {
-    const isBuy  = r.type === 'buy';
-    const isSell = r.type === 'sell';
-    const color  = isBuy ? '#60a5fa' : '#f87171';
-    const rowBg  = isBuy ? 'rgba(96,165,250,0.05)' : 'rgba(248,113,113,0.05)';
-    const adjSign = r.adj_qty > 0 ? '+' : '';
+  function renderRrRow(item) {
+    const isBuy  = item.type === 'buy';
+    const isSell = item.type === 'sell';
+    const isObs  = item.type === 'observe';
+    const color  = isObs ? '#f59e0b' : isBuy ? '#60a5fa' : '#f87171';
+    const rowBg  = isObs ? 'rgba(245,158,11,0.04)' : isBuy ? 'rgba(96,165,250,0.05)' : 'rgba(248,113,113,0.05)';
+    const adjSign = item.adj_qty > 0 ? '+' : '';
     const amtSign = isBuy ? '-' : '+';
-    const finalDiff = r.final_ratio - r.target_ratio;
-    const finalOk   = Math.abs(finalDiff) < 1;
-    const finalColor = finalOk ? '#4ade80' : '#f59e0b';
+    const finalDiff  = item.final_ratio - item.target_ratio;
+    const finalColor = Math.abs(finalDiff) < 1 ? '#4ade80' : '#f59e0b';
+    const pctLabel   = item.tier === 'watch'
+      ? `<span style="font-size:10px;color:#f59e0b"> (주의·${Math.round(item.adj_ratio*100)}%)</span>`
+      : `<span style="font-size:10px;color:#64748b"> (${Math.round(item.adj_ratio*100)}%)</span>`;
+    const adjQtyStr = isObs ? '관망' : `${adjSign}${item.adj_qty.toLocaleString()}주`;
+    const adjAmtStr = isObs
+      ? `<span style="font-size:10px;color:#64748b">${item.adj_amt > 0 ? item.adj_amt.toLocaleString()+'원 미만' : '1주 미만'}</span>`
+      : `${amtSign}${item.adj_amt.toLocaleString()}원`;
     return `<tr style="background:${rowBg}">
-      <td style="font-weight:500">${r.stock_name}</td>
-      <td class="num">${r.current_price.toLocaleString()}원</td>
-      <td class="num" style="color:${color};font-weight:600">${adjSign}${r.adj_qty.toLocaleString()}주</td>
-      <td class="num" style="color:${color};font-weight:500">${amtSign}${r.adj_amt.toLocaleString()}원</td>
-      <td class="num" style="font-size:12px;color:#64748b">${r.current_ratio.toFixed(2)}%</td>
-      <td class="num" style="font-size:12px;color:#94a3b8">${r.target_ratio.toFixed(1)}%</td>
-      <td class="num" style="color:${finalColor};font-weight:600">${r.final_ratio.toFixed(2)}%</td>
+      <td style="font-weight:500">${item.stock_name}${pctLabel}</td>
+      <td class="num">${item.current_price.toLocaleString()}원</td>
+      <td class="num" style="color:${color};font-weight:600">${adjQtyStr}</td>
+      <td class="num" style="color:${color};font-weight:500">${adjAmtStr}</td>
+      <td class="num" style="font-size:12px;color:#64748b">${item.current_ratio.toFixed(2)}%</td>
+      <td class="num" style="font-size:12px;color:#94a3b8">${item.target_ratio.toFixed(1)}%</td>
+      <td class="num" style="color:${finalColor};font-weight:600">${item.final_ratio.toFixed(2)}%</td>
     </tr>`;
   }
 
   const stepStyle = (bg, color, label, total) =>
-    `<tr style="background:${bg}"><td colspan="7" style="padding:7px 12px;font-size:11px;font-weight:700;letter-spacing:1px;color:${color}">${label} · 합계 ${total.toLocaleString()}원</td></tr>`;
+    `<tr style="background:${bg}"><td colspan="7" style="padding:7px 12px;font-size:11px;font-weight:700;letter-spacing:1px;color:${color}">${label}${total > 0 ? ' · 합계 ' + total.toLocaleString() + '원' : ''}</td></tr>`;
 
   let html = '';
   if (sellItems.length) {
-    html += stepStyle('#1c0f0f', '#f87171', 'STEP 1 — 매도', totalSell);
+    html += stepStyle('#1c0f0f', '#f87171', 'STEP 1 — 매도 (60% 부분 조정)', totalSell);
     html += sellItems.map(renderRrRow).join('');
   }
   if (buyItems.length) {
-    html += stepStyle('#0d1a2e', '#60a5fa', 'STEP 2 — 매수', totalBuy);
+    html += stepStyle('#0d1a2e', '#60a5fa', 'STEP 2 — 매수 (60% 부분 조정)', totalBuy);
     html += buyItems.map(renderRrRow).join('');
+  }
+  if (observeItems.length) {
+    html += stepStyle('#0d1208', '#f59e0b', '관망 — 주의 구간이거나 조정 효과 5만원 미만', 0);
+    html += observeItems.map(renderRrRow).join('');
   }
   tbody.innerHTML = html;
 
   // ── 안내 메시지 ──
   const notes = [];
+  notes.push(`ℹ️ 리밸런싱 필요 종목: 초과분의 60% 조정 · 주의 종목: 33% 조정 · 조정 효과 5만원 미만은 관망 처리`);
   if (totalBuy === 0 && totalSell === 0) {
-    notes.push('✅ 모든 종목이 목표 비율에 근접해 있습니다. 추가 거래가 필요하지 않습니다.');
+    notes.push('✅ 즉각 매매가 필요한 종목 없음' + (observeItems.length ? ` (관망 ${observeItems.length}종목 포함)` : ''));
   } else if (totalBuy > 0 && totalSell === 0) {
-    // 매수만 필요
     if (rbTotalCash >= totalBuy) {
       notes.push(`✅ 매수 ${totalBuy.toLocaleString()}원 전액 보유 현금으로 충당 가능합니다. 거래 후 현금 ${resultCash.toLocaleString()}원 남습니다.`);
     } else {
       const short = totalBuy - rbTotalCash;
-      notes.push(`⚠️ 매수 필요금액 ${totalBuy.toLocaleString()}원 중 현금 ${rbTotalCash.toLocaleString()}원 보유 — <b style="color:#f87171">${short.toLocaleString()}원 부족</b>합니다. 일부 매수를 포기하거나 현금을 추가 입금해주세요.`);
+      notes.push(`⚠️ 매수 필요금액 ${totalBuy.toLocaleString()}원 중 현금 ${rbTotalCash.toLocaleString()}원 보유 — <b style="color:#f87171">${short.toLocaleString()}원 부족</b>합니다.`);
     }
   } else if (totalSell > 0 && totalBuy === 0) {
-    // 매도만 필요
     notes.push(`📌 매도 후 현금 ${totalSell.toLocaleString()}원이 추가됩니다. 거래 후 현금 ${resultCash.toLocaleString()}원 (포트폴리오의 ${(rbPortfolioTotal > 0 ? resultCash / rbPortfolioTotal * 100 : 0).toFixed(1)}%).`);
   } else {
-    // 매도 + 매수 혼합
     if (netCashChange >= 0) {
       notes.push(`✅ 매도 대금(${totalSell.toLocaleString()}원)으로 매수(${totalBuy.toLocaleString()}원)를 충당하고 ${netCashChange.toLocaleString()}원이 남습니다.`);
     } else {
@@ -6814,7 +6924,6 @@ function rbRenderRecommendation() {
       }
     }
   }
-
   if (rbCashTargetRatio > 0) {
     const afterRatio = rbPortfolioTotal > 0 ? resultCash / rbPortfolioTotal * 100 : 0;
     const diff = afterRatio - rbCashTargetRatio;
@@ -6824,7 +6933,6 @@ function rbRenderRecommendation() {
   if (noPriceCnt > 0) {
     notes.push(`⚠️ 현재가 미입력 종목 ${noPriceCnt}개는 추천에서 제외되었습니다. 현재가 관리 화면에서 가격을 입력해주세요.`);
   }
-
   document.getElementById('rr-notes').innerHTML = notes.join('<br>');
 }
 
