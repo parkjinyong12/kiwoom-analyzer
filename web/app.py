@@ -2379,6 +2379,8 @@ def api_batch():
             except (ProcessLookupError, PermissionError):
                 _batch_pids.pop(jid, None)
                 pid = None
+        log_basename = f"{j['log_prefix']}.log"
+        log_path = os.path.join(BASE_DIR, "logs", log_basename)
         jobs.append({
             "id": jid,
             "name": j["name"],
@@ -2386,6 +2388,8 @@ def api_batch():
             "running": pid is not None,
             "pid": pid,
             "manual_stopped": jid in _batch_manual_stopped,
+            "log_file": log_basename if os.path.exists(log_path) else None,
+            "last_line": "",
         })
     return jsonify(jobs)
 

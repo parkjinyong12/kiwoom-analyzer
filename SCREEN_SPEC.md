@@ -372,13 +372,14 @@
 ## 현금 대 주식 리밸런싱 (rebalance)
 
 **개요**  
-현금 목표 비중 대비 현재 비중을 분석해 리밸런싱 방향을 제시한다. 현금 과다/부족 경보 임계값 설정 가능.
+현금 목표 비중 대비 현재 비중을 분석해 리밸런싱 방향을 제시한다. 현금 과다/부족 경보 임계값 및 주의 구간(watch) 설정 가능.
 
 **레이아웃 구성**
 
 ```
 [ 새로고침 ]
-[ 기준 설정 패널 ]  현금 목표비율 % | 과다보유 기준 +% | 부족보유 기준 -%  [ 저장 ]
+[ 기준 설정 패널 ]
+  현금 목표비율 % | 과다보유 기준 +% | 부족보유 기준 -% | 주의 상향 % / 하향 %  [ 저장 ]
 [ 요약 카드 × 4 ]  총 자산 | 주식 평가금 | 현금성 자산 | 현금 현재비율/목표비율
 ─────────────────────────────────────────────────────────────────
 [ 비율 시각화 바 ]  주식 ■■■■■■■□□□ 현금 (목표 마커 표시)
@@ -388,7 +389,7 @@
 ```
 
 **주요 기능**
-- 기준값 저장: `rbSaveThresholds()` → `PUT /api/rebalance/stock_setting` 호출
+- 기준값 저장: `rbSaveThresholds()` → `PUT /api/settings` 에 alert/watch 임계값 일괄 저장
 - 비율 바: 현재 현금 비중과 목표 비중을 시각적으로 비교, 경보 임계값 구간 강조
 - 거래 계획 토글: 현금 부족 시 '어떤 종목 얼마나 매도' 제안 테이블 표시
 
@@ -396,13 +397,15 @@
 | 요소 | 용도 |
 |------|------|
 | `input#rb-cash-target-input` | 현금 목표 비율 (%) |
-| `input#rb-threshold-up` | 과다보유 경보 기준 (+%) |
-| `input#rb-threshold-down` | 부족보유 경보 기준 (-%) |
+| `input#rb-threshold-up` | 과다보유 경보 기준 — 리밸런싱 필요 상향 (%) |
+| `input#rb-threshold-down` | 부족보유 경보 기준 — 리밸런싱 필요 하향 (%) |
+| `input#rb-watch-up` | 주의 구간 상향 기준 (기본값: alert_up × 0.5) |
+| `input#rb-watch-down` | 주의 구간 하향 기준 (기본값: alert_down × 0.5) |
 
 | 메서드 | 경로 | 파라미터 | 주요 응답 |
 |--------|------|----------|-----------|
-| GET | `/api/rebalance` | 없음 | `{holdings[], portfolio_total, stock_total, total_cash, alert_up, alert_down, cash_target_ratio}` |
-| PUT | `/api/rebalance/stock_setting` | Body: `{stock_code, target_ratio, alert_up, alert_down}` | `{ok}` |
+| GET | `/api/rebalance` | 없음 | `{holdings[], portfolio_total, stock_total, total_cash, alert_up, alert_down, watch_up, watch_down, cash_target_ratio}` |
+| PUT | `/api/rebalance/stock_setting` | Body: `{stock_code, target_ratio, alert_up, alert_down, watch_up, watch_down}` | `{ok}` |
 | PUT | `/api/rebalance/target` | Body: `{stock_code, target_ratio}` | `{ok}` |
 
 ---
@@ -448,41 +451,78 @@
 ## 주식 간 리밸런싱 (stock-rebalance)
 
 **개요**  
-보유 주식 종목 간 목표 비중을 설정하고 현재 비중과의 차이를 분석한다. 목록 뷰 ↔ 개별 종목 설정 뷰로 전환.
+보유 주식 종목 간 목표 비중을 설정하고 현재 비중과의 차이를 3단계 신호로 분석한다.  
+상승장 주도주 보호를 위해 목표비중 100% 조정 대신 부분 조정 방식을 사용한다.  
+목록 뷰 ↔ 개별 종목 설정 뷰로 전환.
 
 **레이아웃 구성**
 
 ```
 [ 새로고침 ]
 ─────── 목록 뷰 ────────────────────────────────────────────────
-[ 요약 카드 × 4 ]  총 포트폴리오 | 목표비율 합계 | 리밸런싱 필요 | 목표 미설정
-[ 매매 추천 패널 (토글) ]  매수/매도 추천 카드 + 추천 테이블
+[ 요약 카드 × 4 ]  총 포트폴리오 | 목표비율 합계 | 리밸런싱 필요(+ 주의 종목 수) | 목표 미설정
+[ 매매 추천 패널 (토글) ]
+  총 매수금액 | 총 매도금액 | 순 현금 변동 | 거래 후 예상 현금
+  STEP 1 — 매도 (60% 부분 조정)
+  STEP 2 — 매수 (60% 부분 조정)
+  관망 섹션 — 주의 구간 또는 조정 효과 5만원 미만
 [ 종목별 비율 현황 테이블 ]
-  종목코드 | 종목명 | 현재가 | 평가금 | 현재비율 | 목표비율 | 차이 | 편차 상태 | 설정
+  종목명(임계값 표시) | 평가금액 | 현재비율 | 목표비율 | 편차 | 신호 | 조정수량
 
 ─────── 설정 뷰 (종목 행 클릭 진입) ───────────────────────────
 [ ← 목록으로 돌아가기 ]
 [ 종목 정보 헤더 ]
-[ 목표비율 % ]  [ +편차 기준 % ]  [ -편차 기준 % ]  [ 저장 ]  [ 초기화 ]
+[ 목표비율 % ]
+[ 리밸런싱 필요 구간 ]  +편차 % (alert_up)  |  -편차 % (alert_down)  → 초과분 60% 조정
+[ 주의 구간 ]           +편차 % (watch_up)  |  -편차 % (watch_down)  → 초과분 33% 조정
+[ 저장 ]  [ 개별 기준 초기화 ]
 ```
 
+**신호 3단계**
+| 상태 | 색상 | 조건 | 조정 액션 |
+|------|------|------|-----------|
+| 정상 범위 | 초록 | `\|relDev\| < watch` | 없음 (유지) |
+| ⚠ 주의 (과다/부족) | 주황 | `watch ≤ \|relDev\| < alert` | 초과분의 **33%** 부분 조정 |
+| 차익실현/추가매수 검토 | 빨강/파랑 | `\|relDev\| ≥ alert` | 초과분의 **60%** 부분 조정 |
+
+- `relDev`: 상대 편차 (%) = `(현재비율 - 목표비율) / 목표비율 × 100`
+- 조정 금액 < 5만원 → 수량 대신 **관망** 표시 (상태는 유지)
+
+**기본 임계값**
+- `alert_up` / `alert_down`: 전역 설정 (기본 30% / 25%)
+- `watch_up` / `watch_down`: 전역 설정 (기본 alert × 0.5 = 15% / 12.5%)
+- 종목별 개별 설정 가능 (`rebalance_targets` 테이블)
+
 **주요 기능**
-- 목록 뷰: 종목별 현재비중·목표비중·차이를 테이블로 표시, 편차 초과 시 경보 색상
+- 목록 뷰: 종목별 현재비중·목표비중·편차를 3단계 색상으로 표시
+- 조정수량: 단계별 부분 조정 비율 적용, 5만원 미만 효과는 '관망'
 - 설정 뷰: 종목 행 클릭 → `showStockSetting(stockCode)` → 인라인 설정 화면
 - [저장] `ssSave()` → `PUT /api/rebalance/stock_setting`
-- [초기화] `ssClear()` → 해당 종목 목표비율 0으로 리셋
+- [초기화] `ssClear()` → 개별 alert/watch 기준 전체 초기화 (전역값으로 복귀)
 
 **폼 입력 (설정 뷰)**
 | 요소 | 용도 |
 |------|------|
 | `input#ss-target` | 목표 비율 (%) |
-| `input#ss-alert-up` | 상방 편차 경보 기준 |
-| `input#ss-alert-down` | 하방 편차 경보 기준 |
+| `input#ss-alert-up` | 리밸런싱 필요 — 상방 편차 기준 (%) |
+| `input#ss-alert-down` | 리밸런싱 필요 — 하방 편차 기준 (%) |
+| `input#ss-watch-up` | 주의 구간 — 상방 편차 기준 (%) |
+| `input#ss-watch-down` | 주의 구간 — 하방 편차 기준 (%) |
+
+**DB 테이블 (`rebalance_targets`)**
+| 컬럼 | 타입 | 용도 |
+|------|------|------|
+| `stock_code` | VARCHAR PK | 종목코드 |
+| `target_ratio` | DECIMAL(6,2) | 목표 비율 (%) |
+| `alert_up` | DECIMAL(6,2) NULL | 종목별 리밸런싱 상향 기준 (NULL = 전역값) |
+| `alert_down` | DECIMAL(6,2) NULL | 종목별 리밸런싱 하향 기준 (NULL = 전역값) |
+| `watch_up` | DECIMAL(6,2) NULL | 종목별 주의 상향 기준 (NULL = 전역값) |
+| `watch_down` | DECIMAL(6,2) NULL | 종목별 주의 하향 기준 (NULL = 전역값) |
 
 | 메서드 | 경로 | 파라미터 | 주요 응답 |
 |--------|------|----------|-----------|
-| GET | `/api/rebalance` | 없음 | 동일 (화면별 렌더링만 다름) |
-| PUT | `/api/rebalance/stock_setting` | Body: `{stock_code, target_ratio, alert_up, alert_down}` | `{ok}` |
+| GET | `/api/rebalance` | 없음 | `{holdings[{...watch_up, watch_down}], alert_up, alert_down, watch_up, watch_down, ...}` |
+| PUT | `/api/rebalance/stock_setting` | Body: `{stock_code, target_ratio, alert_up, alert_down, watch_up, watch_down}` | `{ok}` |
 
 ---
 
