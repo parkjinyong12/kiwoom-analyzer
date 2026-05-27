@@ -1533,10 +1533,13 @@ def api_theme_rebalance():
         ORDER BY ha.stock_name
     """)
 
-    settings   = _get_app_settings()
-    total_cash = _get_total_cash()
-    alert_up   = float(settings.get("rebalance_alert_up",   30))
-    alert_down = float(settings.get("rebalance_alert_down", 25))
+    settings          = _get_app_settings()
+    total_cash        = _get_total_cash()
+    alert_up          = float(settings.get("rebalance_alert_up",   30))
+    alert_down        = float(settings.get("rebalance_alert_down", 25))
+    watch_up          = float(settings.get("rebalance_watch_up",   round(alert_up   * 0.5, 1)))
+    watch_down        = float(settings.get("rebalance_watch_down", round(alert_down * 0.5, 1)))
+    cash_target_ratio = float(settings.get("cash_target_ratio", 0))
 
     # Calc eval amounts
     stock_total = 0
@@ -1564,6 +1567,17 @@ def api_theme_rebalance():
     portfolio_total = stock_total + total_cash
     for s in stocks:
         s["current_ratio"] = round(s["eval_amt"] / stock_total * 100, 2) if stock_total > 0 else 0
+
+    # Attach individual stock rebalancing signals (over/under-weighted)
+    rb_targets = {r["stock_code"]: float(r["target_ratio"])
+                  for r in query("SELECT stock_code, target_ratio FROM rebalance_targets WHERE target_ratio > 0")}
+    for s in stocks:
+        rb_tgt = rb_targets.get(s["stock_code"])
+        if rb_tgt and rb_tgt > 0:
+            s["rb_dev_rel"] = round((s["current_ratio"] - rb_tgt) / rb_tgt * 100, 1)
+        else:
+            s["rb_dev_rel"] = None
+        s["rb_target_ratio"] = rb_tgt
 
     # Aggregate by theme (split eval_amt equally across themes)
     theme_data: dict[str, dict] = {}
@@ -1611,13 +1625,16 @@ def api_theme_rebalance():
         })
 
     return jsonify({
-        "themes":          theme_result,
-        "stocks":          stocks,
-        "portfolio_total": round(portfolio_total),
-        "stock_total":     round(stock_total),
-        "total_cash":      total_cash,
-        "alert_up":        alert_up,
-        "alert_down":      alert_down,
+        "themes":            theme_result,
+        "stocks":            stocks,
+        "portfolio_total":   round(portfolio_total),
+        "stock_total":       round(stock_total),
+        "total_cash":        total_cash,
+        "alert_up":          alert_up,
+        "alert_down":        alert_down,
+        "watch_up":          watch_up,
+        "watch_down":        watch_down,
+        "cash_target_ratio": cash_target_ratio,
     })
 
 
