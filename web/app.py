@@ -304,14 +304,42 @@ def _ensure_credit_positions_table():
         """)
 
 
-def _get_total_cash() -> int:
+def _current_uid() -> int:
+    return session["user_id"]
+
+
+def _get_total_cash(uid: int) -> int:
     """현금성 자산 합계. cash_assets 테이블 우선, 없으면 legacy portfolio_cash_* fallback."""
-    rows = query("SELECT COALESCE(SUM(amount), 0) AS total FROM cash_assets")
+    rows = query("SELECT COALESCE(SUM(amount), 0) AS total FROM cash_assets WHERE user_id = %s", (uid,))
     ca_total = int(rows[0]["total"]) if rows else 0
     if ca_total > 0:
         return ca_total
     settings = _get_app_settings()
     return sum(int(v or 0) for k, v in settings.items() if k.startswith("portfolio_cash_"))
+
+
+def _ensure_user_id_migration():
+    """manual_holdings, cash_assets, credit_positions 에 user_id 컬럼 추가 및 기존 데이터 이관."""
+    with get_conn() as conn:
+        cur = conn.cursor()
+        for tbl in ("manual_holdings", "cash_assets", "credit_positions"):
+            cur.execute(f"ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)")
+        # 기존 데이터를 첫 번째 사용자에게 귀속
+        for tbl in ("manual_holdings", "cash_assets", "credit_positions"):
+            cur.execute(f"UPDATE {tbl} SET user_id = (SELECT MIN(id) FROM users) WHERE user_id IS NULL")
+        # credit_positions: UNIQUE(brokerage) → UNIQUE(user_id, brokerage)
+        cur.execute("""
+            DO $$ BEGIN
+                ALTER TABLE credit_positions DROP CONSTRAINT IF EXISTS credit_positions_brokerage_unique;
+            EXCEPTION WHEN others THEN NULL;
+            END $$
+        """)
+        cur.execute("""
+            DO $$ BEGIN
+                ALTER TABLE credit_positions ADD CONSTRAINT credit_positions_user_brokerage_unique UNIQUE (user_id, brokerage);
+            EXCEPTION WHEN duplicate_table THEN NULL;
+            END $$
+        """)
 
 
 def _ensure_rebalance_targets_table():
@@ -1072,6 +1100,7 @@ def api_common_codes_delete(cid: int):
 @app.route("/api/manual_holdings")
 def api_manual_holdings_list():
     """타사 보유종목 목록 조회."""
+    uid = _current_uid()
     rows = query("""
         WITH latest_close AS (
             SELECT DISTINCT ON (stock_code)
@@ -1094,8 +1123,9 @@ def api_manual_holdings_list():
         FROM manual_holdings mh
         LEFT JOIN latest_close lc ON lc.stock_code = mh.stock_code
         LEFT JOIN stocks st ON st.stock_code = mh.stock_code
+        WHERE mh.user_id = %s
         ORDER BY mh.brokerage, mh.stock_name, mh.stock_code
-    """)
+    """, (uid,))
     for r in rows:
         r["avg_price"]     = float(r["avg_price"])     if r["avg_price"]     is not None else 0.0
         r["current_price"] = int(r["current_price"])   if r["current_price"] is not None else None
@@ -1107,6 +1137,7 @@ def api_manual_holdings_list():
 @app.route("/api/manual_holdings", methods=["POST"])
 def api_manual_holdings_create():
     """타사 보유종목 추가."""
+    uid = _current_uid()
     data = request.get_json() or {}
     brokerage  = (data.get("brokerage") or "").strip()
     stock_code = (data.get("stock_code") or "").strip()
@@ -1122,16 +1153,17 @@ def api_manual_holdings_create():
     if quantity <= 0:
         return jsonify({"error": "보유수량은 1 이상이어야 합니다"}), 400
     row = query_one("""
-        INSERT INTO manual_holdings (brokerage, stock_code, stock_name, quantity, avg_price, memo)
-        VALUES (%s, %s, %s, %s, %s, %s)
+        INSERT INTO manual_holdings (user_id, brokerage, stock_code, stock_name, quantity, avg_price, memo)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         RETURNING id
-    """, (brokerage, stock_code, stock_name, quantity, avg_price, memo))
+    """, (uid, brokerage, stock_code, stock_name, quantity, avg_price, memo))
     return jsonify({"ok": True, "id": row["id"]}), 201
 
 
 @app.route("/api/manual_holdings/<int:hid>", methods=["PUT"])
 def api_manual_holdings_update(hid: int):
     """타사 보유종목 수정."""
+    uid = _current_uid()
     data = request.get_json() or {}
     brokerage  = (data.get("brokerage") or "").strip()
     stock_code = (data.get("stock_code") or "").strip()
@@ -1151,26 +1183,29 @@ def api_manual_holdings_update(hid: int):
             UPDATE manual_holdings
             SET brokerage = %s, stock_code = %s, stock_name = %s,
                 quantity = %s, avg_price = %s, memo = %s, updated_at = NOW()
-            WHERE id = %s
-        """, (brokerage, stock_code, stock_name, quantity, avg_price, memo, hid))
+            WHERE id = %s AND user_id = %s
+        """, (brokerage, stock_code, stock_name, quantity, avg_price, memo, hid, uid))
     return jsonify({"ok": True})
 
 
 @app.route("/api/manual_holdings/<int:hid>", methods=["DELETE"])
 def api_manual_holdings_delete(hid: int):
     """타사 보유종목 삭제."""
+    uid = _current_uid()
     with get_conn() as conn:
-        conn.cursor().execute("DELETE FROM manual_holdings WHERE id = %s", (hid,))
+        conn.cursor().execute("DELETE FROM manual_holdings WHERE id = %s AND user_id = %s", (hid, uid))
     return jsonify({"ok": True})
 
 
 @app.route("/api/price_sync/stocks")
 def api_price_sync_stocks():
     """타사 보유종목 현재가 현황 (현재가 관리 화면용)."""
+    uid = _current_uid()
     rows = query("""
         WITH holdings AS (
             SELECT stock_code, MAX(stock_name) AS stock_name
             FROM manual_holdings
+            WHERE user_id = %s
             GROUP BY stock_code
         ),
         latest_close AS (
@@ -1193,7 +1228,7 @@ def api_price_sync_stocks():
         LEFT JOIN latest_close lc ON lc.stock_code = h.stock_code
         LEFT JOIN stocks st ON st.stock_code = h.stock_code
         ORDER BY h.stock_code
-    """)
+    """, (uid,))
     for r in rows:
         r["current_price"] = int(r["current_price"]) if r["current_price"] is not None else None
         r["price_date"]    = r["price_date"].strftime("%Y-%m-%d") if r["price_date"] else None
@@ -1240,6 +1275,7 @@ def api_price_sync_manual():
 @app.route("/api/rebalance")
 def api_rebalance():
     """보유종목 통합(전 증권사) 리밸런싱 데이터."""
+    uid = _current_uid()
     rows = query("""
         WITH latest_close AS (
             SELECT DISTINCT ON (stock_code)
@@ -1255,6 +1291,7 @@ def api_rebalance():
                 SUM(quantity) AS total_qty,
                 SUM(quantity * avg_price) / NULLIF(SUM(quantity), 0) AS weighted_avg_price
             FROM manual_holdings
+            WHERE user_id = %s
             GROUP BY stock_code
         )
         SELECT
@@ -1273,10 +1310,10 @@ def api_rebalance():
         LEFT JOIN stocks st ON st.stock_code = ha.stock_code
         LEFT JOIN rebalance_targets rt ON rt.stock_code = ha.stock_code
         ORDER BY ha.stock_name
-    """)
+    """, (uid,))
 
     settings          = _get_app_settings()
-    total_cash        = _get_total_cash()
+    total_cash        = _get_total_cash(uid)
     alert_up          = float(settings.get("rebalance_alert_up",   30))
     alert_down        = float(settings.get("rebalance_alert_down", 25))
     watch_up          = float(settings.get("rebalance_watch_up",   round(alert_up  * 0.5, 1)))
@@ -1392,11 +1429,12 @@ def api_rebalance_target():
 @app.route("/api/credit_positions")
 def api_credit_positions_list():
     """신용 포지션 목록 조회."""
+    uid = _current_uid()
     rows = query("""
         SELECT id, brokerage, purchase_amount, loan_amount, note,
                TO_CHAR(updated_at, 'YYYY-MM-DD HH24:MI') AS updated_at
-        FROM credit_positions ORDER BY brokerage
-    """)
+        FROM credit_positions WHERE user_id = %s ORDER BY brokerage
+    """, (uid,))
     positions = [{
         "id":              r["id"],
         "brokerage":       r["brokerage"] or "",
@@ -1424,18 +1462,20 @@ def api_credit_positions_list():
         FROM manual_holdings mh
         LEFT JOIN latest_close lc ON lc.stock_code = mh.stock_code
         LEFT JOIN stocks st ON st.stock_code = mh.stock_code
+        WHERE mh.user_id = %s
         GROUP BY mh.brokerage
         ORDER BY mh.brokerage
-    """)
+    """, (uid,))
     broker_stock_eval = {(r["brokerage"] or ""): round(float(r["stock_eval"] or 0)) for r in broker_rows}
 
     cash_rows = query("""
         SELECT brokerage, SUM(amount) AS cash_eval
         FROM cash_assets
-        WHERE brokerage != ''
+        WHERE user_id = %s
+          AND brokerage != ''
           AND asset_type_code != 'LAD'
         GROUP BY brokerage
-    """)
+    """, (uid,))
     broker_cash_eval = {(r["brokerage"] or ""): round(float(r["cash_eval"] or 0)) for r in cash_rows}
 
     return jsonify({"positions": positions, "broker_stock_eval": broker_stock_eval, "broker_cash_eval": broker_cash_eval})
@@ -1444,6 +1484,7 @@ def api_credit_positions_list():
 @app.route("/api/credit_positions", methods=["POST"])
 def api_credit_positions_upsert():
     """증권사당 1건 — 증권사 기준 UPSERT."""
+    uid = _current_uid()
     data = request.get_json() or {}
     brokerage = (data.get("brokerage") or "").strip()
     if not brokerage:
@@ -1456,20 +1497,21 @@ def api_credit_positions_upsert():
     note = (data.get("note") or "").strip()
     with get_conn() as conn:
         conn.cursor().execute("""
-            INSERT INTO credit_positions (brokerage, purchase_amount, loan_amount, note, updated_at)
-            VALUES (%s, %s, %s, %s, NOW())
-            ON CONFLICT (brokerage)
+            INSERT INTO credit_positions (user_id, brokerage, purchase_amount, loan_amount, note, updated_at)
+            VALUES (%s, %s, %s, %s, %s, NOW())
+            ON CONFLICT (user_id, brokerage)
             DO UPDATE SET purchase_amount = EXCLUDED.purchase_amount,
                           loan_amount     = EXCLUDED.loan_amount,
                           note            = EXCLUDED.note,
                           updated_at      = NOW()
-        """, (brokerage, purchase, loan, note))
+        """, (uid, brokerage, purchase, loan, note))
     return jsonify({"ok": True})
 
 
 @app.route("/api/credit_positions/<int:pid>", methods=["PUT"])
 def api_credit_positions_update(pid: int):
     """신용 포지션 수정."""
+    uid = _current_uid()
     data = request.get_json() or {}
     try:
         purchase = int(str(data.get("purchase_amount") or 0).replace(",", ""))
@@ -1479,8 +1521,8 @@ def api_credit_positions_update(pid: int):
     note = (data.get("note") or "").strip()
     with get_conn() as conn:
         conn.cursor().execute(
-            "UPDATE credit_positions SET purchase_amount=%s, loan_amount=%s, note=%s, updated_at=NOW() WHERE id=%s",
-            (purchase, loan, note, pid),
+            "UPDATE credit_positions SET purchase_amount=%s, loan_amount=%s, note=%s, updated_at=NOW() WHERE id=%s AND user_id=%s",
+            (purchase, loan, note, pid, uid),
         )
     return jsonify({"ok": True})
 
@@ -1488,8 +1530,9 @@ def api_credit_positions_update(pid: int):
 @app.route("/api/credit_positions/<int:pid>", methods=["DELETE"])
 def api_credit_positions_delete(pid: int):
     """신용 포지션 삭제."""
+    uid = _current_uid()
     with get_conn() as conn:
-        conn.cursor().execute("DELETE FROM credit_positions WHERE id=%s", (pid,))
+        conn.cursor().execute("DELETE FROM credit_positions WHERE id=%s AND user_id=%s", (pid, uid))
     return jsonify({"ok": True})
 
 
@@ -1500,6 +1543,7 @@ def api_credit_positions_delete(pid: int):
 @app.route("/api/theme_rebalance")
 def api_theme_rebalance():
     """테마별 포트폴리오 비중 분석."""
+    uid = _current_uid()
     rows = query("""
         WITH latest_close AS (
             SELECT DISTINCT ON (stock_code)
@@ -1515,6 +1559,7 @@ def api_theme_rebalance():
                 SUM(quantity) AS total_qty,
                 SUM(quantity * avg_price) / NULLIF(SUM(quantity), 0) AS weighted_avg_price
             FROM manual_holdings
+            WHERE user_id = %s
             GROUP BY stock_code
         )
         SELECT
@@ -1531,10 +1576,10 @@ def api_theme_rebalance():
         LEFT JOIN stocks st ON st.stock_code = ha.stock_code
         LEFT JOIN stock_themes sth ON sth.stock_code = ha.stock_code
         ORDER BY ha.stock_name
-    """)
+    """, (uid,))
 
     settings          = _get_app_settings()
-    total_cash        = _get_total_cash()
+    total_cash        = _get_total_cash(uid)
     alert_up          = float(settings.get("rebalance_alert_up",   30))
     alert_down        = float(settings.get("rebalance_alert_down", 25))
     watch_up          = float(settings.get("rebalance_watch_up",   round(alert_up   * 0.5, 1)))
@@ -1956,11 +2001,12 @@ def _resolve_linked_price(link_type: str, link_key: str):
 @app.route("/api/cash_assets")
 def api_cash_assets_list():
     """현금성 자산 목록 및 합계 조회."""
+    uid = _current_uid()
     rows = query("""
         SELECT id, name, brokerage, asset_type_code, quantity, unit_price, purchase_price, amount, link_type, link_key, note,
                TO_CHAR(updated_at, 'YYYY-MM-DD HH24:MI') AS updated_at
-        FROM cash_assets ORDER BY brokerage, id
-    """)
+        FROM cash_assets WHERE user_id = %s ORDER BY brokerage, id
+    """, (uid,))
     items = []
     total = 0
     for r in rows:
@@ -1986,14 +2032,15 @@ def api_cash_assets_list():
 @app.route("/api/cash_assets", methods=["POST"])
 def api_cash_assets_create():
     """현금성 자산 추가."""
+    uid = _current_uid()
     try:
         name, brokerage, qty, up, pp, amount, lt, lk, note, atc = _parse_cash_asset_body(request.get_json() or {})
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     with get_conn() as conn:
         conn.cursor().execute(
-            "INSERT INTO cash_assets (name, brokerage, asset_type_code, quantity, unit_price, purchase_price, amount, link_type, link_key, note) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-            (name, brokerage, atc, qty, up, pp, amount, lt, lk, note),
+            "INSERT INTO cash_assets (user_id, name, brokerage, asset_type_code, quantity, unit_price, purchase_price, amount, link_type, link_key, note) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            (uid, name, brokerage, atc, qty, up, pp, amount, lt, lk, note),
         )
     return jsonify({"ok": True})
 
@@ -2001,14 +2048,15 @@ def api_cash_assets_create():
 @app.route("/api/cash_assets/<int:aid>", methods=["PUT"])
 def api_cash_assets_update(aid):
     """현금성 자산 수정."""
+    uid = _current_uid()
     try:
         name, brokerage, qty, up, pp, amount, lt, lk, note, atc = _parse_cash_asset_body(request.get_json() or {})
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     with get_conn() as conn:
         conn.cursor().execute(
-            "UPDATE cash_assets SET name=%s, brokerage=%s, asset_type_code=%s, quantity=%s, unit_price=%s, purchase_price=%s, amount=%s, link_type=%s, link_key=%s, note=%s, updated_at=NOW() WHERE id=%s",
-            (name, brokerage, atc, qty, up, pp, amount, lt, lk, note, aid),
+            "UPDATE cash_assets SET name=%s, brokerage=%s, asset_type_code=%s, quantity=%s, unit_price=%s, purchase_price=%s, amount=%s, link_type=%s, link_key=%s, note=%s, updated_at=NOW() WHERE id=%s AND user_id=%s",
+            (name, brokerage, atc, qty, up, pp, amount, lt, lk, note, aid, uid),
         )
     return jsonify({"ok": True})
 
@@ -2016,15 +2064,17 @@ def api_cash_assets_update(aid):
 @app.route("/api/cash_assets/<int:aid>", methods=["DELETE"])
 def api_cash_assets_delete(aid):
     """현금성 자산 삭제."""
+    uid = _current_uid()
     with get_conn() as conn:
-        conn.cursor().execute("DELETE FROM cash_assets WHERE id=%s", (aid,))
+        conn.cursor().execute("DELETE FROM cash_assets WHERE id=%s AND user_id=%s", (aid, uid))
     return jsonify({"ok": True})
 
 
 @app.route("/api/cash_assets/<int:aid>/sync", methods=["POST"])
 def api_cash_assets_sync(aid):
     """연동 자산 현재 시세 동기화."""
-    rows = query("SELECT quantity, link_type, link_key FROM cash_assets WHERE id=%s", (aid,))
+    uid = _current_uid()
+    rows = query("SELECT quantity, link_type, link_key FROM cash_assets WHERE id=%s AND user_id=%s", (aid, uid))
     if not rows:
         return jsonify({"error": "없음"}), 404
     r   = rows[0]
@@ -2047,7 +2097,8 @@ def api_cash_assets_sync(aid):
 @app.route("/api/cash_assets/sync_all", methods=["POST"])
 def api_cash_assets_sync_all():
     """전체 연동 자산 시세 일괄 동기화."""
-    rows = query("SELECT id, quantity, link_type, link_key FROM cash_assets WHERE link_type != 'none' AND link_key != ''")
+    uid = _current_uid()
+    rows = query("SELECT id, quantity, link_type, link_key FROM cash_assets WHERE user_id=%s AND link_type != 'none' AND link_key != ''", (uid,))
     updated, failed = 0, 0
     for r in rows:
         qty = float(r["quantity"]) if r["quantity"] is not None else None
@@ -2907,6 +2958,11 @@ except Exception:
 
 try:
     _ensure_credit_positions_table()
+except Exception:
+    pass
+
+try:
+    _ensure_user_id_migration()
 except Exception:
     pass
 
