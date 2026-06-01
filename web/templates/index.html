@@ -577,26 +577,46 @@ canvas { max-height: 220px; }
         <div class="nav-item" data-page="market-structure" onclick="showPage('market-structure')">
           <span class="icon">🏗️</span> 시장 구조
         </div>
-        <div class="nav-item" data-page="report" onclick="showPage('report')">
-          <span class="icon">📧</span> 보유종목 리포트
-        </div>
-        <div class="nav-item" data-page="ext-holdings" onclick="showPage('ext-holdings')">
-          <span class="icon">🏦</span> 보유종목
-        </div>
+      </div>
+    </div>
+
+    <!-- 시장 데이터 그룹 -->
+    <div class="nav-group" id="navg-market-data">
+      <div class="nav-group-header" onclick="toggleNavGroup('navg-market-data')">
+        <span>시장 데이터</span>
+        <span class="caret">▼</span>
+      </div>
+      <div class="nav-group-body">
         <div class="nav-item" data-page="price-mgmt" onclick="showPage('price-mgmt')">
           <span class="icon">💰</span> 현재가 관리
-        </div>
-        <div class="nav-item" data-page="cash-assets" onclick="showPage('cash-assets')">
-          <span class="icon">💵</span> 현금성 자산
         </div>
         <div class="nav-item" data-page="macro" onclick="showPage('macro')">
           <span class="icon">📊</span> 매크로 관리
         </div>
-        <div class="nav-item" data-page="rebalance" onclick="showPage('rebalance')">
-          <span class="icon">⚖️</span> 현금 대 주식 리밸런싱
+      </div>
+    </div>
+
+    <!-- 내 포트폴리오 그룹 -->
+    <div class="nav-group" id="navg-portfolio">
+      <div class="nav-group-header" onclick="toggleNavGroup('navg-portfolio')">
+        <span>내 포트폴리오</span>
+        <span class="caret">▼</span>
+      </div>
+      <div class="nav-group-body">
+        <div class="nav-item" data-page="ext-holdings" onclick="showPage('ext-holdings')">
+          <span class="icon">🏦</span> 보유종목
+        </div>
+        <div class="nav-item" data-page="report" onclick="showPage('report')">
+          <span class="icon">📧</span> 보유종목 리포트
+        </div>
+        <div class="nav-item" data-page="cash-assets" onclick="showPage('cash-assets')">
+          <span class="icon">💵</span> 현금성 자산
         </div>
         <div class="nav-item" data-page="credit" onclick="showPage('credit')">
           <span class="icon">💳</span> 신용 관리
+        </div>
+        <div class="nav-item" data-page="rebalance" onclick="showPage('rebalance')">
+          <span class="icon">⚖️</span> 현금 대 주식 리밸런싱
         </div>
         <div class="nav-item" data-page="stock-rebalance" onclick="showPage('stock-rebalance')">
           <span class="icon">📈</span> 주식 간 리밸런싱
@@ -2919,10 +2939,12 @@ function closeMobileDrawer() {
 // ─── 2-depth 사이드바 그룹 토글 ──────────────────────
 const NAV_GROUP_MAP = {
   dashboard:'navg-analysis', supply:'navg-analysis', divergence:'navg-analysis',
-  snapshot:'navg-analysis',  signals:'navg-analysis', report:'navg-analysis',
-  'ext-holdings':'navg-analysis', 'price-mgmt':'navg-analysis',
-  'cash-assets':'navg-analysis', macro:'navg-analysis',
-  rebalance:'navg-analysis', credit:'navg-analysis', 'stock-rebalance':'navg-analysis', 'theme-rebalance':'navg-analysis', qualitative:'navg-analysis',
+  snapshot:'navg-analysis',  signals:'navg-analysis', 'market-structure':'navg-analysis',
+  'price-mgmt':'navg-market-data', macro:'navg-market-data',
+  'ext-holdings':'navg-portfolio', report:'navg-portfolio',
+  'cash-assets':'navg-portfolio',  credit:'navg-portfolio',
+  rebalance:'navg-portfolio', 'stock-rebalance':'navg-portfolio',
+  'theme-rebalance':'navg-portfolio', qualitative:'navg-portfolio',
   auditlog:'navg-system',    stocks:'navg-system',
   batch:'navg-admin',        spec:'navg-admin', 'common-codes':'navg-admin', usermgmt:'navg-admin',
 };
@@ -5223,18 +5245,18 @@ const MENU_META = {
   supply:     { label: '수급 현황',       icon: '💹', section: '분석' },
   divergence: { label: '수급↑ 가격↔',   icon: '🔍', section: '분석' },
   snapshot:   { label: '기간별 변화',     icon: '📊', section: '분석' },
-  signals:            { label: '매매 신호',       icon: '📈', section: '분석' },
-  'market-structure': { label: '시장 구조',       icon: '🏗️', section: '분석' },
-  report:          { label: '보유종목 리포트', icon: '📧', section: '분석' },
-  'ext-holdings':  { label: '보유종목',        icon: '🏦', section: '분석' },
-  'price-mgmt':    { label: '현재가 관리',     icon: '💰', section: '분석' },
-  'cash-assets':   { label: '현금성 자산',     icon: '💵', section: '분석' },
-  macro:           { label: '매크로 관리',     icon: '📊', section: '분석' },
-  rebalance:         { label: '현금 대 주식 리밸런싱', icon: '⚖️', section: '분석' },
-  credit:            { label: '신용 관리',           icon: '💳', section: '분석' },
-  'stock-rebalance': { label: '주식 간 리밸런싱',    icon: '📈', section: '분석' },
-  'theme-rebalance': { label: '테마 리밸런싱',    icon: '🏷️', section: '분석' },
-  qualitative:     { label: '정성 점수',       icon: '📝', section: '분석' },
+  signals:            { label: '매매 신호',   icon: '📈', section: '분석' },
+  'market-structure': { label: '시장 구조', icon: '🏗️', section: '분석' },
+  'price-mgmt':    { label: '현재가 관리', icon: '💰', section: '시장 데이터' },
+  macro:           { label: '매크로 관리', icon: '📊', section: '시장 데이터' },
+  'ext-holdings':  { label: '보유종목',          icon: '🏦', section: '내 포트폴리오' },
+  report:          { label: '보유종목 리포트',   icon: '📧', section: '내 포트폴리오' },
+  'cash-assets':   { label: '현금성 자산',       icon: '💵', section: '내 포트폴리오' },
+  credit:            { label: '신용 관리',           icon: '💳', section: '내 포트폴리오' },
+  rebalance:         { label: '현금 대 주식 리밸런싱', icon: '⚖️', section: '내 포트폴리오' },
+  'stock-rebalance': { label: '주식 간 리밸런싱',    icon: '📈', section: '내 포트폴리오' },
+  'theme-rebalance': { label: '테마 리밸런싱',       icon: '🏷️', section: '내 포트폴리오' },
+  qualitative:     { label: '정성 점수',         icon: '📝', section: '내 포트폴리오' },
   auditlog:        { label: '감사 로그',       icon: '📋', section: '시스템' },
   stocks:          { label: '감시 종목',       icon: '🔭', section: '시스템' },
   batch:           { label: '배치 관리',       icon: '⚙️', section: '관리' },
