@@ -7111,32 +7111,42 @@ function trbRenderThemes() {
     const stockList = t.stocks.map(s => s.stock_name || s.stock_code).join(', ');
     const themeEsc  = t.theme.replace(/'/g, "\\'");
 
-    const targetInput = `<input type="number" value="${t.target_ratio || ''}" placeholder="0"
-      min="0" max="100" step="0.1"
-      style="width:55px;background:none;border:none;border-bottom:1px solid #1e2535;
-             color:#e2e8f0;font-size:13px;text-align:right;outline:none;padding:2px 4px"
-      onfocus="this.style.borderColor='#3b82f6'"
-      onblur="trbSaveThemeTarget('${themeEsc}',this)"
-      onkeydown="if(event.key==='Enter'&&!event.isComposing)this.blur()"/>
-    <span style="font-size:11px;color:#64748b">%</span>`;
+    const tKey = t.theme.replace(/[^a-zA-Z0-9가-힣]/g,'_');
+    const saveBtnStyle = `padding:2px 7px;border-radius:4px;border:1px solid #1e3a5f;
+      background:#1d3a5f;color:#60a5fa;font-size:11px;cursor:pointer;white-space:nowrap;
+      opacity:0;transition:opacity .15s;pointer-events:none`;
+    const targetInput = `<div style="display:flex;align-items:center;gap:4px">
+      <input id="trb-tgt-${tKey}" type="number" value="${t.target_ratio || ''}" placeholder="0"
+        min="0" max="100" step="0.1"
+        style="width:52px;background:none;border:none;border-bottom:1px solid #1e2535;
+               color:#e2e8f0;font-size:13px;text-align:right;outline:none;padding:2px 4px"
+        onfocus="this.style.borderColor='#3b82f6';trbShowSaveBtn('trb-tbtn-${tKey}')"
+        oninput="trbShowSaveBtn('trb-tbtn-${tKey}')"
+        onkeydown="if(event.key==='Enter'&&!event.isComposing){trbSaveThemeTarget('${themeEsc}','trb-tgt-${tKey}','trb-tbtn-${tKey}');event.preventDefault()}"/>
+      <span style="font-size:11px;color:#64748b">%</span>
+      <button id="trb-tbtn-${tKey}" style="${saveBtnStyle}"
+        onclick="trbSaveThemeTarget('${themeEsc}','trb-tgt-${tKey}','trb-tbtn-${tKey}')">저장</button>
+    </div>`;
 
-    const inputStyle = `width:40px;background:none;border:none;border-bottom:1px solid #1e2535;
+    const inputStyle = `width:38px;background:none;border:none;border-bottom:1px solid #1e2535;
              font-size:12px;text-align:right;outline:none;padding:2px 3px`;
-    const alertInputs = `<div style="display:flex;align-items:center;gap:3px;justify-content:center">
-      <input type="number" value="${t.theme_alert_up ?? ''}" placeholder="${trbAlertUp}"
+    const alertInputs = `<div style="display:flex;align-items:center;gap:3px;justify-content:center;flex-wrap:wrap">
+      <input id="trb-aup-${tKey}" type="number" value="${t.theme_alert_up ?? ''}" placeholder="${trbAlertUp}"
         min="1" max="500" step="1"
         style="${inputStyle};color:#f87171"
-        onfocus="this.style.borderColor='#3b82f6'"
-        onblur="trbSaveThemeAlert('${themeEsc}','up',this)"
-        onkeydown="if(event.key==='Enter'&&!event.isComposing)this.blur()"/>
+        onfocus="this.style.borderColor='#3b82f6';trbShowSaveBtn('trb-abtn-${tKey}')"
+        oninput="trbShowSaveBtn('trb-abtn-${tKey}')"
+        onkeydown="if(event.key==='Enter'&&!event.isComposing){trbSaveThemeAlert('${themeEsc}','trb-aup-${tKey}','trb-adn-${tKey}','trb-abtn-${tKey}');event.preventDefault()}"/>
       <span style="color:#475569">/</span>
-      <input type="number" value="${t.theme_alert_down ?? ''}" placeholder="${trbAlertDown}"
+      <input id="trb-adn-${tKey}" type="number" value="${t.theme_alert_down ?? ''}" placeholder="${trbAlertDown}"
         min="1" max="500" step="1"
         style="${inputStyle};color:#60a5fa"
-        onfocus="this.style.borderColor='#3b82f6'"
-        onblur="trbSaveThemeAlert('${themeEsc}','down',this)"
-        onkeydown="if(event.key==='Enter'&&!event.isComposing)this.blur()"/>
+        onfocus="this.style.borderColor='#3b82f6';trbShowSaveBtn('trb-abtn-${tKey}')"
+        oninput="trbShowSaveBtn('trb-abtn-${tKey}')"
+        onkeydown="if(event.key==='Enter'&&!event.isComposing){trbSaveThemeAlert('${themeEsc}','trb-aup-${tKey}','trb-adn-${tKey}','trb-abtn-${tKey}');event.preventDefault()}"/>
       <span style="font-size:10px;color:#64748b">%</span>
+      <button id="trb-abtn-${tKey}" style="${saveBtnStyle}"
+        onclick="trbSaveThemeAlert('${themeEsc}','trb-aup-${tKey}','trb-adn-${tKey}','trb-abtn-${tKey}')">저장</button>
     </div>`;
 
     const hasSignal = tier !== 'normal' && t.target_ratio > 0;
@@ -7650,8 +7660,17 @@ function trbRenderStocks() {
   }).join('');
 }
 
-async function trbSaveThemeTarget(theme, inputEl) {
+function trbShowSaveBtn(btnId) {
+  const btn = document.getElementById(btnId);
+  if (btn) { btn.style.opacity = '1'; btn.style.pointerEvents = 'auto'; }
+}
+
+async function trbSaveThemeTarget(theme, inputId, btnId) {
+  const inputEl = document.getElementById(inputId);
+  if (!inputEl) return;
   inputEl.style.borderColor = '#1e2535';
+  const btn = document.getElementById(btnId);
+  if (btn) { btn.style.opacity = '0'; btn.style.pointerEvents = 'none'; btn.textContent = '저장'; }
   const val = parseFloat(inputEl.value) || 0;
   inputEl.value = val || '';
   await fetch('/api/theme_rebalance/theme_target', {
@@ -7747,16 +7766,16 @@ async function trbSaveThresholds() {
   await loadThemeRebalance();
 }
 
-async function trbSaveThemeAlert(theme, direction, inputEl) {
-  inputEl.style.borderColor = '#1e2535';
-  const val = parseFloat(inputEl.value) || null;  // null = 전역 기준 사용
-  // Build payload keeping the other direction's current value from trbData
-  const themeObj = (trbData?.themes || []).find(t => t.theme === theme) || {};
-  const payload = {
-    theme,
-    alert_up:   direction === 'up'   ? val : (themeObj.theme_alert_up   ?? null),
-    alert_down: direction === 'down' ? val : (themeObj.theme_alert_down ?? null),
-  };
+async function trbSaveThemeAlert(theme, upId, dnId, btnId) {
+  const upEl = document.getElementById(upId);
+  const dnEl = document.getElementById(dnId);
+  if (!upEl || !dnEl) return;
+  upEl.style.borderColor = '#1e2535';
+  dnEl.style.borderColor = '#1e2535';
+  const btn = document.getElementById(btnId);
+  if (btn) { btn.style.opacity = '0'; btn.style.pointerEvents = 'none'; }
+  const toNum = v => { const f = parseFloat(v); return (f > 0) ? f : null; };
+  const payload = { theme, alert_up: toNum(upEl.value), alert_down: toNum(dnEl.value) };
   await fetch('/api/theme_rebalance/theme_alert', {
     method: 'PUT', headers: {'Content-Type':'application/json'},
     body: JSON.stringify(payload),

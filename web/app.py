@@ -309,6 +309,17 @@ def _current_uid() -> int:
     return session.get("view_as_uid") or session["user_id"]
 
 
+def _backfill_null_user_ids(uid: int) -> None:
+    """마이그레이션 미완료 시 user_id=NULL 레코드를 현재 사용자에게 귀속 (on-demand 보정)."""
+    try:
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("UPDATE rebalance_targets SET user_id = %s WHERE user_id IS NULL", (uid,))
+            cur.execute("UPDATE theme_targets SET user_id = %s WHERE user_id IS NULL", (uid,))
+    except Exception:
+        pass
+
+
 def _get_total_cash(uid: int) -> int:
     """현금성 자산 합계. cash_assets 테이블 우선, 없으면 legacy portfolio_cash_* fallback."""
     rows = query("SELECT COALESCE(SUM(amount), 0) AS total FROM cash_assets WHERE user_id = %s", (uid,))
@@ -319,58 +330,86 @@ def _get_total_cash(uid: int) -> int:
     return sum(int(v or 0) for k, v in settings.items() if k.startswith("portfolio_cash_"))
 
 
+def _run_migration_step(fn):
+    """마이그레이션 단계를 독립 트랜잭션으로 실행. 실패해도 다른 단계에 영향 없음."""
+    try:
+        with get_conn() as conn:
+            fn(conn.cursor())
+    except Exception as e:
+        logging.warning("[migration] 단계 실패 (무시): %s", e)
+
+
 def _ensure_user_id_migration():
-    """manual_holdings, cash_assets, credit_positions, rebalance_targets, theme_targets 에 user_id 컬럼 추가 및 기존 데이터 이관."""
-    with get_conn() as conn:
-        cur = conn.cursor()
+    """각 테이블 user_id 컬럼 추가 및 기존 데이터 이관.
+    단계별 독립 트랜잭션으로 실행 — 한 단계 실패가 다른 단계를 막지 않음."""
+
+    # ── manual_holdings / cash_assets / credit_positions ──────────────────────
+    def _step_holdings_col(cur):
         for tbl in ("manual_holdings", "cash_assets", "credit_positions"):
             cur.execute(f"ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)")
-        # 기존 데이터를 첫 번째 사용자에게 귀속
+    _run_migration_step(_step_holdings_col)
+
+    def _step_holdings_backfill(cur):
         for tbl in ("manual_holdings", "cash_assets", "credit_positions"):
-            cur.execute(f"UPDATE {tbl} SET user_id = (SELECT MIN(id) FROM users) WHERE user_id IS NULL")
-        # credit_positions: UNIQUE(brokerage) → UNIQUE(user_id, brokerage)
+            cur.execute(f"UPDATE {tbl} SET user_id = (SELECT MIN(id) FROM users WHERE id IS NOT NULL) WHERE user_id IS NULL AND EXISTS (SELECT 1 FROM users)")
+    _run_migration_step(_step_holdings_backfill)
+
+    def _step_credit_constraint(cur):
         cur.execute("""
             DO $$ BEGIN
                 ALTER TABLE credit_positions DROP CONSTRAINT IF EXISTS credit_positions_brokerage_unique;
-            EXCEPTION WHEN others THEN NULL;
-            END $$
+            EXCEPTION WHEN others THEN NULL; END $$
         """)
         cur.execute("""
             DO $$ BEGIN
                 ALTER TABLE credit_positions ADD CONSTRAINT credit_positions_user_brokerage_unique UNIQUE (user_id, brokerage);
-            EXCEPTION WHEN duplicate_table THEN NULL;
-            END $$
+            EXCEPTION WHEN duplicate_object THEN NULL; END $$
         """)
-        # rebalance_targets: stock_code PK → user_id + stock_code UNIQUE
+    _run_migration_step(_step_credit_constraint)
+
+    # ── rebalance_targets ─────────────────────────────────────────────────────
+    def _step_rb_col(cur):
         cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)")
-        cur.execute("UPDATE rebalance_targets SET user_id = (SELECT MIN(id) FROM users) WHERE user_id IS NULL")
+    _run_migration_step(_step_rb_col)
+
+    def _step_rb_backfill(cur):
+        cur.execute("UPDATE rebalance_targets SET user_id = (SELECT MIN(id) FROM users WHERE id IS NOT NULL) WHERE user_id IS NULL AND EXISTS (SELECT 1 FROM users)")
+    _run_migration_step(_step_rb_backfill)
+
+    def _step_rb_constraint(cur):
         cur.execute("""
             DO $$ BEGIN
                 ALTER TABLE rebalance_targets DROP CONSTRAINT IF EXISTS rebalance_targets_pkey;
-            EXCEPTION WHEN others THEN NULL;
-            END $$
+            EXCEPTION WHEN others THEN NULL; END $$
         """)
         cur.execute("""
             DO $$ BEGIN
                 ALTER TABLE rebalance_targets ADD CONSTRAINT rebalance_targets_user_stock_unique UNIQUE (user_id, stock_code);
-            EXCEPTION WHEN duplicate_table THEN NULL;
-            END $$
+            EXCEPTION WHEN duplicate_object THEN NULL; END $$
         """)
-        # theme_targets: theme PK → user_id + theme UNIQUE
+    _run_migration_step(_step_rb_constraint)
+
+    # ── theme_targets ─────────────────────────────────────────────────────────
+    def _step_theme_col(cur):
         cur.execute("ALTER TABLE theme_targets ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)")
-        cur.execute("UPDATE theme_targets SET user_id = (SELECT MIN(id) FROM users) WHERE user_id IS NULL")
+    _run_migration_step(_step_theme_col)
+
+    def _step_theme_backfill(cur):
+        cur.execute("UPDATE theme_targets SET user_id = (SELECT MIN(id) FROM users WHERE id IS NOT NULL) WHERE user_id IS NULL AND EXISTS (SELECT 1 FROM users)")
+    _run_migration_step(_step_theme_backfill)
+
+    def _step_theme_constraint(cur):
         cur.execute("""
             DO $$ BEGIN
                 ALTER TABLE theme_targets DROP CONSTRAINT IF EXISTS theme_targets_pkey;
-            EXCEPTION WHEN others THEN NULL;
-            END $$
+            EXCEPTION WHEN others THEN NULL; END $$
         """)
         cur.execute("""
             DO $$ BEGIN
                 ALTER TABLE theme_targets ADD CONSTRAINT theme_targets_user_theme_unique UNIQUE (user_id, theme);
-            EXCEPTION WHEN duplicate_table THEN NULL;
-            END $$
+            EXCEPTION WHEN duplicate_object THEN NULL; END $$
         """)
+    _run_migration_step(_step_theme_constraint)
 
 
 def _ensure_rebalance_targets_table():
@@ -1358,6 +1397,7 @@ def api_rebalance():
         ORDER BY ha.stock_name
     """, (uid, uid))
 
+    _backfill_null_user_ids(uid)
     settings          = _get_user_settings(uid)
     total_cash        = _get_total_cash(uid)
     alert_up          = float(settings.get("rebalance_alert_up",   30))
@@ -1662,6 +1702,7 @@ def api_theme_rebalance():
         s["current_ratio"] = round(s["eval_amt"] / stock_total * 100, 2) if stock_total > 0 else 0
 
     # Attach individual stock rebalancing signals (over/under-weighted)
+    _backfill_null_user_ids(uid)
     rb_targets = {r["stock_code"]: float(r["target_ratio"])
                   for r in query("SELECT stock_code, target_ratio FROM rebalance_targets WHERE user_id = %s AND target_ratio > 0", (uid,))}
     for s in stocks:
