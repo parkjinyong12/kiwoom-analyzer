@@ -305,7 +305,8 @@ def _ensure_credit_positions_table():
 
 
 def _current_uid() -> int:
-    return session["user_id"]
+    """현재 세션의 실효 user_id. 관리자가 다른 사용자로 보기 중이면 그 uid 반환."""
+    return session.get("view_as_uid") or session["user_id"]
 
 
 def _get_total_cash(uid: int) -> int:
@@ -319,7 +320,7 @@ def _get_total_cash(uid: int) -> int:
 
 
 def _ensure_user_id_migration():
-    """manual_holdings, cash_assets, credit_positions 에 user_id 컬럼 추가 및 기존 데이터 이관."""
+    """manual_holdings, cash_assets, credit_positions, rebalance_targets, theme_targets 에 user_id 컬럼 추가 및 기존 데이터 이관."""
     with get_conn() as conn:
         cur = conn.cursor()
         for tbl in ("manual_holdings", "cash_assets", "credit_positions"):
@@ -337,6 +338,36 @@ def _ensure_user_id_migration():
         cur.execute("""
             DO $$ BEGIN
                 ALTER TABLE credit_positions ADD CONSTRAINT credit_positions_user_brokerage_unique UNIQUE (user_id, brokerage);
+            EXCEPTION WHEN duplicate_table THEN NULL;
+            END $$
+        """)
+        # rebalance_targets: stock_code PK → user_id + stock_code UNIQUE
+        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)")
+        cur.execute("UPDATE rebalance_targets SET user_id = (SELECT MIN(id) FROM users) WHERE user_id IS NULL")
+        cur.execute("""
+            DO $$ BEGIN
+                ALTER TABLE rebalance_targets DROP CONSTRAINT IF EXISTS rebalance_targets_pkey;
+            EXCEPTION WHEN others THEN NULL;
+            END $$
+        """)
+        cur.execute("""
+            DO $$ BEGIN
+                ALTER TABLE rebalance_targets ADD CONSTRAINT rebalance_targets_user_stock_unique UNIQUE (user_id, stock_code);
+            EXCEPTION WHEN duplicate_table THEN NULL;
+            END $$
+        """)
+        # theme_targets: theme PK → user_id + theme UNIQUE
+        cur.execute("ALTER TABLE theme_targets ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)")
+        cur.execute("UPDATE theme_targets SET user_id = (SELECT MIN(id) FROM users) WHERE user_id IS NULL")
+        cur.execute("""
+            DO $$ BEGIN
+                ALTER TABLE theme_targets DROP CONSTRAINT IF EXISTS theme_targets_pkey;
+            EXCEPTION WHEN others THEN NULL;
+            END $$
+        """)
+        cur.execute("""
+            DO $$ BEGIN
+                ALTER TABLE theme_targets ADD CONSTRAINT theme_targets_user_theme_unique UNIQUE (user_id, theme);
             EXCEPTION WHEN duplicate_table THEN NULL;
             END $$
         """)
@@ -560,6 +591,21 @@ def api_login():
 def api_logout():
     """로그아웃 (세션 삭제)."""
     session.clear()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/view_as/<int:uid>", methods=["POST"])
+def api_view_as(uid: int):
+    """다른 사용자 데이터로 보기 전환."""
+    if not session.get("user_id"):
+        return jsonify({"error": "not logged in"}), 401
+    if uid == session["user_id"]:
+        session.pop("view_as_uid", None)
+    else:
+        target = query_one("SELECT id FROM users WHERE id = %s", (uid,))
+        if not target:
+            return jsonify({"error": "사용자 없음"}), 404
+        session["view_as_uid"] = uid
     return jsonify({"ok": True})
 
 
@@ -1308,11 +1354,11 @@ def api_rebalance():
         FROM holdings_agg ha
         LEFT JOIN latest_close lc ON lc.stock_code = ha.stock_code
         LEFT JOIN stocks st ON st.stock_code = ha.stock_code
-        LEFT JOIN rebalance_targets rt ON rt.stock_code = ha.stock_code
+        LEFT JOIN rebalance_targets rt ON rt.stock_code = ha.stock_code AND rt.user_id = %s
         ORDER BY ha.stock_name
-    """, (uid,))
+    """, (uid, uid))
 
-    settings          = _get_app_settings()
+    settings          = _get_user_settings(uid)
     total_cash        = _get_total_cash(uid)
     alert_up          = float(settings.get("rebalance_alert_up",   30))
     alert_down        = float(settings.get("rebalance_alert_down", 25))
@@ -1370,6 +1416,7 @@ def api_rebalance():
 @app.route("/api/rebalance/stock_setting", methods=["PUT"])
 def api_rebalance_stock_setting():
     """종목별 목표 비중 및 알림 임계값 설정."""
+    uid = _current_uid()
     data = request.get_json() or {}
     stock_code = (data.get("stock_code") or "").strip()
     if not stock_code:
@@ -1386,22 +1433,23 @@ def api_rebalance_stock_setting():
     watch_down   = _to_float_or_none(data.get("watch_down"))
     with get_conn() as conn:
         conn.cursor().execute("""
-            INSERT INTO rebalance_targets (stock_code, target_ratio, alert_up, alert_down, watch_up, watch_down, updated_at)
-            VALUES (%s, COALESCE(%s, 0), %s, %s, %s, %s, NOW())
-            ON CONFLICT (stock_code) DO UPDATE SET
+            INSERT INTO rebalance_targets (user_id, stock_code, target_ratio, alert_up, alert_down, watch_up, watch_down, updated_at)
+            VALUES (%s, %s, COALESCE(%s, 0), %s, %s, %s, %s, NOW())
+            ON CONFLICT (user_id, stock_code) DO UPDATE SET
                 target_ratio = COALESCE(EXCLUDED.target_ratio, rebalance_targets.target_ratio),
                 alert_up     = EXCLUDED.alert_up,
                 alert_down   = EXCLUDED.alert_down,
                 watch_up     = EXCLUDED.watch_up,
                 watch_down   = EXCLUDED.watch_down,
                 updated_at   = NOW()
-        """, (stock_code, target_ratio, alert_up, alert_down, watch_up, watch_down))
+        """, (uid, stock_code, target_ratio, alert_up, alert_down, watch_up, watch_down))
     return jsonify({"ok": True})
 
 
 @app.route("/api/rebalance/target", methods=["PUT"])
 def api_rebalance_target():
     """종목 목표 비중 설정."""
+    uid = _current_uid()
     data = request.get_json() or {}
     stock_code = (data.get("stock_code") or "").strip()
     if not stock_code:
@@ -1414,11 +1462,11 @@ def api_rebalance_target():
         return jsonify({"error": "잘못된 비율 값"}), 400
     with get_conn() as conn:
         conn.cursor().execute("""
-            INSERT INTO rebalance_targets (stock_code, target_ratio, updated_at)
-            VALUES (%s, %s, NOW())
-            ON CONFLICT (stock_code)
+            INSERT INTO rebalance_targets (user_id, stock_code, target_ratio, updated_at)
+            VALUES (%s, %s, %s, NOW())
+            ON CONFLICT (user_id, stock_code)
             DO UPDATE SET target_ratio = EXCLUDED.target_ratio, updated_at = NOW()
-        """, (stock_code, target_ratio))
+        """, (uid, stock_code, target_ratio))
     return jsonify({"ok": True})
 
 
@@ -1578,7 +1626,7 @@ def api_theme_rebalance():
         ORDER BY ha.stock_name
     """, (uid,))
 
-    settings          = _get_app_settings()
+    settings          = _get_user_settings(uid)
     total_cash        = _get_total_cash(uid)
     alert_up          = float(settings.get("rebalance_alert_up",   30))
     alert_down        = float(settings.get("rebalance_alert_down", 25))
@@ -1615,7 +1663,7 @@ def api_theme_rebalance():
 
     # Attach individual stock rebalancing signals (over/under-weighted)
     rb_targets = {r["stock_code"]: float(r["target_ratio"])
-                  for r in query("SELECT stock_code, target_ratio FROM rebalance_targets WHERE target_ratio > 0")}
+                  for r in query("SELECT stock_code, target_ratio FROM rebalance_targets WHERE user_id = %s AND target_ratio > 0", (uid,))}
     for s in stocks:
         rb_tgt = rb_targets.get(s["stock_code"])
         if rb_tgt and rb_tgt > 0:
@@ -1639,7 +1687,7 @@ def api_theme_rebalance():
                 "stock_name": s["stock_name"],
             })
 
-    target_rows = query("SELECT theme, target_ratio, alert_up, alert_down FROM theme_targets")
+    target_rows = query("SELECT theme, target_ratio, alert_up, alert_down FROM theme_targets WHERE user_id = %s", (uid,))
     targets = {r["theme"]: {
         "target_ratio": float(r["target_ratio"]),
         "alert_up":   float(r["alert_up"])   if r["alert_up"]   is not None else None,
@@ -1703,6 +1751,7 @@ def api_theme_rebalance_stock_themes():
 @app.route("/api/theme_rebalance/theme_target", methods=["PUT"])
 def api_theme_rebalance_theme_target():
     """테마 목표 비중 설정."""
+    uid = _current_uid()
     data = request.get_json() or {}
     theme = (data.get("theme") or "").strip()
     if not theme:
@@ -1715,17 +1764,18 @@ def api_theme_rebalance_theme_target():
         return jsonify({"error": "잘못된 비율 값"}), 400
     with get_conn() as conn:
         conn.cursor().execute("""
-            INSERT INTO theme_targets (theme, target_ratio, updated_at)
-            VALUES (%s, %s, NOW())
-            ON CONFLICT (theme) DO UPDATE
+            INSERT INTO theme_targets (user_id, theme, target_ratio, updated_at)
+            VALUES (%s, %s, %s, NOW())
+            ON CONFLICT (user_id, theme) DO UPDATE
             SET target_ratio = EXCLUDED.target_ratio, updated_at = NOW()
-        """, (theme, target_ratio))
+        """, (uid, theme, target_ratio))
     return jsonify({"ok": True})
 
 
 @app.route("/api/theme_rebalance/theme_alert", methods=["PUT"])
 def api_theme_rebalance_theme_alert():
     """테마별 과다/부족 기준 개별 설정 (NULL = 전역 기준 사용)."""
+    uid = _current_uid()
     data = request.get_json() or {}
     theme = (data.get("theme") or "").strip()
     if not theme:
@@ -1740,11 +1790,11 @@ def api_theme_rebalance_theme_alert():
     alert_down = to_float_or_none(data.get("alert_down"))
     with get_conn() as conn:
         conn.cursor().execute("""
-            INSERT INTO theme_targets (theme, target_ratio, alert_up, alert_down, updated_at)
-            VALUES (%s, 0, %s, %s, NOW())
-            ON CONFLICT (theme) DO UPDATE
+            INSERT INTO theme_targets (user_id, theme, target_ratio, alert_up, alert_down, updated_at)
+            VALUES (%s, %s, 0, %s, %s, NOW())
+            ON CONFLICT (user_id, theme) DO UPDATE
             SET alert_up = EXCLUDED.alert_up, alert_down = EXCLUDED.alert_down, updated_at = NOW()
-        """, (theme, alert_up, alert_down))
+        """, (uid, theme, alert_up, alert_down))
     return jsonify({"ok": True})
 
 
@@ -2493,6 +2543,15 @@ def api_batch_stop(job_id: str):
     return jsonify({"ok": True})
 
 
+_USER_PREF_KEYS = {
+    "cash_target_ratio",
+    "rebalance_alert_up",
+    "rebalance_alert_down",
+    "rebalance_watch_up",
+    "rebalance_watch_down",
+}
+
+
 def _get_app_settings() -> dict:
     try:
         rows = query("SELECT key, value FROM app_settings")
@@ -2501,24 +2560,48 @@ def _get_app_settings() -> dict:
         return {}
 
 
+def _get_user_settings(uid: int) -> dict:
+    """app_settings + user_preferences(uid) 병합. 사용자 설정이 전역 설정보다 우선."""
+    settings = _get_app_settings()
+    if uid:
+        try:
+            rows = query(
+                "SELECT key, value FROM user_preferences WHERE user_id = %s AND key = ANY(%s)",
+                (uid, list(_USER_PREF_KEYS)),
+            )
+            for r in rows:
+                settings[r["key"]] = r["value"]
+        except Exception:
+            pass
+    return settings
+
+
 @app.route("/api/settings")
 def api_settings():
     """앱 설정값 조회."""
-    return jsonify(_get_app_settings())
+    return jsonify(_get_user_settings(_current_uid()))
 
 
 @app.route("/api/settings", methods=["PUT"])
 def api_save_settings():
     """앱 설정값 수정."""
+    uid = _current_uid()
     data = request.get_json() or {}
     with get_conn() as conn:
         cur = conn.cursor()
         for key, value in data.items():
-            cur.execute("""
-                INSERT INTO app_settings (key, value, updated_at)
-                VALUES (%s, %s, NOW())
-                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
-            """, (key, str(value)))
+            if key in _USER_PREF_KEYS and uid:
+                cur.execute("""
+                    INSERT INTO user_preferences (user_id, key, value)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (user_id, key) DO UPDATE SET value = EXCLUDED.value
+                """, (uid, key, str(value)))
+            else:
+                cur.execute("""
+                    INSERT INTO app_settings (key, value, updated_at)
+                    VALUES (%s, %s, NOW())
+                    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+                """, (key, str(value)))
     return jsonify({"ok": True})
 
 

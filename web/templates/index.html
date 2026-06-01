@@ -5342,17 +5342,21 @@ function renderUserList() {
   }).join('');
 }
 
-function selectUser(id) {
+async function selectUser(id) {
   const user = allUsers.find(u => u.id === id);
   if (!user) return;
+
+  // 백엔드 세션에 view_as 설정 → 모든 API 호출이 해당 사용자 데이터 반환
+  await fetch(`/api/view_as/${id}`, { method: 'POST' });
+
   applyUser(user);
   closeUserModal();
 
-  // 현재 보이지 않는 페이지에 있으면 첫 번째 보이는 메뉴로 이동
+  // 현재 페이지가 해당 사용자에게 보이지 않으면 첫 번째 가능한 메뉴로 이동
+  // 어느 경우든 showPage를 호출해 데이터 재로드
   const hash = location.hash.replace('#','');
-  if (!user.visible_menus.includes(hash)) {
-    showPage(user.visible_menus[0] || 'dashboard', false);
-  }
+  const targetHash = user.visible_menus?.includes(hash) ? hash : (user.visible_menus?.[0] || 'dashboard');
+  showPage(targetHash);
 }
 
 async function addUser() {
