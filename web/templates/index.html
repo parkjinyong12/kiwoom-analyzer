@@ -7416,27 +7416,11 @@ function trbRenderFullPlan() {
   let totalSellAmt = sellPlans.reduce((s, p) => s + p.actualAmt, 0);
   let totalBuyAmt  = buyPlans.reduce ((s, p) => s + p.actualAmt, 0);
 
-  // ⑤ 현금 부족 시 매수 = 매도 이내로 제한
+  // ⑤ 현금 부족 시 참고 메시지만 표시 (계획은 수정하지 않음 — 테마 비중은 현금과 독립)
   let cashConstrainedNote = '';
   if (!isCredit && cashTargetRatio > 0 && curCashRatio < cashTargetRatio && totalBuyAmt > totalSellAmt) {
-    const allowed = totalSellAmt;
-    cashConstrainedNote = `⚠ 현금 부족 (현재 ${curCashRatio.toFixed(1)}% < 목표 ${cashTargetRatio.toFixed(1)}%) → 매수 한도 ${Math.round(allowed).toLocaleString()}원으로 제한`;
-    if (allowed < TRB_MIN_AMT) {
-      buyPlans.forEach(p => watchItems.push({ ...p, reason: '현금 부족' }));
-      buyPlans.length = 0;
-      totalBuyAmt = 0;
-    } else {
-      const scale = allowed / totalBuyAmt;
-      buyPlans.forEach(p => {
-        p.stockTrades = p.stockTrades.map(st => {
-          const newShares = Math.max(0, Math.floor(st.shares * scale));
-          return { ...st, shares: newShares, amt: newShares * st.current_price };
-        }).filter(st => st.shares > 0);
-        p.actualAmt = p.stockTrades.reduce((s, st) => s + st.amt, 0);
-        p.cashScaled = true;
-      });
-      totalBuyAmt = buyPlans.reduce((s, p) => s + p.actualAmt, 0);
-    }
+    const netSpend = totalBuyAmt - totalSellAmt;
+    cashConstrainedNote = `ℹ 현금 비중 현재 ${curCashRatio.toFixed(1)}% · 목표 ${cashTargetRatio.toFixed(1)}% — 매수(${Math.round(totalBuyAmt).toLocaleString()}원) > 매도(${Math.round(totalSellAmt).toLocaleString()}원), 순 현금 ${Math.round(netSpend).toLocaleString()}원 필요`;
   }
 
   // ⑥ 현금흐름 계산
@@ -7494,12 +7478,6 @@ function trbRenderFullPlan() {
       html += `<tr style="background:rgba(0,0,0,0.1)">
         <td colspan="5" style="padding:4px 12px 4px 28px;font-size:10px;color:#475569">
           ⚡ 충돌 제외: ${excList}
-        </td></tr>`;
-    }
-    if (p.cashScaled) {
-      html += `<tr style="background:rgba(0,0,0,0.1)">
-        <td colspan="5" style="padding:4px 12px 4px 28px;font-size:10px;color:#f59e0b">
-          ⚠ 현금 부족으로 매수 축소
         </td></tr>`;
     }
     return html;
@@ -7611,7 +7589,7 @@ function trbRenderFullPlan() {
     </table>
     ${watchHtml}
     <div style="font-size:11px;color:#475569;margin-top:10px">
-      * 부분 조정 (편차의 40%/20%) · 개별 종목 리밸런싱 신호 충돌 제외 · 5만원 미만 관망 · 현금 목표 미달 시 매수 제한
+      * 부분 조정 (편차의 40%/20%) · 개별 종목 리밸런싱 신호 충돌 제외 · 5만원 미만 관망 · 현금 정보는 참고용 (계획에 영향 없음)
     </div>`;
 }
 
