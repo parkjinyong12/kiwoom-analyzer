@@ -6901,6 +6901,7 @@ function rbRenderRecommendation() {
     const item = {
       tier: isAlert ? 'alert' : 'watch',
       type: isObserve ? 'observe' : (partialDiff > 0 ? 'buy' : 'sell'),
+      stock_code: r.stock_code,
       stock_name: r.stock_name || r.stock_code,
       current_price: r.current_price,
       current_qty: r.total_qty,
