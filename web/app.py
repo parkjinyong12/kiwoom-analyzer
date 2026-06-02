@@ -1282,6 +1282,72 @@ def api_manual_holdings_delete(hid: int):
     return jsonify({"ok": True})
 
 
+@app.route("/api/manual_holdings/trade", methods=["POST"])
+def api_manual_holdings_trade():
+    """매수/매도 체결 내용을 보유종목에 반영.
+    매수: 기존 보유 있으면 수량+가중평균가 재계산, 없으면 신규 등록.
+    매도: 보유 수량 차감 (0 이하 방지).
+    """
+    uid = _current_uid()
+    data = request.get_json() or {}
+    stock_code  = (data.get("stock_code")  or "").strip()
+    stock_name  = (data.get("stock_name")  or "").strip()
+    direction   = (data.get("direction")   or "").lower()   # "buy" | "sell"
+    brokerage   = (data.get("brokerage")   or "").strip()
+    try:
+        quantity = int(data.get("quantity") or 0)
+        price    = float(data.get("price")  or 0)
+    except (ValueError, TypeError):
+        return jsonify({"error": "수량·가격 오류"}), 400
+
+    if not stock_code or direction not in ("buy", "sell") or quantity <= 0 or price <= 0:
+        return jsonify({"error": "필수 항목 누락 또는 잘못된 값"}), 400
+
+    with get_conn() as conn:
+        cur = conn.cursor()
+        existing = query_one(
+            "SELECT id, quantity, avg_price FROM manual_holdings WHERE user_id=%s AND brokerage=%s AND stock_code=%s",
+            (uid, brokerage, stock_code),
+        )
+        if direction == "buy":
+            if existing:
+                old_qty = int(existing["quantity"] or 0)
+                old_avg = float(existing["avg_price"] or 0)
+                new_qty = old_qty + quantity
+                new_avg = round((old_qty * old_avg + quantity * price) / new_qty, 2)
+                cur.execute(
+                    "UPDATE manual_holdings SET quantity=%s, avg_price=%s WHERE id=%s",
+                    (new_qty, new_avg, existing["id"]),
+                )
+            else:
+                if not brokerage:
+                    return jsonify({"error": "신규 매수 시 증권사 입력 필요"}), 400
+                cur.execute(
+                    "INSERT INTO manual_holdings (user_id, brokerage, stock_code, stock_name, quantity, avg_price) VALUES (%s,%s,%s,%s,%s,%s)",
+                    (uid, brokerage, stock_code, stock_name or stock_code, quantity, price),
+                )
+        else:  # sell
+            if not existing:
+                return jsonify({"error": "해당 증권사에 보유 종목 없음"}), 404
+            new_qty = max(0, int(existing["quantity"] or 0) - quantity)
+            cur.execute(
+                "UPDATE manual_holdings SET quantity=%s WHERE id=%s",
+                (new_qty, existing["id"]),
+            )
+    return jsonify({"ok": True})
+
+
+@app.route("/api/manual_holdings/brokerages")
+def api_manual_holdings_brokerages():
+    """보유종목에 등록된 증권사 목록 (체결 입력 드롭다운용)."""
+    uid = _current_uid()
+    rows = query(
+        "SELECT DISTINCT brokerage FROM manual_holdings WHERE user_id=%s AND brokerage IS NOT NULL ORDER BY brokerage",
+        (uid,),
+    )
+    return jsonify([r["brokerage"] for r in rows])
+
+
 @app.route("/api/price_sync/stocks")
 def api_price_sync_stocks():
     """타사 보유종목 현재가 현황 (현재가 관리 화면용)."""

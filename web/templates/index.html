@@ -693,6 +693,42 @@ canvas { max-height: 220px; }
 </nav>
 
 <!-- ===== 사용자 모달 ===== -->
+<!-- ── 체결 입력 모달 ── -->
+<div class="modal-overlay" id="trade-modal" onclick="event.target===this && closeTradeModal()">
+  <div class="modal" style="width:360px" onclick="event.stopPropagation()">
+    <h3 id="trade-modal-title">체결 입력</h3>
+    <div style="display:grid;gap:14px;margin-top:4px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:13px;color:#94a3b8;min-width:60px">종목</span>
+        <span id="trade-stock-name" style="font-size:14px;font-weight:600;color:#e2e8f0">-</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:13px;color:#94a3b8;min-width:60px">증권사</span>
+        <select id="trade-brokerage" style="flex:1;padding:7px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"></select>
+        <input id="trade-brokerage-new" placeholder="직접 입력" style="flex:1;padding:7px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none;display:none"/>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:13px;color:#94a3b8;min-width:60px">수량</span>
+        <input id="trade-qty" type="number" min="1" step="1"
+          style="flex:1;padding:7px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
+        <span style="font-size:12px;color:#64748b">주</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:13px;color:#94a3b8;min-width:60px">체결가</span>
+        <input id="trade-price" type="number" min="1" step="1"
+          style="flex:1;padding:7px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
+        <span style="font-size:12px;color:#64748b">원</span>
+      </div>
+      <div id="trade-total-line" style="font-size:12px;color:#64748b;text-align:right"></div>
+      <div id="trade-msg" style="font-size:12px;color:#f87171;display:none"></div>
+    </div>
+    <div class="modal-actions" style="margin-top:18px">
+      <button class="btn btn-ghost" onclick="closeTradeModal()">취소</button>
+      <button id="trade-submit-btn" class="btn btn-primary" onclick="submitTrade()">확인</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="user-modal" onclick="e => e.target===this && closeUserModal()">
   <div class="modal" style="width:400px" onclick="event.stopPropagation()">
     <h3>다른 사용자로 보기</h3>
@@ -2332,10 +2368,11 @@ canvas { max-height: 220px; }
                 <th style="text-align:right">현재비율</th>
                 <th style="text-align:right">목표비율</th>
                 <th style="text-align:right">거래후 비율</th>
+                <th></th>
               </tr>
             </thead>
             <tbody id="rr-tbody">
-              <tr><td colspan="7" class="loading">로딩 중...</td></tr>
+              <tr><td colspan="8" class="loading">로딩 중...</td></tr>
             </tbody>
           </table>
         </div>
@@ -6926,7 +6963,7 @@ function rbRenderRecommendation() {
   // ── 추천 테이블 ──
   const tbody = document.getElementById('rr-tbody');
   if (!actionItems.length && !observeItems.length) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:28px;color:#475569">목표 비율·현재가가 설정된 종목 없음</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:28px;color:#475569">목표 비율·현재가가 설정된 종목 없음</td></tr>';
     return;
   }
 
@@ -6947,6 +6984,11 @@ function rbRenderRecommendation() {
     const adjAmtStr = isObs
       ? `<span style="font-size:10px;color:#64748b">${item.adj_amt > 0 ? item.adj_amt.toLocaleString()+'원 미만' : '1주 미만'}</span>`
       : `${amtSign}${item.adj_amt.toLocaleString()}원`;
+    const tradeBtn = isObs ? '' : `<button
+      onclick="openTradeModal('${item.stock_code}','${item.stock_name.replace(/'/g,"\\'")}','${item.type}',${item.adj_qty},${item.current_price})"
+      style="padding:2px 8px;border-radius:4px;border:1px solid ${isBuy?'#1e3a5f':'#3d1515'};
+             background:${isBuy?'#1d3a5f':'#2a1010'};color:${isBuy?'#60a5fa':'#f87171'};
+             font-size:11px;cursor:pointer;white-space:nowrap">체결</button>`;
     return `<tr style="background:${rowBg}">
       <td style="font-weight:500">${item.stock_name}${pctLabel}</td>
       <td class="num">${item.current_price.toLocaleString()}원</td>
@@ -6955,6 +6997,7 @@ function rbRenderRecommendation() {
       <td class="num" style="font-size:12px;color:#64748b">${item.current_ratio.toFixed(2)}%</td>
       <td class="num" style="font-size:12px;color:#94a3b8">${item.target_ratio.toFixed(1)}%</td>
       <td class="num" style="color:${finalColor};font-weight:600">${item.final_ratio.toFixed(2)}%</td>
+      <td class="center">${tradeBtn}</td>
     </tr>`;
   }
 
@@ -7546,12 +7589,20 @@ function trbRenderFullPlan() {
       const rbNote = st.rb_dev_rel !== null
         ? `<span style="font-size:10px;color:#64748b;margin-left:3px">(개별${st.rb_dev_rel >= 0 ? '+' : ''}${st.rb_dev_rel?.toFixed(1)}%)</span>`
         : '';
+      const dir = p.direction === 'buy' ? 'buy' : 'sell';
+      const nameEsc = st.stock_name.replace(/'/g,"\\'");
       return `<tr style="background:rgba(0,0,0,0.15)">
         <td style="padding:5px 12px 5px 28px;color:#94a3b8;font-size:12px">${st.stock_name}${rbNote}</td>
         <td class="num" style="font-size:12px;color:#64748b">${st.current_price.toLocaleString()}원</td>
         <td class="num" style="color:${color};font-size:12px;font-weight:600">${p.direction === 'buy' ? '매수' : '매도'} ${st.shares.toLocaleString()}주</td>
         <td class="num" style="color:${color};font-size:12px">${st.amt.toLocaleString()}원</td>
         <td class="num" style="font-size:11px;color:#475569">${st.current_ratio.toFixed(2)}%</td>
+        <td class="center" style="padding:4px 8px">
+          <button onclick="openTradeModal('${st.stock_code}','${nameEsc}','${dir}',${st.shares},${st.current_price})"
+            style="padding:2px 8px;border-radius:4px;border:1px solid ${dir==='buy'?'#1e3a5f':'#3d1515'};
+                   background:${dir==='buy'?'#1d3a5f':'#2a1010'};color:${dir==='buy'?'#60a5fa':'#f87171'};
+                   font-size:11px;cursor:pointer;white-space:nowrap">체결</button>
+        </td>
       </tr>`;
     }).join('');
     if (p.excludedStocks?.length) {
@@ -7756,6 +7807,107 @@ async function trbSaveThemeTarget(theme, inputId, btnId) {
     body: JSON.stringify({ theme, target_ratio: val }),
   });
   await loadThemeRebalance();
+}
+
+// ─── 체결 입력 모달 ──────────────────────────────────────
+let _tradeCtx = null;
+
+async function openTradeModal(stockCode, stockName, direction, qty, price) {
+  _tradeCtx = { stockCode, stockName, direction };
+  const isBuy = direction === 'buy';
+
+  document.getElementById('trade-modal-title').textContent = isBuy ? '📈 매수 체결 입력' : '📉 매도 체결 입력';
+  document.getElementById('trade-modal-title').style.color  = isBuy ? '#60a5fa' : '#f87171';
+  document.getElementById('trade-stock-name').textContent   = stockName;
+  document.getElementById('trade-qty').value   = qty;
+  document.getElementById('trade-price').value = price;
+  document.getElementById('trade-msg').style.display = 'none';
+  updateTradeTotalLine();
+
+  // 증권사 목록 로드
+  const sel = document.getElementById('trade-brokerage');
+  sel.innerHTML = '';
+  try {
+    const brokers = await fetch('/api/manual_holdings/brokerages').then(r => r.json());
+    brokers.forEach(b => sel.add(new Option(b, b)));
+    sel.add(new Option('+ 직접 입력', '__new__'));
+  } catch { sel.add(new Option('키움증권', '키움증권')); }
+
+  // 매도일 때 해당 종목 보유 증권사만 선택 가능하도록 표시
+  document.getElementById('trade-brokerage-new').style.display = 'none';
+  sel.onchange = () => {
+    const isNew = sel.value === '__new__';
+    document.getElementById('trade-brokerage-new').style.display = isNew ? '' : 'none';
+  };
+
+  // qty/price 변경 시 총액 갱신
+  document.getElementById('trade-qty').oninput   = updateTradeTotalLine;
+  document.getElementById('trade-price').oninput = updateTradeTotalLine;
+
+  document.getElementById('trade-modal').classList.add('open');
+  document.getElementById('trade-qty').focus();
+}
+
+function updateTradeTotalLine() {
+  const q = parseInt(document.getElementById('trade-qty').value)   || 0;
+  const p = parseInt(document.getElementById('trade-price').value) || 0;
+  const total = q * p;
+  document.getElementById('trade-total-line').textContent =
+    total > 0 ? `총 ${total.toLocaleString()}원 (${q}주 × ${p.toLocaleString()}원)` : '';
+}
+
+function closeTradeModal() {
+  document.getElementById('trade-modal').classList.remove('open');
+  _tradeCtx = null;
+}
+
+async function submitTrade() {
+  if (!_tradeCtx) return;
+  const sel = document.getElementById('trade-brokerage');
+  const brokerage = sel.value === '__new__'
+    ? document.getElementById('trade-brokerage-new').value.trim()
+    : sel.value;
+  const qty   = parseInt(document.getElementById('trade-qty').value)   || 0;
+  const price = parseFloat(document.getElementById('trade-price').value) || 0;
+  const msgEl = document.getElementById('trade-msg');
+
+  if (!brokerage) { msgEl.textContent = '증권사를 선택하거나 입력하세요'; msgEl.style.display=''; return; }
+  if (qty <= 0)   { msgEl.textContent = '수량을 입력하세요';             msgEl.style.display=''; return; }
+  if (price <= 0) { msgEl.textContent = '체결가를 입력하세요';           msgEl.style.display=''; return; }
+
+  const btn = document.getElementById('trade-submit-btn');
+  btn.disabled = true;
+  btn.textContent = '저장 중...';
+
+  const res = await fetch('/api/manual_holdings/trade', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      stock_code: _tradeCtx.stockCode,
+      stock_name: _tradeCtx.stockName,
+      direction:  _tradeCtx.direction,
+      quantity:   qty,
+      price:      price,
+      brokerage:  brokerage,
+    }),
+  });
+
+  btn.disabled = false;
+  btn.textContent = '확인';
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    msgEl.textContent = err.error || '저장 실패';
+    msgEl.style.display = '';
+    return;
+  }
+
+  closeTradeModal();
+  // 보유종목·리밸런싱 데이터 갱신
+  if (typeof loadRebalance === 'function')       loadRebalance();
+  if (typeof loadThemeRebalance === 'function')  loadThemeRebalance();
+  if (typeof loadExtHoldings === 'function' &&
+      document.getElementById('page-ext-holdings').classList.contains('active')) loadExtHoldings();
 }
 
 function trbOpenThemePopover(stockCode, btn) {
