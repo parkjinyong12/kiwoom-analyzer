@@ -8406,9 +8406,9 @@ async function loadCashAssets() {
     const rb   = await rbRes.json();
     const stockTotal = (rb.portfolio_total || 0) - (rb.total_cash || 0);
     caRenderSummary(stockTotal);
+    await caPopulateBrokerageSelect();
+    await caPopulateAssetTypeSelect();
     caRenderTable();
-    caPopulateBrokerageSelect();
-    caPopulateAssetTypeSelect();
   } catch(e) {
     document.getElementById('ca-tbody').innerHTML =
       '<tr><td colspan="13" style="text-align:center;color:#f87171;padding:32px">로드 실패</td></tr>';
