@@ -1330,10 +1330,13 @@ def api_manual_holdings_trade():
             if not existing:
                 return jsonify({"error": "해당 증권사에 보유 종목 없음"}), 404
             new_qty = max(0, int(existing["quantity"] or 0) - quantity)
-            cur.execute(
-                "UPDATE manual_holdings SET quantity=%s WHERE id=%s",
-                (new_qty, existing["id"]),
-            )
+            if new_qty == 0:
+                cur.execute("DELETE FROM manual_holdings WHERE id=%s", (existing["id"],))
+            else:
+                cur.execute(
+                    "UPDATE manual_holdings SET quantity=%s WHERE id=%s",
+                    (new_qty, existing["id"]),
+                )
     return jsonify({"ok": True})
 
 
