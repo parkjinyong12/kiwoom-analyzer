@@ -1488,7 +1488,7 @@ def api_rebalance_stock_setting():
 
 @app.route("/api/rebalance/target", methods=["PUT"])
 def api_rebalance_target():
-    """종목 목표 비중 설정."""
+    """종목 목표 비중 설정 (단건)."""
     uid = _current_uid()
     data = request.get_json() or {}
     stock_code = (data.get("stock_code") or "").strip()
@@ -1507,6 +1507,34 @@ def api_rebalance_target():
             ON CONFLICT (user_id, stock_code)
             DO UPDATE SET target_ratio = EXCLUDED.target_ratio, updated_at = NOW()
         """, (uid, stock_code, target_ratio))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/rebalance/targets", methods=["PUT"])
+def api_rebalance_targets_batch():
+    """종목 목표 비중 일괄 저장. body: [{stock_code, target_ratio}, ...]"""
+    uid = _current_uid()
+    items = request.get_json() or []
+    if not isinstance(items, list):
+        return jsonify({"error": "배열 형식 필요"}), 400
+    with get_conn() as conn:
+        cur = conn.cursor()
+        for item in items:
+            stock_code = (item.get("stock_code") or "").strip()
+            if not stock_code:
+                continue
+            try:
+                target_ratio = float(item.get("target_ratio") or 0)
+                if not (0 <= target_ratio <= 100):
+                    continue
+            except (ValueError, TypeError):
+                continue
+            cur.execute("""
+                INSERT INTO rebalance_targets (user_id, stock_code, target_ratio, updated_at)
+                VALUES (%s, %s, %s, NOW())
+                ON CONFLICT (user_id, stock_code)
+                DO UPDATE SET target_ratio = EXCLUDED.target_ratio, updated_at = NOW()
+            """, (uid, stock_code, target_ratio))
     return jsonify({"ok": True})
 
 
@@ -1770,6 +1798,34 @@ def api_theme_rebalance():
         "watch_down":        watch_down,
         "cash_target_ratio": cash_target_ratio,
     })
+
+
+@app.route("/api/theme_rebalance/theme_targets", methods=["PUT"])
+def api_theme_rebalance_targets_batch():
+    """테마 목표 비중 일괄 저장. body: [{theme, target_ratio}, ...]"""
+    uid = _current_uid()
+    items = request.get_json() or []
+    if not isinstance(items, list):
+        return jsonify({"error": "배열 형식 필요"}), 400
+    with get_conn() as conn:
+        cur = conn.cursor()
+        for item in items:
+            theme = (item.get("theme") or "").strip()
+            if not theme:
+                continue
+            try:
+                target_ratio = float(item.get("target_ratio") or 0)
+                if not (0 <= target_ratio <= 100):
+                    continue
+            except (ValueError, TypeError):
+                continue
+            cur.execute("""
+                INSERT INTO theme_targets (user_id, theme, target_ratio, updated_at)
+                VALUES (%s, %s, %s, NOW())
+                ON CONFLICT (user_id, theme) DO UPDATE
+                SET target_ratio = EXCLUDED.target_ratio, updated_at = NOW()
+            """, (uid, theme, target_ratio))
+    return jsonify({"ok": True})
 
 
 @app.route("/api/theme_rebalance/stock_themes", methods=["PUT"])

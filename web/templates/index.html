@@ -2348,7 +2348,12 @@ canvas { max-height: 220px; }
     <div class="panel">
       <div class="panel-header">
         <span>종목별 비율 현황</span>
-        <span style="font-size:11px;color:#64748b">목표비율 클릭하여 직접 입력</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span id="rb-dirty-hint" style="font-size:11px;color:#f59e0b;display:none">미저장 변경 있음</span>
+          <button id="rb-batch-save-btn" class="btn btn-primary"
+            style="font-size:12px;padding:5px 14px;display:none"
+            onclick="rbSaveAllTargets()">목표비율 일괄 저장</button>
+        </div>
       </div>
       <div style="overflow-x:auto">
         <table class="data-table">
@@ -2521,7 +2526,13 @@ canvas { max-height: 220px; }
     <div class="panel" style="margin-bottom:12px">
       <div class="panel-header">
         <span>테마별 비중</span>
-        <span style="font-size:11px;color:#64748b">목표비율 클릭하여 편집 · 복수 테마 종목은 균등 분배</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span id="trb-dirty-hint" style="font-size:11px;color:#f59e0b;display:none">미저장 변경 있음</span>
+          <button id="trb-batch-save-btn" class="btn btn-primary"
+            style="font-size:12px;padding:5px 14px;display:none"
+            onclick="trbSaveAllTargets()">목표비율 일괄 저장</button>
+          <span style="font-size:11px;color:#64748b">복수 테마 종목은 균등 분배</span>
+        </div>
       </div>
       <div style="overflow-x:auto">
         <table class="data-table">
@@ -6177,8 +6188,12 @@ async function loadRebalance() {
 function rbUpdateSummary(json) {
   const total     = json.portfolio_total || 0;
   const cash      = json.total_cash      || 0;
-  // 목표합계 = 주식 개별 목표 합산 (100% 초과 시 경고)
-  const targetSum = rbData.reduce((s, r) => s + (r.target_ratio || 0), 0);
+  // 목표합계 = 입력된 값 우선, 없으면 저장된 값 (실시간 합산)
+  const targetSum = rbData.reduce((s, r) => {
+    const inp = document.getElementById('rb-inp-' + r.stock_code);
+    const val = inp ? (parseFloat(inp.value) || 0) : (r.target_ratio || 0);
+    return s + val;
+  }, 0);
 
   document.getElementById('rb-portfolio').textContent = Math.round(total).toLocaleString() + '원';
   document.getElementById('rb-portfolio-note').textContent =
@@ -6619,8 +6634,8 @@ function rbRender() {
       style="width:58px;background:none;border:none;border-bottom:1px solid #1e2535;
              color:#e2e8f0;font-size:13px;text-align:right;outline:none;padding:2px 4px"
       onfocus="this.style.borderColor='#3b82f6'"
-      onblur="rbSaveTarget('${r.stock_code}',this)"
-      onkeydown="if(event.key==='Enter'&&!event.isComposing)this.blur()"/>
+      oninput="rbMarkDirty('${r.stock_code}',this)"
+      onkeydown="if(event.key==='Enter'&&!event.isComposing){rbSaveAllTargets();this.blur()}"/>
     <span style="font-size:11px;color:#64748b">%</span>`;
 
     const upColor    = r.alert_up   !== null ? '#f87171' : '#7f1d1d';
@@ -6722,6 +6737,35 @@ async function ssClear() {
   await ssSave();
 }
 
+let rbDirtySet = new Set();
+
+function rbMarkDirty(stockCode, inputEl) {
+  rbDirtySet.add(stockCode);
+  inputEl.style.borderColor = '#f59e0b';
+  document.getElementById('rb-dirty-hint').style.display = '';
+  document.getElementById('rb-batch-save-btn').style.display = '';
+  // 실시간 목표합계 갱신
+  rbUpdateSummary(rbData, rbStockTotal);
+}
+
+async function rbSaveAllTargets() {
+  if (rbDirtySet.size === 0) return;
+  const payload = [];
+  rbDirtySet.forEach(code => {
+    const inp = document.getElementById('rb-inp-' + code);
+    if (inp) payload.push({ stock_code: code, target_ratio: parseFloat(inp.value) || 0 });
+  });
+  await fetch('/api/rebalance/targets', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  rbDirtySet.clear();
+  document.getElementById('rb-dirty-hint').style.display = 'none';
+  document.getElementById('rb-batch-save-btn').style.display = 'none';
+  await loadRebalance();
+}
+
 async function rbSaveTarget(stockCode, inputEl) {
   inputEl.style.borderColor = '#1e2535';
   const val = parseFloat(inputEl.value) || 0;
@@ -6731,7 +6775,6 @@ async function rbSaveTarget(stockCode, inputEl) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ stock_code: stockCode, target_ratio: val }),
   });
-  // 저장 후 전체 데이터 재로드해서 편차·신호 갱신
   await loadRebalance();
 }
 
@@ -7011,12 +7054,18 @@ async function loadThemeRebalance() {
   }
 }
 
-function trbUpdateSummary() {
+function trbUpdateSummary(themesOverride) {
   if (!trbData) return;
   const total    = trbData.portfolio_total || 0;
   const cash     = trbData.total_cash     || 0;
-  const themes   = (trbData.themes || []).filter(t => !t.is_untagged);
-  const targetSum = themes.reduce((s, t) => s + (t.target_ratio || 0), 0);
+  const themes   = (themesOverride || trbData.themes || []).filter(t => !t.is_untagged);
+  // 입력 중인 값 우선 반영 (실시간 합산)
+  const targetSum = themes.reduce((s, t) => {
+    const tKey = t.theme.replace(/[^a-zA-Z0-9가-힣]/g,'_');
+    const inp  = document.getElementById('trb-tgt-' + tKey);
+    const val  = inp ? (parseFloat(inp.value) || 0) : (t.target_ratio || 0);
+    return s + val;
+  }, 0);
 
   document.getElementById('trb-portfolio').textContent = Math.round(total).toLocaleString() + '원';
   document.getElementById('trb-portfolio-note').textContent =
@@ -7120,12 +7169,10 @@ function trbRenderThemes() {
         min="0" max="100" step="0.1"
         style="width:52px;background:none;border:none;border-bottom:1px solid #1e2535;
                color:#e2e8f0;font-size:13px;text-align:right;outline:none;padding:2px 4px"
-        onfocus="this.style.borderColor='#3b82f6';trbShowSaveBtn('trb-tbtn-${tKey}')"
-        oninput="trbShowSaveBtn('trb-tbtn-${tKey}')"
-        onkeydown="if(event.key==='Enter'&&!event.isComposing){trbSaveThemeTarget('${themeEsc}','trb-tgt-${tKey}','trb-tbtn-${tKey}');event.preventDefault()}"/>
+        onfocus="this.style.borderColor='#3b82f6'"
+        oninput="trbMarkDirty('${themeEsc}',this)"
+        onkeydown="if(event.key==='Enter'&&!event.isComposing){trbSaveAllTargets();event.preventDefault()}"/>
       <span style="font-size:11px;color:#64748b">%</span>
-      <button id="trb-tbtn-${tKey}" style="${saveBtnStyle}"
-        onclick="trbSaveThemeTarget('${themeEsc}','trb-tgt-${tKey}','trb-tbtn-${tKey}')">저장</button>
     </div>`;
 
     const inputStyle = `width:38px;background:none;border:none;border-bottom:1px solid #1e2535;
@@ -7658,6 +7705,36 @@ function trbRenderStocks() {
       </td>
     </tr>`;
   }).join('');
+}
+
+let trbDirtySet = new Set();
+
+function trbMarkDirty(theme, inputEl) {
+  trbDirtySet.add(theme);
+  inputEl.style.borderColor = '#f59e0b';
+  document.getElementById('trb-dirty-hint').style.display = '';
+  document.getElementById('trb-batch-save-btn').style.display = '';
+  // 실시간 목표합계 갱신
+  trbUpdateSummary(trbData?.themes || []);
+}
+
+async function trbSaveAllTargets() {
+  if (trbDirtySet.size === 0) return;
+  const payload = [];
+  trbDirtySet.forEach(theme => {
+    const tKey = theme.replace(/[^a-zA-Z0-9가-힣]/g,'_');
+    const inp  = document.getElementById('trb-tgt-' + tKey);
+    if (inp) payload.push({ theme, target_ratio: parseFloat(inp.value) || 0 });
+  });
+  await fetch('/api/theme_rebalance/theme_targets', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  trbDirtySet.clear();
+  document.getElementById('trb-dirty-hint').style.display = 'none';
+  document.getElementById('trb-batch-save-btn').style.display = 'none';
+  await loadThemeRebalance();
 }
 
 function trbShowSaveBtn(btnId) {
