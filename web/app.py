@@ -492,6 +492,13 @@ BATCH_JOBS = {
         "cmd": "python -u main.py --once",
         "log_prefix": "run_once",
     },
+    "rebalance_alert": {
+        "name": "리밸런싱 알림",
+        "desc": "종목/테마 리밸런싱 신호 감지 시 이메일 발송 (신호 변화 시에만 발송)",
+        "match": "scripts/rebalance_alert",
+        "cmd": "python -u scripts/rebalance_alert.py",
+        "log_prefix": "rebalance_alert",
+    },
 }
 
 
