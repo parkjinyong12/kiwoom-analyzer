@@ -70,9 +70,26 @@ def _ensure_alert_log_table(conn):
     conn.commit()
 
 
-def _get_default_uid(conn) -> int | None:
-    row = _query_one(conn, "SELECT MIN(id) AS uid FROM users")
-    return int(row["uid"]) if row and row["uid"] is not None else None
+def _get_all_uids(conn) -> list[int]:
+    """보유종목이 있는 모든 사용자 ID 반환.
+
+    user_id=NULL 레코드는 미이주 데이터이므로 MIN(id) 사용자에게 귀속.
+    """
+    rows = _query(conn,
+        "SELECT DISTINCT user_id FROM manual_holdings WHERE quantity > 0 AND user_id IS NOT NULL")
+    uids = [int(r["user_id"]) for r in rows]
+
+    # NULL user_id 레코드가 있으면 MIN(id) 사용자에게 포함
+    null_row = _query_one(conn,
+        "SELECT COUNT(*) AS cnt FROM manual_holdings WHERE quantity > 0 AND user_id IS NULL")
+    if null_row and int(null_row["cnt"]) > 0:
+        fallback = _query_one(conn, "SELECT MIN(id) AS uid FROM users")
+        if fallback and fallback["uid"] is not None:
+            fb_uid = int(fallback["uid"])
+            if fb_uid not in uids:
+                uids.append(fb_uid)
+
+    return sorted(uids)
 
 
 def _get_settings(conn, uid) -> dict:
@@ -696,17 +713,27 @@ def main(force: bool = False, dry_run: bool = False) -> None:
     try:
         _ensure_alert_log_table(conn)
 
-        uid = _get_default_uid(conn)
-        if uid is None:
-            logger.warning("등록된 사용자가 없습니다.")
+        uids = _get_all_uids(conn)
+        if not uids:
+            logger.warning("보유종목이 있는 사용자가 없습니다.")
             return
 
-        stock_buy,  stock_sell  = get_stock_signals(conn, uid)
-        theme_buy,  theme_sell  = get_theme_signals(conn, uid)
+        # 전체 사용자 신호 집계
+        stock_buy,  stock_sell  = [], []
+        theme_buy,  theme_sell  = [], []
+        for uid in uids:
+            sb, ss = get_stock_signals(conn, uid)
+            tb, ts = get_theme_signals(conn, uid)
+            stock_buy.extend(sb);  stock_sell.extend(ss)
+            theme_buy.extend(tb);  theme_sell.extend(ts)
+            logger.info(
+                "uid=%d: 종목매수=%d 종목매도=%d 테마매수=%d 테마매도=%d",
+                uid, len(sb), len(ss), len(tb), len(ts),
+            )
 
         total = len(stock_buy) + len(stock_sell) + len(theme_buy) + len(theme_sell)
         logger.info(
-            "신호 계산 완료: 종목매수=%d 종목매도=%d 테마매수=%d 테마매도=%d",
+            "전체 신호: 종목매수=%d 종목매도=%d 테마매수=%d 테마매도=%d",
             len(stock_buy), len(stock_sell), len(theme_buy), len(theme_sell),
         )
 
