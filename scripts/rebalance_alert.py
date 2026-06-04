@@ -127,12 +127,25 @@ def _get_total_cash(conn, uid) -> int:
         return 0
 
 
-def get_recipients(conn) -> list[str]:
+def get_recipients_for_user(conn, uid: int) -> list[str]:
+    """사용자별 리밸런싱 알림 수신자 조회 (user_alert_emails 테이블).
+
+    설정된 수신자가 없으면 report_email_config(보유종목 리포트 수신자)로 폴백.
+    """
+    try:
+        rows = _query(conn,
+            "SELECT email FROM user_alert_emails WHERE user_id = %s AND active = TRUE",
+            (uid,))
+        if rows:
+            return [r["email"] for r in rows]
+    except Exception:
+        pass
+    # 폴백: 보유종목 리포트 수신자
     try:
         rows = _query(conn, "SELECT email FROM report_email_config WHERE active = TRUE")
         return [r["email"] for r in rows]
     except Exception as e:
-        logger.warning("수신자 목록 조회 실패: %s", e)
+        logger.warning("수신자 목록 조회 실패 (uid=%d): %s", uid, e)
         return []
 
 
@@ -718,48 +731,45 @@ def main(force: bool = False, dry_run: bool = False) -> None:
             logger.warning("보유종목이 있는 사용자가 없습니다.")
             return
 
-        # 전체 사용자 신호 집계
-        stock_buy,  stock_sell  = [], []
-        theme_buy,  theme_sell  = [], []
+        # 사용자별 신호 계산 → 사용자별 수신자로 각각 발송
+        generated_at = datetime.now().strftime("%Y년 %m월 %d일 %H:%M")
+        any_sent     = False
+
         for uid in uids:
             sb, ss = get_stock_signals(conn, uid)
             tb, ts = get_theme_signals(conn, uid)
-            stock_buy.extend(sb);  stock_sell.extend(ss)
-            theme_buy.extend(tb);  theme_sell.extend(ts)
             logger.info(
                 "uid=%d: 종목매수=%d 종목매도=%d 테마매수=%d 테마매도=%d",
                 uid, len(sb), len(ss), len(tb), len(ts),
             )
 
-        total = len(stock_buy) + len(stock_sell) + len(theme_buy) + len(theme_sell)
-        logger.info(
-            "전체 신호: 종목매수=%d 종목매도=%d 테마매수=%d 테마매도=%d",
-            len(stock_buy), len(stock_sell), len(theme_buy), len(theme_sell),
-        )
+            total = len(sb) + len(ss) + len(tb) + len(ts)
+            if total == 0:
+                logger.info("uid=%d: 신호 없음 — 건너뜀", uid)
+                continue
 
-        if total == 0:
-            logger.info("현재 매수/매도 신호 없음 — 발송 생략")
-            return
+            cur_hash  = _build_signal_hash(sb, ss, tb, ts)
+            last_hash = _get_last_hash(conn)
 
-        cur_hash  = _build_signal_hash(stock_buy, stock_sell, theme_buy, theme_sell)
-        last_hash = _get_last_hash(conn)
+            if not force and cur_hash == last_hash:
+                logger.info("uid=%d: 신호 변화 없음 (hash=%s…) — 발송 생략", uid, cur_hash[:8])
+                continue
 
-        if not force and cur_hash == last_hash:
-            logger.info("신호 변화 없음 (hash=%s…) — 발송 생략", cur_hash[:8])
-            return
+            html       = generate_html(sb, ss, tb, ts, generated_at)
 
-        generated_at = datetime.now().strftime("%Y년 %m월 %d일 %H:%M")
-        html         = generate_html(stock_buy, stock_sell, theme_buy, theme_sell, generated_at)
+            if dry_run:
+                logger.info("uid=%d: dry-run 모드 — 발송 생략", uid)
+                print(html[:300], "...")
+                continue
 
-        if dry_run:
-            logger.info("dry-run 모드: 이메일 발송 생략 (신호 있음)")
-            print(html[:500], "... (truncated)")
-            return
+            recipients = get_recipients_for_user(conn, uid)
+            ok         = send_email(html, recipients, sb, ss, tb, ts)
+            status     = "success" if ok else "failed"
+            _save_log(conn, cur_hash, sb, ss, tb, ts, recipients, status)
+            any_sent   = True
 
-        recipients = get_recipients(conn)
-        ok         = send_email(html, recipients, stock_buy, stock_sell, theme_buy, theme_sell)
-        status     = "success" if ok else "failed"
-        _save_log(conn, cur_hash, stock_buy, stock_sell, theme_buy, theme_sell, recipients, status)
+        if not any_sent and not dry_run:
+            logger.info("모든 사용자 발송 조건 미충족 — 종료")
     finally:
         conn.close()
 

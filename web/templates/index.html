@@ -665,6 +665,9 @@ canvas { max-height: 220px; }
         <div class="nav-item" data-page="usermgmt" onclick="showPage('usermgmt')">
           <span class="icon">👥</span> 사용자 관리
         </div>
+        <div class="nav-item" data-page="alert-emails" onclick="showPage('alert-emails')">
+          <span class="icon">🔔</span> 리밸런싱 알림 수신자
+        </div>
       </div>
     </div>
   </div>
@@ -1612,6 +1615,62 @@ canvas { max-height: 220px; }
           </tbody>
         </table>
       </div>
+    </div>
+  </section>
+
+  <!-- ===== 리밸런싱 알림 수신자 관리 ===== -->
+  <section id="page-alert-emails" class="page">
+    <div class="page-header">
+      <div class="page-title">리밸런싱 알림 수신자</div>
+      <div class="page-sub">사용자별 리밸런싱 알림 이메일 수신자 설정 · 5분 배치 감지 시 자동 발송</div>
+    </div>
+
+    <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
+
+      <!-- ── 수신자 설정 패널 ── -->
+      <div style="flex:1;min-width:320px">
+        <div class="panel">
+          <div class="panel-header">
+            <span>사용자별 수신자</span>
+            <button class="btn btn-ghost" style="font-size:11px;padding:3px 8px" onclick="aeLoad()">새로고침</button>
+          </div>
+          <div style="padding:16px">
+            <p style="font-size:12px;color:#64748b;margin:0 0 16px">
+              리밸런싱 신호 감지 시 해당 사용자의 수신자 목록으로 알림이 발송됩니다.<br>
+              신호가 변경되지 않으면 재발송하지 않습니다.
+            </p>
+            <!-- 추가 폼 -->
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid #1e2535">
+              <select id="ae-user-sel"
+                      style="padding:7px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:12px;min-width:120px">
+                <option value="">사용자 선택</option>
+              </select>
+              <input type="email" id="ae-email-inp" placeholder="수신자 이메일"
+                     style="flex:1;min-width:180px;padding:7px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:12px"
+                     onkeydown="if(event.key==='Enter')aeAdd()"/>
+              <button class="btn btn-primary" style="font-size:12px;white-space:nowrap" onclick="aeAdd()">추가</button>
+            </div>
+            <!-- 사용자별 목록 -->
+            <div id="ae-user-list" style="display:flex;flex-direction:column;gap:16px">
+              <div class="loading"><span class="spinner"></span>로딩 중...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── 발송 이력 패널 ── -->
+      <div style="width:360px;min-width:300px">
+        <div class="panel">
+          <div class="panel-header">
+            <span>발송 이력</span>
+            <button class="btn btn-ghost" style="font-size:11px;padding:3px 8px" onclick="aeLoadHistory()">새로고침</button>
+          </div>
+          <div id="ae-history-list" style="padding:0 16px 16px">
+            <div class="loading"><span class="spinner"></span>로딩 중...</div>
+          </div>
+        </div>
+      </div>
+
     </div>
   </section>
 
@@ -2995,6 +3054,7 @@ const NAV_GROUP_MAP = {
   'theme-rebalance':'navg-portfolio', qualitative:'navg-portfolio',
   auditlog:'navg-system',    stocks:'navg-system',
   batch:'navg-admin',        spec:'navg-admin', 'common-codes':'navg-admin', usermgmt:'navg-admin',
+  'alert-emails':'navg-admin',
 };
 
 function toggleNavGroup(groupId) {
@@ -3043,6 +3103,7 @@ function showPage(name, fromHash) {
   if (name === 'spec')      specShowTab(_specActiveTab || 'overview');
   if (name === 'report')        loadReportPage();
   if (name === 'usermgmt')      loadUserMgmt();
+  if (name === 'alert-emails')  aeLoad(); aeLoadHistory();
   if (name === 'ext-holdings')  loadExtHoldings();
   if (name === 'price-mgmt')    loadPriceMgmt();
   if (name === 'cash-assets')   loadCashAssets();
@@ -5142,6 +5203,107 @@ async function loadReportHistory() {
 }
 
 // ─── 사용자 관리 페이지 ──────────────────────────────
+// ─── 리밸런싱 알림 수신자 관리 ───────────────────────────────────────────────
+
+async function aeLoad() {
+  const listEl = document.getElementById('ae-user-list');
+  const selEl  = document.getElementById('ae-user-sel');
+  listEl.innerHTML = '<div class="loading"><span class="spinner"></span>로딩 중...</div>';
+  try {
+    const data = await fetch('/api/alert_emails').then(r => r.json());
+
+    // 사용자 선택 셀렉트 갱신
+    const prevSel = selEl.value;
+    selEl.innerHTML = '<option value="">사용자 선택</option>' +
+      data.map(u => `<option value="${u.user_id}">${u.user_name}</option>`).join('');
+    if (prevSel) selEl.value = prevSel;
+
+    if (!data.length) {
+      listEl.innerHTML = '<p style="color:#64748b;font-size:13px">등록된 사용자가 없습니다.</p>';
+      return;
+    }
+
+    listEl.innerHTML = data.map(u => {
+      const emailRows = u.emails.length
+        ? u.emails.map(e => `
+          <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid #1e2535">
+            <span style="flex:1;font-size:13px;color:${e.active ? '#e2e8f0' : '#475569'};text-decoration:${e.active ? 'none' : 'line-through'}">${e.email}</span>
+            <button onclick="aeToggle(${e.id})" class="btn btn-ghost" style="font-size:10px;padding:2px 7px;color:${e.active ? '#4ade80' : '#64748b'}">
+              ${e.active ? '활성' : '비활성'}
+            </button>
+            <button onclick="aeDelete(${e.id})" class="btn btn-ghost" style="font-size:10px;padding:2px 7px;color:#f87171">삭제</button>
+          </div>`).join('')
+        : '<p style="color:#475569;font-size:12px;margin:4px 0">수신자 없음</p>';
+      return `
+        <div>
+          <div style="font-size:12px;font-weight:700;color:#94a3b8;margin-bottom:6px">
+            👤 ${u.user_name}
+          </div>
+          ${emailRows}
+        </div>`;
+    }).join('');
+  } catch (e) {
+    listEl.innerHTML = `<p style="color:#f87171;font-size:12px">오류: ${e.message}</p>`;
+  }
+}
+
+async function aeAdd() {
+  const uid   = document.getElementById('ae-user-sel').value;
+  const email = document.getElementById('ae-email-inp').value.trim();
+  if (!uid)   { alert('사용자를 선택하세요.'); return; }
+  if (!email) { alert('이메일 주소를 입력하세요.'); return; }
+  const res = await fetch('/api/alert_emails', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ user_id: parseInt(uid), email }),
+  });
+  if (!res.ok) { const d = await res.json(); alert(d.error || '추가 실패'); return; }
+  document.getElementById('ae-email-inp').value = '';
+  aeLoad();
+}
+
+async function aeToggle(id) {
+  await fetch(`/api/alert_emails/${id}/toggle`, { method: 'POST' });
+  aeLoad();
+}
+
+async function aeDelete(id) {
+  if (!confirm('수신자를 삭제하시겠습니까?')) return;
+  await fetch(`/api/alert_emails/${id}`, { method: 'DELETE' });
+  aeLoad();
+}
+
+async function aeLoadHistory() {
+  const el = document.getElementById('ae-history-list');
+  el.innerHTML = '<div class="loading"><span class="spinner"></span>로딩 중...</div>';
+  try {
+    const rows = await fetch('/api/alert_emails/history').then(r => r.json());
+    if (!rows.length) { el.innerHTML = '<p style="color:#64748b;font-size:12px;padding:8px 0">발송 이력 없음</p>'; return; }
+    el.innerHTML = rows.map(r => {
+      const sig = [
+        r.stock_buy_cnt  ? `종목매수 ${r.stock_buy_cnt}건`  : '',
+        r.stock_sell_cnt ? `종목매도 ${r.stock_sell_cnt}건` : '',
+        r.theme_buy_cnt  ? `테마매수 ${r.theme_buy_cnt}건`  : '',
+        r.theme_sell_cnt ? `테마매도 ${r.theme_sell_cnt}건` : '',
+      ].filter(Boolean).join(' · ') || '신호 없음';
+      const stColor = r.status === 'success' ? '#4ade80' : '#f87171';
+      return `
+        <div style="padding:10px 0;border-bottom:1px solid #1e2535;font-size:12px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+            <span style="color:#94a3b8">${r.ts}</span>
+            <span style="color:${stColor}">${r.status}</span>
+          </div>
+          <div style="color:#e2e8f0">${sig}</div>
+          <div style="color:#475569;font-size:11px;margin-top:2px">${r.recipients}</div>
+        </div>`;
+    }).join('');
+  } catch (e) {
+    el.innerHTML = `<p style="color:#f87171;font-size:12px">오류: ${e.message}</p>`;
+  }
+}
+
+// ─── 사용자 관리 ─────────────────────────────────────────────────────────────
+
 async function loadUserMgmt() {
   try {
     const res = await fetch('/api/users');

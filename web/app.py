@@ -147,6 +147,16 @@ def _ensure_report_tables():
                 error_msg TEXT
             )
         """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS user_alert_emails (
+                id         SERIAL PRIMARY KEY,
+                user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                email      VARCHAR(255) NOT NULL,
+                active     BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE(user_id, email)
+            )
+        """)
 
 
 def _ensure_manual_holdings_table():
@@ -1112,6 +1122,94 @@ def api_report_history():
     for r in rows:
         r["ts"] = r["ts"].strftime("%Y-%m-%d %H:%M") if r["ts"] else ""
     return jsonify(rows)
+
+
+# ---------------------------------------------------------------------------
+# API — 리밸런싱 알림 수신자 관리 (user_alert_emails)
+# ---------------------------------------------------------------------------
+
+@app.route("/api/alert_emails")
+def api_alert_emails_list():
+    """전체 사용자별 리밸런싱 알림 수신자 목록."""
+    users = query("SELECT id, name, login_id FROM users ORDER BY id")
+    emails = query(
+        "SELECT id, user_id, email, active FROM user_alert_emails ORDER BY user_id, id"
+    )
+    email_map: dict[int, list] = {u["id"]: [] for u in users}
+    for e in emails:
+        uid = e["user_id"]
+        if uid in email_map:
+            email_map[uid].append({"id": e["id"], "email": e["email"], "active": e["active"]})
+    return jsonify([
+        {"user_id": u["id"], "user_name": u["name"] or u["login_id"], "emails": email_map[u["id"]]}
+        for u in users
+    ])
+
+
+@app.route("/api/alert_emails", methods=["POST"])
+def api_alert_emails_add():
+    """리밸런싱 알림 수신자 추가."""
+    data = request.get_json() or {}
+    uid   = data.get("user_id")
+    email = (data.get("email") or "").strip().lower()
+    if not uid or not email:
+        return jsonify({"error": "user_id, email 필수"}), 400
+    try:
+        with get_conn() as conn:
+            conn.cursor().execute(
+                """INSERT INTO user_alert_emails (user_id, email)
+                   VALUES (%s, %s)
+                   ON CONFLICT (user_id, email) DO UPDATE SET active = TRUE""",
+                (uid, email),
+            )
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/alert_emails/<int:eid>", methods=["DELETE"])
+def api_alert_emails_delete(eid: int):
+    """리밸런싱 알림 수신자 삭제."""
+    with get_conn() as conn:
+        conn.cursor().execute("DELETE FROM user_alert_emails WHERE id = %s", (eid,))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/alert_emails/<int:eid>/toggle", methods=["POST"])
+def api_alert_emails_toggle(eid: int):
+    """리밸런싱 알림 수신자 활성/비활성 토글."""
+    with get_conn() as conn:
+        conn.cursor().execute(
+            "UPDATE user_alert_emails SET active = NOT active WHERE id = %s", (eid,)
+        )
+    return jsonify({"ok": True})
+
+
+@app.route("/api/alert_emails/history")
+def api_alert_emails_history():
+    """리밸런싱 알림 발송 이력."""
+    rows = query(
+        """
+        SELECT sent_at AT TIME ZONE 'Asia/Seoul' AS ts,
+               signal_hash, stock_buy_cnt, stock_sell_cnt,
+               theme_buy_cnt, theme_sell_cnt, recipients, status, error_msg
+        FROM rebalance_alert_log
+        ORDER BY sent_at DESC
+        LIMIT 30
+        """
+    )
+    result = []
+    for r in rows:
+        result.append({
+            "ts":             r["ts"].strftime("%Y-%m-%d %H:%M") if r["ts"] else "",
+            "stock_buy_cnt":  r["stock_buy_cnt"],
+            "stock_sell_cnt": r["stock_sell_cnt"],
+            "theme_buy_cnt":  r["theme_buy_cnt"],
+            "theme_sell_cnt": r["theme_sell_cnt"],
+            "recipients":     r["recipients"] or "",
+            "status":         r["status"] or "",
+        })
+    return jsonify(result)
 
 
 # ---------------------------------------------------------------------------
