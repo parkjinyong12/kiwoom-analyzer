@@ -223,13 +223,14 @@ class MarketDataAgent:
         """일봉 데이터 조회 (최근 count개 봉).
 
         stex_tp: 거래소 지정 ("KRX"/"NXT"). None이면 현재 시간 기준 자동 선택.
+        NXT 조회 시 종목코드에 _NX 접미사를 붙여 요청 (API 스펙).
         """
         exch = stex_tp or resolve_exchange()
+        stk_cd = f"{ticker}_NX" if exch == "NXT" else ticker
         body = {
-            "stk_cd": ticker,
+            "stk_cd": stk_cd,
             "base_dt": datetime.now(tz=KST).strftime("%Y%m%d"),
             "upd_stkpc_tp": "1",
-            "stex_tp": exch,
         }
         data = self._post("/api/dostk/chart", "ka10081", body)
         rows = data.get("stk_dt_pole_chart_qry", [])
@@ -334,10 +335,12 @@ class MarketDataAgent:
         """현재가 단일 조회.
 
         stex_tp: 거래소 지정 ("KRX"/"NXT"). None이면 현재 시간 기준 자동 선택.
+        NXT 조회 시 종목코드에 _NX 접미사를 붙여 요청 (API 스펙).
         """
         exch = stex_tp or resolve_exchange()
+        stk_cd = f"{ticker}_NX" if exch == "NXT" else ticker
         try:
-            data = self._post("/api/dostk/mrkcond", "ka10007", {"stk_cd": ticker, "stex_tp": exch})
+            data = self._post("/api/dostk/mrkcond", "ka10007", {"stk_cd": stk_cd})
             price_str = data.get("cur_prc", "0").replace(",", "").replace("+", "").replace("-", "")
             return float(price_str) if price_str else None
         except Exception as e:
