@@ -23,6 +23,25 @@ from zoneinfo import ZoneInfo
 
 KST = ZoneInfo("Asia/Seoul")
 
+
+def resolve_exchange() -> str:
+    """시간대에 따라 거래소를 반환 (평일 기준).
+
+    08:00~08:50  → NXT (장전 시간외)
+    09:00~15:30  → KRX (정규장)
+    15:30~18:00  → NXT (장후 시간외)
+    그 외        → KRX
+    """
+    now = datetime.now(tz=KST)
+    if now.weekday() >= 5:
+        return "KRX"
+    t = now.hour * 100 + now.minute  # HHMM 정수 비교
+    if 800 <= t < 850:
+        return "NXT"
+    if 1530 <= t < 1800:
+        return "NXT"
+    return "KRX"
+
 import pandas as pd
 import requests
 
@@ -200,12 +219,17 @@ class MarketDataAgent:
     # 일봉 OHLCV (ka10081)
     # ------------------------------------------------------------------
 
-    def get_daily_ohlcv(self, ticker: str, count: int = 200) -> pd.DataFrame:
-        """일봉 데이터 조회 (최근 count개 봉)."""
+    def get_daily_ohlcv(self, ticker: str, count: int = 200, stex_tp: str | None = None) -> pd.DataFrame:
+        """일봉 데이터 조회 (최근 count개 봉).
+
+        stex_tp: 거래소 지정 ("KRX"/"NXT"). None이면 현재 시간 기준 자동 선택.
+        """
+        exch = stex_tp or resolve_exchange()
         body = {
             "stk_cd": ticker,
             "base_dt": datetime.now(tz=KST).strftime("%Y%m%d"),
             "upd_stkpc_tp": "1",
+            "stex_tp": exch,
         }
         data = self._post("/api/dostk/chart", "ka10081", body)
         rows = data.get("stk_dt_pole_chart_qry", [])
@@ -306,10 +330,14 @@ class MarketDataAgent:
     # 현재가 (ka10007)
     # ------------------------------------------------------------------
 
-    def get_current_price(self, ticker: str) -> Optional[float]:
-        """현재가 단일 조회."""
+    def get_current_price(self, ticker: str, stex_tp: str | None = None) -> Optional[float]:
+        """현재가 단일 조회.
+
+        stex_tp: 거래소 지정 ("KRX"/"NXT"). None이면 현재 시간 기준 자동 선택.
+        """
+        exch = stex_tp or resolve_exchange()
         try:
-            data = self._post("/api/dostk/mrkcond", "ka10007", {"stk_cd": ticker})
+            data = self._post("/api/dostk/mrkcond", "ka10007", {"stk_cd": ticker, "stex_tp": exch})
             price_str = data.get("cur_prc", "0").replace(",", "").replace("+", "").replace("-", "")
             return float(price_str) if price_str else None
         except Exception as e:

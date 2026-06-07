@@ -23,10 +23,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+import pandas as pd
 import psycopg2
 import psycopg2.extras
 
-from agents.market_data import MarketDataAgent
+from agents.market_data import MarketDataAgent, resolve_exchange
 from config import config
 
 
@@ -50,6 +51,8 @@ def main() -> None:
         return
 
     m = MarketDataAgent()
+    exch = resolve_exchange()
+    logger.info("거래소: %s", exch)
     updated = 0
     failed = 0
 
@@ -57,7 +60,13 @@ def main() -> None:
         ticker     = t["stock_code"]
         stock_name = t["stock_name"] or ticker
         try:
-            df = m.get_daily_ohlcv(ticker, count=5)
+            try:
+                df = m.get_daily_ohlcv(ticker, count=5, stex_tp=exch)
+            except Exception:
+                df = pd.DataFrame()
+            if df.empty and exch == "NXT":
+                logger.info("[%d/%d] %s — NXT 데이터 없음, KRX 재시도", idx, len(targets), ticker)
+                df = m.get_daily_ohlcv(ticker, count=5, stex_tp="KRX")
             if df.empty:
                 logger.warning("[%d/%d] %s — 일봉 데이터 없음", idx, len(targets), ticker)
                 failed += 1
