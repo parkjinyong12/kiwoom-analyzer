@@ -1421,7 +1421,8 @@ def api_manual_holdings_trade():
     stock_name  = (data.get("stock_name")  or "").strip()
     direction   = (data.get("direction")   or "").lower()   # "buy" | "sell"
     brokerage   = (data.get("brokerage")   or "").strip()
-    source      = (data.get("source")      or "manual").strip()
+    source         = (data.get("source")       or "manual").strip()
+    executed_at_str = (data.get("executed_at")  or "").strip() or None
     try:
         quantity = int(data.get("quantity") or 0)
         price    = float(data.get("price")  or 0)
@@ -1475,10 +1476,10 @@ def api_manual_holdings_trade():
         cur.execute("""
             INSERT INTO trade_history
                 (user_id, stock_code, stock_name, direction, brokerage,
-                 quantity, price, amount, avg_price_before, realized_pnl, source)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                 quantity, price, amount, avg_price_before, realized_pnl, source, executed_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, COALESCE(%s::timestamp, NOW()))
         """, (uid, stock_code, stock_name or stock_code, direction, brokerage,
-              quantity, price, amount, avg_price_before, realized_pnl, source))
+              quantity, price, amount, avg_price_before, realized_pnl, source, executed_at_str))
 
     return jsonify({"ok": True})
 
@@ -1551,6 +1552,18 @@ def api_trade_history():
         params + [limit, offset],
     )
     return jsonify({"total": total, "rows": [dict(r) for r in rows]})
+
+
+@app.route("/api/trade_history/<int:tid>", methods=["DELETE"])
+def api_trade_history_delete(tid: int):
+    """거래 이력 단건 삭제 (보유종목 수량은 변경하지 않음)."""
+    uid = _current_uid()
+    with get_conn() as conn:
+        conn.cursor().execute(
+            "DELETE FROM trade_history WHERE id = %s AND user_id = %s",
+            (tid, uid),
+        )
+    return jsonify({"ok": True})
 
 
 @app.route("/api/trade_history/stats")

@@ -701,30 +701,66 @@ canvas { max-height: 220px; }
 <!-- ===== 사용자 모달 ===== -->
 <!-- ── 체결 입력 모달 ── -->
 <div class="modal-overlay" id="trade-modal" onclick="event.target===this && closeTradeModal()">
-  <div class="modal" style="width:360px" onclick="event.stopPropagation()">
+  <div class="modal" style="width:400px" onclick="event.stopPropagation()">
     <h3 id="trade-modal-title">체결 입력</h3>
     <div style="display:grid;gap:14px;margin-top:4px">
-      <div style="display:flex;align-items:center;gap:10px">
+
+      <!-- 신규 입력 모드: 종목 검색 -->
+      <div id="trade-new-stock-row" style="display:none">
+        <div style="font-size:11px;color:#64748b;margin-bottom:4px">종목 (코드 또는 이름)</div>
+        <div style="position:relative">
+          <input type="text" id="trade-stock-search" placeholder="예: 005930 또는 삼성전자" autocomplete="off"
+            style="width:100%;padding:7px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none;box-sizing:border-box"
+            oninput="tradeStockSearchInput(this.value)" onfocus="tradeStockSearchInput(this.value)"/>
+          <div id="trade-stock-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:#161b27;border:1px solid #334155;border-radius:5px;max-height:180px;overflow-y:auto;z-index:2000;margin-top:2px"></div>
+        </div>
+        <input type="hidden" id="trade-stock-code-val"/>
+        <input type="hidden" id="trade-stock-name-val"/>
+      </div>
+
+      <!-- 사전 선택 모드: 종목명 표시 -->
+      <div id="trade-preset-stock-row" style="display:flex;align-items:center;gap:10px">
         <span style="font-size:13px;color:#94a3b8;min-width:60px">종목</span>
         <span id="trade-stock-name" style="font-size:14px;font-weight:600;color:#e2e8f0">-</span>
       </div>
+
+      <!-- 신규 입력 모드: 매수/매도 선택 -->
+      <div id="trade-dir-row" style="display:none;align-items:center;gap:10px">
+        <span style="font-size:13px;color:#94a3b8;min-width:60px">구분</span>
+        <button id="trade-dir-buy-btn" class="btn btn-primary" style="padding:6px 20px;font-size:13px" onclick="tradeSetDir('buy')">매수</button>
+        <button id="trade-dir-sell-btn" class="btn btn-ghost" style="padding:6px 20px;font-size:13px;color:#f87171;border-color:#f87171" onclick="tradeSetDir('sell')">매도</button>
+      </div>
+
+      <!-- 증권사 -->
       <div style="display:flex;align-items:center;gap:10px">
         <span style="font-size:13px;color:#94a3b8;min-width:60px">증권사</span>
         <select id="trade-brokerage" style="flex:1;padding:7px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"></select>
         <input id="trade-brokerage-new" placeholder="직접 입력" style="flex:1;padding:7px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none;display:none"/>
       </div>
+
+      <!-- 수량 -->
       <div style="display:flex;align-items:center;gap:10px">
         <span style="font-size:13px;color:#94a3b8;min-width:60px">수량</span>
         <input id="trade-qty" type="number" min="1" step="1"
           style="flex:1;padding:7px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
         <span style="font-size:12px;color:#64748b">주</span>
       </div>
+
+      <!-- 체결가 -->
       <div style="display:flex;align-items:center;gap:10px">
         <span style="font-size:13px;color:#94a3b8;min-width:60px">체결가</span>
         <input id="trade-price" type="number" min="1" step="1"
           style="flex:1;padding:7px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
         <span style="font-size:12px;color:#64748b">원</span>
       </div>
+
+      <!-- 체결일 -->
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:13px;color:#94a3b8;min-width:60px">체결일</span>
+        <input type="date" id="trade-date"
+          style="flex:1;padding:7px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
+      </div>
+
       <div id="trade-total-line" style="font-size:12px;color:#64748b;text-align:right"></div>
       <div id="trade-msg" style="font-size:12px;color:#f87171;display:none"></div>
     </div>
@@ -2941,7 +2977,10 @@ canvas { max-height: 220px; }
         <div class="page-title">거래 이력</div>
         <div class="page-sub">매수·매도 체결 기록 및 실현손익 분석</div>
       </div>
-      <button class="btn btn-ghost" style="margin-left:auto;font-size:12px" onclick="loadTradeHistory()">새로고침</button>
+      <div style="display:flex;gap:8px;margin-left:auto">
+        <button class="btn btn-primary" style="font-size:12px" onclick="openTradeModalNew()">+ 거래 추가</button>
+        <button class="btn btn-ghost" style="font-size:12px" onclick="loadTradeHistory()">새로고침</button>
+      </div>
     </div>
 
     <!-- 필터 바 -->
@@ -3027,10 +3066,11 @@ canvas { max-height: 220px; }
               <th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:600;color:#64748b;white-space:nowrap">평가손익</th>
               <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:600;color:#64748b;white-space:nowrap">증권사</th>
               <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:600;color:#64748b;white-space:nowrap">출처</th>
+              <th style="padding:8px 4px;text-align:center;font-size:11px;font-weight:600;color:#64748b;white-space:nowrap"></th>
             </tr>
           </thead>
           <tbody id="th-history-body">
-            <tr><td colspan="10" style="padding:20px;text-align:center;color:#475569;font-size:13px">데이터 없음</td></tr>
+            <tr><td colspan="11" style="padding:20px;text-align:center;color:#475569;font-size:13px">데이터 없음</td></tr>
           </tbody>
         </table>
       </div>
@@ -8208,7 +8248,7 @@ function _thRenderHistory(data, append) {
   if (!append) tbody.innerHTML = '';
 
   if (!rows.length && !append) {
-    tbody.innerHTML = '<tr><td colspan="10" style="padding:20px;text-align:center;color:#475569;font-size:13px">데이터 없음</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" style="padding:20px;text-align:center;color:#475569;font-size:13px">데이터 없음</td></tr>';
     document.getElementById('th-load-more-wrap').style.display = 'none';
     return;
   }
@@ -8241,6 +8281,11 @@ function _thRenderHistory(data, append) {
       <td style="padding:7px 12px;text-align:right;font-weight:600;color:${evalColor}">${isBuy ? evalStr : '-'}</td>
       <td style="padding:7px 12px;font-size:12px;color:#94a3b8">${r.brokerage || '-'}</td>
       <td style="padding:7px 12px;font-size:11px;color:#475569">${src}</td>
+      <td style="padding:7px 4px;text-align:center">
+        <button onclick="thDeleteTrade(${r.id})" title="삭제"
+          style="background:none;border:none;color:#475569;cursor:pointer;font-size:14px;padding:2px 4px;line-height:1"
+          onmouseover="this.style.color='#f87171'" onmouseout="this.style.color='#475569'">✕</button>
+      </td>
     </tr>`;
   }).join(''));
 
@@ -8268,7 +8313,7 @@ async function trbSaveThemeTarget(theme, inputId, btnId) {
 let _tradeCtx = null;
 
 async function openTradeModal(stockCode, stockName, direction, qty, price, source = 'manual') {
-  _tradeCtx = { stockCode, stockName, direction, source };
+  _tradeCtx = { stockCode, stockName, direction, source, mode: 'preset' };
   const isBuy = direction === 'buy';
 
   document.getElementById('trade-modal-title').textContent = isBuy ? '📈 매수 체결 입력' : '📉 매도 체결 입력';
@@ -8277,30 +8322,100 @@ async function openTradeModal(stockCode, stockName, direction, qty, price, sourc
   document.getElementById('trade-qty').value   = qty;
   document.getElementById('trade-price').value = price;
   document.getElementById('trade-msg').style.display = 'none';
+  document.getElementById('trade-new-stock-row').style.display  = 'none';
+  document.getElementById('trade-preset-stock-row').style.display = '';
+  document.getElementById('trade-dir-row').style.display = 'none';
+  document.getElementById('trade-date').value = new Date().toISOString().slice(0, 10);
   updateTradeTotalLine();
 
-  // 증권사 목록 로드
+  await _tradeLoadBrokerages();
+  document.getElementById('trade-modal').classList.add('open');
+  document.getElementById('trade-qty').focus();
+}
+
+async function openTradeModalNew() {
+  await _ensureStockOptions();
+  _tradeCtx = { mode: 'new', source: 'manual', selectedDirection: 'buy' };
+
+  document.getElementById('trade-new-stock-row').style.display    = '';
+  document.getElementById('trade-preset-stock-row').style.display = 'none';
+  document.getElementById('trade-dir-row').style.display          = 'flex';
+  document.getElementById('trade-stock-search').value = '';
+  document.getElementById('trade-stock-code-val').value = '';
+  document.getElementById('trade-stock-name-val').value = '';
+  document.getElementById('trade-stock-dropdown').style.display = 'none';
+  document.getElementById('trade-qty').value   = '';
+  document.getElementById('trade-price').value = '';
+  document.getElementById('trade-date').value  = new Date().toISOString().slice(0, 10);
+  document.getElementById('trade-msg').style.display = 'none';
+  document.getElementById('trade-total-line').textContent = '';
+  tradeSetDir('buy');
+
+  await _tradeLoadBrokerages();
+  document.getElementById('trade-modal').classList.add('open');
+  document.getElementById('trade-stock-search').focus();
+}
+
+async function _tradeLoadBrokerages() {
   const sel = document.getElementById('trade-brokerage');
   sel.innerHTML = '';
   try {
     const brokers = await fetch('/api/manual_holdings/brokerages').then(r => r.json());
     brokers.forEach(b => sel.add(new Option(b, b)));
+    if (!brokers.length) sel.add(new Option('키움증권', '키움증권'));
     sel.add(new Option('+ 직접 입력', '__new__'));
   } catch { sel.add(new Option('키움증권', '키움증권')); }
-
-  // 매도일 때 해당 종목 보유 증권사만 선택 가능하도록 표시
   document.getElementById('trade-brokerage-new').style.display = 'none';
   sel.onchange = () => {
-    const isNew = sel.value === '__new__';
-    document.getElementById('trade-brokerage-new').style.display = isNew ? '' : 'none';
+    document.getElementById('trade-brokerage-new').style.display = sel.value === '__new__' ? '' : 'none';
   };
+}
 
-  // qty/price 변경 시 총액 갱신
-  document.getElementById('trade-qty').oninput   = updateTradeTotalLine;
-  document.getElementById('trade-price').oninput = updateTradeTotalLine;
+function tradeSetDir(dir) {
+  if (!_tradeCtx) return;
+  _tradeCtx.selectedDirection = dir;
+  const buyBtn  = document.getElementById('trade-dir-buy-btn');
+  const sellBtn = document.getElementById('trade-dir-sell-btn');
+  if (dir === 'buy') {
+    buyBtn.className  = 'btn btn-primary';
+    buyBtn.style.cssText  = 'padding:6px 20px;font-size:13px';
+    sellBtn.className = 'btn btn-ghost';
+    sellBtn.style.cssText = 'padding:6px 20px;font-size:13px;color:#f87171;border-color:#f87171';
+    document.getElementById('trade-modal-title').textContent = '📈 매수 체결 입력';
+    document.getElementById('trade-modal-title').style.color = '#60a5fa';
+  } else {
+    sellBtn.className = 'btn btn-primary';
+    sellBtn.style.cssText = 'padding:6px 20px;font-size:13px;background:#b91c1c;border-color:#b91c1c';
+    buyBtn.className  = 'btn btn-ghost';
+    buyBtn.style.cssText  = 'padding:6px 20px;font-size:13px;color:#60a5fa;border-color:#60a5fa';
+    document.getElementById('trade-modal-title').textContent = '📉 매도 체결 입력';
+    document.getElementById('trade-modal-title').style.color = '#f87171';
+  }
+}
 
-  document.getElementById('trade-modal').classList.add('open');
-  document.getElementById('trade-qty').focus();
+function tradeStockSearchInput(val) {
+  const dd = document.getElementById('trade-stock-dropdown');
+  if (!val.trim()) { dd.style.display = 'none'; return; }
+  const q = val.toLowerCase();
+  const matches = allStockOptions.filter(s =>
+    s.code.startsWith(val) || s.name.toLowerCase().includes(q)
+  ).slice(0, 30);
+  if (!matches.length) { dd.style.display = 'none'; return; }
+  dd.innerHTML = matches.map(s =>
+    `<div onclick="tradeSelectStock('${s.code}','${s.name.replace(/'/g,"\\'")}');event.stopPropagation()"
+      style="padding:7px 12px;cursor:pointer;font-size:13px;color:#e2e8f0;border-bottom:1px solid #1e2535"
+      onmouseover="this.style.background='#1a2233'" onmouseout="this.style.background=''">
+      <span style="color:#60a5fa;font-family:monospace;margin-right:8px">${s.code}</span>${s.name}
+    </div>`
+  ).join('');
+  dd.style.display = '';
+}
+
+function tradeSelectStock(code, name) {
+  document.getElementById('trade-stock-code-val').value  = code;
+  document.getElementById('trade-stock-name-val').value  = name;
+  document.getElementById('trade-stock-search').value    = `${code} ${name}`;
+  document.getElementById('trade-stock-dropdown').style.display = 'none';
 }
 
 function updateTradeTotalLine() {
@@ -8313,6 +8428,7 @@ function updateTradeTotalLine() {
 
 function closeTradeModal() {
   document.getElementById('trade-modal').classList.remove('open');
+  document.getElementById('trade-stock-dropdown').style.display = 'none';
   _tradeCtx = null;
 }
 
@@ -8322,9 +8438,21 @@ async function submitTrade() {
   const brokerage = sel.value === '__new__'
     ? document.getElementById('trade-brokerage-new').value.trim()
     : sel.value;
-  const qty   = parseInt(document.getElementById('trade-qty').value)   || 0;
-  const price = parseFloat(document.getElementById('trade-price').value) || 0;
-  const msgEl = document.getElementById('trade-msg');
+  const qty      = parseInt(document.getElementById('trade-qty').value)   || 0;
+  const price    = parseFloat(document.getElementById('trade-price').value) || 0;
+  const dateVal  = document.getElementById('trade-date').value || null;
+  const msgEl    = document.getElementById('trade-msg');
+
+  let stockCode = _tradeCtx.stockCode;
+  let stockName = _tradeCtx.stockName;
+  let direction = _tradeCtx.direction;
+
+  if (_tradeCtx.mode === 'new') {
+    stockCode = document.getElementById('trade-stock-code-val').value.trim();
+    stockName = document.getElementById('trade-stock-name-val').value.trim();
+    direction = _tradeCtx.selectedDirection || 'buy';
+    if (!stockCode) { msgEl.textContent = '종목을 선택하세요'; msgEl.style.display=''; return; }
+  }
 
   if (!brokerage) { msgEl.textContent = '증권사를 선택하거나 입력하세요'; msgEl.style.display=''; return; }
   if (qty <= 0)   { msgEl.textContent = '수량을 입력하세요';             msgEl.style.display=''; return; }
@@ -8334,18 +8462,13 @@ async function submitTrade() {
   btn.disabled = true;
   btn.textContent = '저장 중...';
 
+  const body = { stock_code: stockCode, stock_name: stockName, direction, quantity: qty, price, brokerage, source: _tradeCtx.source || 'manual' };
+  if (dateVal) body.executed_at = dateVal;
+
   const res = await fetch('/api/manual_holdings/trade', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      stock_code: _tradeCtx.stockCode,
-      stock_name: _tradeCtx.stockName,
-      direction:  _tradeCtx.direction,
-      quantity:   qty,
-      price:      price,
-      brokerage:  brokerage,
-      source:     _tradeCtx.source || 'manual',
-    }),
+    body: JSON.stringify(body),
   });
 
   btn.disabled = false;
@@ -8359,11 +8482,18 @@ async function submitTrade() {
   }
 
   closeTradeModal();
-  // 보유종목·리밸런싱 데이터 갱신
   if (typeof loadRebalance === 'function')       loadRebalance();
   if (typeof loadThemeRebalance === 'function')  loadThemeRebalance();
   if (typeof loadExtHoldings === 'function' &&
       document.getElementById('page-ext-holdings').classList.contains('active')) loadExtHoldings();
+  if (document.getElementById('page-trade-history').classList.contains('active')) loadTradeHistory();
+}
+
+async function thDeleteTrade(id) {
+  if (!confirm('이 거래 이력을 삭제하시겠습니까?\n(보유종목 수량은 변경되지 않습니다)')) return;
+  const res = await fetch(`/api/trade_history/${id}`, { method: 'DELETE' });
+  if (!res.ok) { alert('삭제 실패'); return; }
+  loadTradeHistory();
 }
 
 function trbOpenThemePopover(stockCode, btn) {
