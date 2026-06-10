@@ -8222,7 +8222,8 @@ function _thRenderHistory(data, append) {
     const pnlColor = pnl != null ? (pnl > 0 ? '#4ade80' : pnl < 0 ? '#f87171' : '#94a3b8') : '';
     const pnlStr   = pnl != null ? (pnl >= 0 ? '+' : '') + pnl.toLocaleString() + '원' : '-';
     const avgBefore = r.avg_price_before != null ? parseInt(r.avg_price_before).toLocaleString() + '원' : '-';
-    const dt = r.executed_at ? r.executed_at.slice(0, 16).replace('T', ' ') : '-';
+    const _days = ['일','월','화','수','목','금','토'];
+    const dt = r.executed_at ? (() => { const d = new Date(r.executed_at); return r.executed_at.slice(0,10).replace(/-/g,'') + '(' + _days[d.getDay()] + ')'; })() : '-';
     const src = _thSourceLabel[r.source] || r.source || '-';
     return `<tr style="border-bottom:1px solid #0d1117">
       <td style="padding:7px 12px;font-size:12px;color:#64748b;white-space:nowrap">${dt}</td>
