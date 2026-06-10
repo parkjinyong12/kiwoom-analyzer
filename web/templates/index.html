@@ -8098,16 +8098,28 @@ function trbShowSaveBtn(btnId) {
 let _thOffset = 0;
 const _thPageSize = 100;
 
+function _thDefaultDates() {
+  const today = new Date();
+  const from  = new Date(today);
+  from.setMonth(from.getMonth() - 1);
+  const fmt = d => d.toISOString().slice(0, 10);
+  document.getElementById('th-filter-from').value = fmt(from);
+  document.getElementById('th-filter-to').value   = fmt(today);
+}
+
 function thClearFilter() {
   document.getElementById('th-filter-stock').value = '';
   document.getElementById('th-filter-dir').value   = '';
-  document.getElementById('th-filter-from').value  = '';
-  document.getElementById('th-filter-to').value    = '';
+  _thDefaultDates();
   _thOffset = 0;
   loadTradeHistory();
 }
 
 async function loadTradeHistory() {
+  if (!document.getElementById('th-filter-from').value &&
+      !document.getElementById('th-filter-to').value) {
+    _thDefaultDates();
+  }
   _thOffset = 0;
   const [statsRes, histRes] = await Promise.all([
     fetch('/api/trade_history/stats'),
