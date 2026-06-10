@@ -8481,12 +8481,118 @@ async function submitTrade() {
     return;
   }
 
+  const tradeSource = _tradeCtx?.source || 'manual';
   closeTradeModal();
-  if (typeof loadRebalance === 'function')       loadRebalance();
-  if (typeof loadThemeRebalance === 'function')  loadThemeRebalance();
+
+  if (tradeSource === 'stock_rebalance') {
+    _rbPatchAndRerender(stockCode, direction, qty, price);
+  } else if (tradeSource === 'theme_rebalance') {
+    _trbPatchAndRerender(stockCode, direction, qty, price);
+  } else {
+    // 리밸런싱 페이지가 활성화된 경우에만 새로고침
+    if (typeof loadRebalance === 'function' &&
+        (document.getElementById('page-rebalance')?.classList.contains('active') ||
+         document.getElementById('page-stock-rebalance')?.classList.contains('active'))) {
+      loadRebalance();
+    }
+    if (typeof loadThemeRebalance === 'function' &&
+        document.getElementById('page-theme-rebalance')?.classList.contains('active')) {
+      loadThemeRebalance();
+    }
+  }
   if (typeof loadExtHoldings === 'function' &&
       document.getElementById('page-ext-holdings').classList.contains('active')) loadExtHoldings();
   if (document.getElementById('page-trade-history').classList.contains('active')) loadTradeHistory();
+}
+
+// 주식 간 리밸런싱: 서버 재조회 없이 메모리 데이터 패치 후 재렌더
+function _rbPatchAndRerender(stockCode, direction, qty, price) {
+  if (!rbData?.length) { loadRebalance(); return; }
+  const stock = rbData.find(s => s.stock_code === stockCode);
+  if (!stock) { loadRebalance(); return; }
+
+  const delta  = direction === 'buy' ? qty : -qty;
+  const newQty = Math.max(0, stock.total_qty + delta);
+  const curP   = stock.current_price ?? stock.avg_price;
+
+  if (direction === 'buy' && stock.total_qty >= 0) {
+    const totalCost = stock.total_qty * stock.avg_price + qty * price;
+    stock.avg_price = newQty > 0 ? Math.round(totalCost / newQty) : stock.avg_price;
+  }
+  stock.total_qty = newQty;
+  stock.eval_amt  = Math.round(newQty * curP);
+
+  rbStockTotal    = rbData.reduce((s, r) => s + r.eval_amt, 0);
+  rbPortfolioTotal = rbStockTotal + rbTotalCash;
+
+  for (const r of rbData) {
+    r.current_ratio = rbPortfolioTotal > 0 ? r.eval_amt / rbPortfolioTotal * 100 : 0;
+  }
+
+  rbUpdateSummary({ portfolio_total: rbPortfolioTotal, stock_total: rbStockTotal, total_cash: rbTotalCash });
+  if (typeof rbRender === 'function') rbRender();
+  if (typeof rbRenderRecommendation === 'function') rbRenderRecommendation();
+}
+
+// 테마 리밸런싱: 서버 재조회 없이 메모리 데이터 패치 후 재렌더
+function _trbPatchAndRerender(stockCode, direction, qty, price) {
+  if (!trbData?.stocks) { loadThemeRebalance(); return; }
+  const stock = trbData.stocks.find(s => s.stock_code === stockCode);
+  if (!stock) { loadThemeRebalance(); return; }
+
+  const delta  = direction === 'buy' ? qty : -qty;
+  const newQty = Math.max(0, stock.total_qty + delta);
+  const curP   = stock.current_price ?? stock.avg_price;
+
+  if (direction === 'buy' && stock.total_qty >= 0) {
+    const totalCost = stock.total_qty * stock.avg_price + qty * price;
+    stock.avg_price = newQty > 0 ? Math.round(totalCost / newQty) : stock.avg_price;
+  }
+  stock.total_qty = newQty;
+  stock.eval_amt  = Math.round(newQty * curP);
+
+  _trbRecalcFromStocks();
+
+  trbUpdateSummary();
+  if (typeof trbRenderThemes === 'function') trbRenderThemes();
+  if (typeof trbRenderStocks === 'function') trbRenderStocks();
+  const planPanel = document.getElementById('trb-full-plan');
+  if (planPanel && planPanel.style.display !== 'none') trbRenderFullPlan();
+}
+
+// trbData.stocks 변경 후 테마별 eval_amt·비율·편차 재계산
+function _trbRecalcFromStocks() {
+  if (!trbData?.stocks) return;
+  const stocks       = trbData.stocks;
+  const newStockTotal = stocks.reduce((s, st) => s + st.eval_amt, 0);
+  trbData.stock_total    = newStockTotal;
+  trbData.portfolio_total = newStockTotal + (trbData.total_cash || 0);
+
+  for (const st of stocks) {
+    st.current_ratio = newStockTotal > 0 ? st.eval_amt / newStockTotal * 100 : 0;
+    if (st.rb_target_ratio != null && st.rb_target_ratio > 0) {
+      st.rb_dev_rel = parseFloat(((st.current_ratio - st.rb_target_ratio) / st.rb_target_ratio * 100).toFixed(1));
+    }
+  }
+
+  // 테마별 eval_amt 재집계 (종목 eval을 테마 수만큼 균등 분할)
+  const themeEvals = {};
+  for (const st of stocks) {
+    const themes = st.themes?.length ? st.themes : ['__untagged__'];
+    const n = themes.length;
+    for (const t of themes) themeEvals[t] = (themeEvals[t] || 0) + st.eval_amt / n;
+  }
+
+  for (const theme of (trbData.themes || [])) {
+    const newEval = themeEvals[theme.theme] || 0;
+    theme.eval_amt     = Math.round(newEval);
+    theme.current_ratio = newStockTotal > 0 ? parseFloat((newEval / newStockTotal * 100).toFixed(2)) : 0;
+    const tgt = theme.target_ratio || 0;
+    if (tgt > 0) {
+      theme.deviation_pp  = parseFloat((theme.current_ratio - tgt).toFixed(2));
+      theme.deviation_rel = parseFloat((theme.deviation_pp / tgt * 100).toFixed(1));
+    }
+  }
 }
 
 async function thDeleteTrade(id) {
