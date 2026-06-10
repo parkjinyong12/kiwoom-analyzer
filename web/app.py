@@ -177,6 +177,28 @@ def _ensure_manual_holdings_table():
         """)
 
 
+def _ensure_trade_history_table():
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS trade_history (
+                id               SERIAL PRIMARY KEY,
+                user_id          INTEGER        REFERENCES users(id),
+                stock_code       VARCHAR(20)    NOT NULL,
+                stock_name       VARCHAR(100)   NOT NULL DEFAULT '',
+                direction        VARCHAR(4)     NOT NULL,
+                brokerage        VARCHAR(50)    NOT NULL DEFAULT '',
+                quantity         BIGINT         NOT NULL,
+                price            NUMERIC(15, 2) NOT NULL,
+                amount           BIGINT         NOT NULL,
+                avg_price_before NUMERIC(15, 2),
+                realized_pnl     BIGINT,
+                source           VARCHAR(30)    NOT NULL DEFAULT 'manual',
+                executed_at      TIMESTAMP      NOT NULL DEFAULT NOW()
+            )
+        """)
+
+
 _DEFAULT_BROKERAGES = [
     ("BROKERAGE", "MAS",  "미래에셋증권",   1),
     ("BROKERAGE", "NH",   "NH투자증권",     2),
@@ -1399,6 +1421,7 @@ def api_manual_holdings_trade():
     stock_name  = (data.get("stock_name")  or "").strip()
     direction   = (data.get("direction")   or "").lower()   # "buy" | "sell"
     brokerage   = (data.get("brokerage")   or "").strip()
+    source      = (data.get("source")      or "manual").strip()
     try:
         quantity = int(data.get("quantity") or 0)
         price    = float(data.get("price")  or 0)
@@ -1407,6 +1430,8 @@ def api_manual_holdings_trade():
 
     if not stock_code or direction not in ("buy", "sell") or quantity <= 0 or price <= 0:
         return jsonify({"error": "필수 항목 누락 또는 잘못된 값"}), 400
+
+    avg_price_before = None
 
     with get_conn() as conn:
         cur = conn.cursor()
@@ -1434,6 +1459,7 @@ def api_manual_holdings_trade():
         else:  # sell
             if not existing:
                 return jsonify({"error": "해당 증권사에 보유 종목 없음"}), 404
+            avg_price_before = float(existing["avg_price"] or 0)
             new_qty = max(0, int(existing["quantity"] or 0) - quantity)
             if new_qty == 0:
                 cur.execute("DELETE FROM manual_holdings WHERE id=%s", (existing["id"],))
@@ -1442,6 +1468,18 @@ def api_manual_holdings_trade():
                     "UPDATE manual_holdings SET quantity=%s WHERE id=%s",
                     (new_qty, existing["id"]),
                 )
+
+        # 거래 이력 저장
+        amount = round(quantity * price)
+        realized_pnl = round((price - avg_price_before) * quantity) if avg_price_before is not None else None
+        cur.execute("""
+            INSERT INTO trade_history
+                (user_id, stock_code, stock_name, direction, brokerage,
+                 quantity, price, amount, avg_price_before, realized_pnl, source)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        """, (uid, stock_code, stock_name or stock_code, direction, brokerage,
+              quantity, price, amount, avg_price_before, realized_pnl, source))
+
     return jsonify({"ok": True})
 
 
@@ -1454,6 +1492,76 @@ def api_manual_holdings_brokerages():
         (uid,),
     )
     return jsonify([r["brokerage"] for r in rows])
+
+
+@app.route("/api/trade_history")
+def api_trade_history():
+    """거래 이력 조회. 필터: stock_code, direction, from_date, to_date, limit, offset"""
+    uid = _current_uid()
+    stock_filter = request.args.get("stock_code", "").strip()
+    direction    = request.args.get("direction",  "").strip()
+    from_date    = request.args.get("from_date",  "").strip()
+    to_date      = request.args.get("to_date",    "").strip()
+    try:
+        limit  = min(int(request.args.get("limit",  200)), 500)
+        offset = max(int(request.args.get("offset", 0)),   0)
+    except (ValueError, TypeError):
+        limit, offset = 200, 0
+
+    where  = ["user_id = %s"]
+    params: list = [uid]
+    if stock_filter:
+        where.append("(stock_code ILIKE %s OR stock_name ILIKE %s)")
+        params += [f"%{stock_filter}%", f"%{stock_filter}%"]
+    if direction in ("buy", "sell"):
+        where.append("direction = %s")
+        params.append(direction)
+    if from_date:
+        where.append("executed_at >= %s")
+        params.append(from_date)
+    if to_date:
+        where.append("executed_at < (%s::date + interval '1 day')")
+        params.append(to_date)
+
+    wc    = " AND ".join(where)
+    total = (query_one(f"SELECT COUNT(*) AS cnt FROM trade_history WHERE {wc}", params) or {}).get("cnt", 0)
+    rows  = query(
+        f"SELECT * FROM trade_history WHERE {wc} ORDER BY executed_at DESC LIMIT %s OFFSET %s",
+        params + [limit, offset],
+    )
+    return jsonify({"total": total, "rows": [dict(r) for r in rows]})
+
+
+@app.route("/api/trade_history/stats")
+def api_trade_history_stats():
+    """거래 이력 종목별·전체 집계 통계."""
+    uid = _current_uid()
+    overall = query_one("""
+        SELECT
+            COALESCE(SUM(CASE WHEN direction='sell' THEN realized_pnl ELSE 0 END), 0) AS total_realized_pnl,
+            COUNT(*) FILTER (WHERE direction='buy')  AS buy_count,
+            COUNT(*) FILTER (WHERE direction='sell') AS sell_count,
+            COALESCE(SUM(amount), 0) AS total_amount
+        FROM trade_history WHERE user_id = %s
+    """, (uid,))
+    by_stock = query("""
+        SELECT
+            stock_code,
+            MAX(stock_name) AS stock_name,
+            COUNT(*) FILTER (WHERE direction='buy')  AS buy_count,
+            COUNT(*) FILTER (WHERE direction='sell') AS sell_count,
+            COALESCE(SUM(CASE WHEN direction='buy'  THEN amount ELSE 0 END), 0) AS total_buy_amount,
+            COALESCE(SUM(CASE WHEN direction='sell' THEN amount ELSE 0 END), 0) AS total_sell_amount,
+            COALESCE(SUM(CASE WHEN direction='sell' THEN realized_pnl ELSE 0 END), 0) AS realized_pnl,
+            MAX(executed_at) AS last_trade_at
+        FROM trade_history WHERE user_id = %s
+        GROUP BY stock_code
+        ORDER BY last_trade_at DESC
+    """, (uid,))
+    return jsonify({
+        "overall":  dict(overall) if overall else {},
+        "by_stock": [dict(r) for r in by_stock],
+    })
 
 
 @app.route("/api/price_sync/stocks")
@@ -3277,6 +3385,11 @@ except Exception:
 
 try:
     _ensure_manual_holdings_table()
+except Exception:
+    pass
+
+try:
+    _ensure_trade_history_table()
 except Exception:
     pass
 

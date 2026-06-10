@@ -624,6 +624,9 @@ canvas { max-height: 220px; }
         <div class="nav-item" data-page="theme-rebalance" onclick="showPage('theme-rebalance')">
           <span class="icon">🏷️</span> 테마 리밸런싱
         </div>
+        <div class="nav-item" data-page="trade-history" onclick="showPage('trade-history')">
+          <span class="icon">📒</span> 거래 이력
+        </div>
         <div class="nav-item" data-page="qualitative" onclick="showPage('qualitative')">
           <span class="icon">📝</span> 정성 점수
         </div>
@@ -2931,6 +2934,112 @@ canvas { max-height: 220px; }
     </div>
   </div>
 
+  <!-- ─── 거래 이력 ─── -->
+  <section id="page-trade-history" class="page">
+    <div class="page-header" style="display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap">
+      <div>
+        <div class="page-title">거래 이력</div>
+        <div class="page-sub">매수·매도 체결 기록 및 실현손익 분석</div>
+      </div>
+      <button class="btn btn-ghost" style="margin-left:auto;font-size:12px" onclick="loadTradeHistory()">새로고침</button>
+    </div>
+
+    <!-- 필터 바 -->
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px">
+      <input id="th-filter-stock" placeholder="종목명 / 코드"
+             style="padding:7px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none;width:160px"
+             onkeydown="if(event.key==='Enter') loadTradeHistory()"/>
+      <select id="th-filter-dir"
+              style="padding:7px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none">
+        <option value="">전체</option>
+        <option value="buy">매수</option>
+        <option value="sell">매도</option>
+      </select>
+      <input id="th-filter-from" type="date"
+             style="padding:7px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
+      <span style="color:#64748b;font-size:12px">~</span>
+      <input id="th-filter-to" type="date"
+             style="padding:7px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
+      <button class="btn btn-primary" style="font-size:12px;padding:7px 16px" onclick="loadTradeHistory()">조회</button>
+      <button class="btn btn-ghost"   style="font-size:12px;padding:7px 12px" onclick="thClearFilter()">초기화</button>
+    </div>
+
+    <!-- 전체 요약 카드 -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;margin-bottom:20px" id="th-summary-cards">
+      <div style="background:#111827;border:1px solid #1e2535;border-radius:10px;padding:16px 18px">
+        <div style="font-size:11px;color:#64748b;margin-bottom:6px">총 실현손익</div>
+        <div id="th-total-pnl" style="font-size:20px;font-weight:700;color:#e2e8f0">-</div>
+      </div>
+      <div style="background:#111827;border:1px solid #1e2535;border-radius:10px;padding:16px 18px">
+        <div style="font-size:11px;color:#64748b;margin-bottom:6px">매수</div>
+        <div id="th-buy-count" style="font-size:20px;font-weight:700;color:#60a5fa">-</div>
+        <div id="th-buy-amount" style="font-size:11px;color:#64748b;margin-top:3px">-</div>
+      </div>
+      <div style="background:#111827;border:1px solid #1e2535;border-radius:10px;padding:16px 18px">
+        <div style="font-size:11px;color:#64748b;margin-bottom:6px">매도</div>
+        <div id="th-sell-count" style="font-size:20px;font-weight:700;color:#f87171">-</div>
+        <div id="th-sell-amount" style="font-size:11px;color:#64748b;margin-top:3px">-</div>
+      </div>
+      <div style="background:#111827;border:1px solid #1e2535;border-radius:10px;padding:16px 18px">
+        <div style="font-size:11px;color:#64748b;margin-bottom:6px">총 거래금액</div>
+        <div id="th-total-amount" style="font-size:20px;font-weight:700;color:#e2e8f0">-</div>
+      </div>
+    </div>
+
+    <!-- 종목별 집계 -->
+    <div style="background:#111827;border:1px solid #1e2535;border-radius:10px;padding:16px 20px;margin-bottom:16px">
+      <div style="font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:12px">종목별 집계</div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead>
+            <tr style="border-bottom:1px solid #1e2535">
+              <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:600;color:#64748b;white-space:nowrap">종목</th>
+              <th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:600;color:#60a5fa;white-space:nowrap">매수</th>
+              <th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:600;color:#f87171;white-space:nowrap">매도</th>
+              <th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:600;color:#64748b;white-space:nowrap">실현손익</th>
+              <th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:600;color:#64748b;white-space:nowrap">최근 거래</th>
+            </tr>
+          </thead>
+          <tbody id="th-by-stock-body">
+            <tr><td colspan="5" style="padding:20px;text-align:center;color:#475569;font-size:13px">데이터 없음</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 전체 거래 이력 -->
+    <div style="background:#111827;border:1px solid #1e2535;border-radius:10px;padding:16px 20px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <span style="font-size:13px;font-weight:600;color:#94a3b8">전체 거래 이력</span>
+        <span id="th-total-badge" style="font-size:11px;color:#64748b"></span>
+      </div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead>
+            <tr style="border-bottom:1px solid #1e2535">
+              <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:600;color:#64748b;white-space:nowrap">체결일시</th>
+              <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:600;color:#64748b;white-space:nowrap">종목</th>
+              <th style="padding:8px 12px;text-align:center;font-size:11px;font-weight:600;color:#64748b;white-space:nowrap">구분</th>
+              <th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:600;color:#64748b;white-space:nowrap">수량</th>
+              <th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:600;color:#64748b;white-space:nowrap">체결가</th>
+              <th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:600;color:#64748b;white-space:nowrap">체결금액</th>
+              <th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:600;color:#64748b;white-space:nowrap">이전 평균단가</th>
+              <th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:600;color:#64748b;white-space:nowrap">실현손익</th>
+              <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:600;color:#64748b;white-space:nowrap">증권사</th>
+              <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:600;color:#64748b;white-space:nowrap">출처</th>
+            </tr>
+          </thead>
+          <tbody id="th-history-body">
+            <tr><td colspan="10" style="padding:20px;text-align:center;color:#475569;font-size:13px">데이터 없음</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div id="th-load-more-wrap" style="text-align:center;margin-top:12px;display:none">
+        <button class="btn btn-ghost" style="font-size:12px" onclick="thLoadMore()">더 보기</button>
+      </div>
+    </div>
+  </section>
+
   <!-- ─── 기획서 ─── -->
   <section id="page-spec" class="page">
     <div class="page-header" style="display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap">
@@ -3033,6 +3142,7 @@ const PAGE_TITLES = {
   auditlog:'감사 로그', stocks:'감시 종목', batch:'배치 관리', spec:'기획서', usermgmt:'사용자 관리',
   'ext-holdings':'보유종목', 'price-mgmt':'현재가 관리', 'cash-assets':'현금성 자산', macro:'매크로 관리', 'common-codes':'공통코드 관리',
   rebalance:'현금 대 주식 리밸런싱', credit:'신용 관리', 'stock-rebalance':'주식 간 리밸런싱', 'theme-rebalance':'테마 리밸런싱',
+  'trade-history':'거래 이력',
 };
 function toggleMobileDrawer() {
   const open = document.getElementById('sidebar').classList.toggle('mobile-open');
@@ -3051,7 +3161,7 @@ const NAV_GROUP_MAP = {
   'ext-holdings':'navg-portfolio', report:'navg-portfolio',
   'cash-assets':'navg-portfolio',  credit:'navg-portfolio',
   rebalance:'navg-portfolio', 'stock-rebalance':'navg-portfolio',
-  'theme-rebalance':'navg-portfolio', qualitative:'navg-portfolio',
+  'theme-rebalance':'navg-portfolio', 'trade-history':'navg-portfolio', qualitative:'navg-portfolio',
   auditlog:'navg-system',    stocks:'navg-system',
   batch:'navg-admin',        spec:'navg-admin', 'common-codes':'navg-admin', usermgmt:'navg-admin',
   'alert-emails':'navg-admin',
@@ -3112,6 +3222,7 @@ function showPage(name, fromHash) {
   if (name === 'credit')           loadCredit();
   if (name === 'stock-rebalance')  loadRebalance();
   if (name === 'theme-rebalance')  loadThemeRebalance();
+  if (name === 'trade-history')    loadTradeHistory();
   if (name === 'qualitative')      loadQualitative();
   if (name === 'common-codes')     loadCommonCodes();
 }
@@ -7148,7 +7259,7 @@ function rbRenderRecommendation() {
       ? `<span style="font-size:10px;color:#64748b">${item.adj_amt > 0 ? item.adj_amt.toLocaleString()+'원 미만' : '1주 미만'}</span>`
       : `${amtSign}${item.adj_amt.toLocaleString()}원`;
     const tradeBtn = isObs ? '' : `<button
-      onclick="openTradeModal('${item.stock_code}','${item.stock_name.replace(/'/g,"\\'")}','${item.type}',${item.adj_qty},${item.current_price})"
+      onclick="openTradeModal('${item.stock_code}','${item.stock_name.replace(/'/g,"\\'")}','${item.type}',${item.adj_qty},${item.current_price},'stock_rebalance')"
       style="padding:2px 8px;border-radius:4px;border:1px solid ${isBuy?'#1e3a5f':'#3d1515'};
              background:${isBuy?'#1d3a5f':'#2a1010'};color:${isBuy?'#60a5fa':'#f87171'};
              font-size:11px;cursor:pointer;white-space:nowrap">체결</button>`;
@@ -7761,7 +7872,7 @@ function trbRenderFullPlan() {
         <td class="num" style="color:${color};font-size:12px">${st.amt.toLocaleString()}원</td>
         <td class="num" style="font-size:11px;color:#475569">${st.current_ratio.toFixed(2)}%</td>
         <td class="center" style="padding:4px 8px">
-          <button onclick="openTradeModal('${st.stock_code}','${nameEsc}','${dir}',${st.shares},${st.current_price})"
+          <button onclick="openTradeModal('${st.stock_code}','${nameEsc}','${dir}',${st.shares},${st.current_price},'theme_rebalance')"
             style="padding:2px 8px;border-radius:4px;border:1px solid ${dir==='buy'?'#1e3a5f':'#3d1515'};
                    background:${dir==='buy'?'#1d3a5f':'#2a1010'};color:${dir==='buy'?'#60a5fa':'#f87171'};
                    font-size:11px;cursor:pointer;white-space:nowrap">체결</button>
@@ -7983,6 +8094,144 @@ function trbShowSaveBtn(btnId) {
   if (btn) { btn.style.opacity = '1'; btn.style.pointerEvents = 'auto'; }
 }
 
+// ─── 거래 이력 ──────────────────────────────────────────
+let _thOffset = 0;
+const _thPageSize = 100;
+
+function thClearFilter() {
+  document.getElementById('th-filter-stock').value = '';
+  document.getElementById('th-filter-dir').value   = '';
+  document.getElementById('th-filter-from').value  = '';
+  document.getElementById('th-filter-to').value    = '';
+  _thOffset = 0;
+  loadTradeHistory();
+}
+
+async function loadTradeHistory() {
+  _thOffset = 0;
+  const [statsRes, histRes] = await Promise.all([
+    fetch('/api/trade_history/stats'),
+    fetch(_thBuildUrl(0)),
+  ]);
+  if (statsRes.ok) {
+    const s = await statsRes.json();
+    _thRenderStats(s);
+  }
+  if (histRes.ok) {
+    const h = await histRes.json();
+    _thRenderHistory(h, false);
+  }
+}
+
+async function thLoadMore() {
+  _thOffset += _thPageSize;
+  const res = await fetch(_thBuildUrl(_thOffset));
+  if (res.ok) _thRenderHistory(await res.json(), true);
+}
+
+function _thBuildUrl(offset) {
+  const stock = encodeURIComponent(document.getElementById('th-filter-stock').value.trim());
+  const dir   = document.getElementById('th-filter-dir').value;
+  const from  = document.getElementById('th-filter-from').value;
+  const to    = document.getElementById('th-filter-to').value;
+  let url = `/api/trade_history?limit=${_thPageSize}&offset=${offset}`;
+  if (stock) url += `&stock_code=${stock}`;
+  if (dir)   url += `&direction=${dir}`;
+  if (from)  url += `&from_date=${from}`;
+  if (to)    url += `&to_date=${to}`;
+  return url;
+}
+
+function _thRenderStats(s) {
+  const ov = s.overall || {};
+  const pnl = parseInt(ov.total_realized_pnl || 0);
+  const pnlEl = document.getElementById('th-total-pnl');
+  pnlEl.textContent = (pnl >= 0 ? '+' : '') + pnl.toLocaleString() + '원';
+  pnlEl.style.color = pnl > 0 ? '#4ade80' : pnl < 0 ? '#f87171' : '#e2e8f0';
+
+  document.getElementById('th-buy-count').textContent  = (ov.buy_count  || 0) + '회';
+  document.getElementById('th-sell-count').textContent = (ov.sell_count || 0) + '회';
+
+  const buyStat  = query => document.querySelector(query);
+  document.getElementById('th-buy-amount').textContent  = parseInt(ov.total_amount || 0) > 0
+    ? '총 ' + parseInt(ov.total_amount).toLocaleString() + '원' : '';
+  document.getElementById('th-sell-amount').textContent = '';
+  document.getElementById('th-total-amount').textContent = parseInt(ov.total_amount || 0).toLocaleString() + '원';
+
+  const byStock = s.by_stock || [];
+  const tbody = document.getElementById('th-by-stock-body');
+  if (!byStock.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="padding:20px;text-align:center;color:#475569;font-size:13px">데이터 없음</td></tr>';
+    return;
+  }
+  tbody.innerHTML = byStock.map(r => {
+    const pnl = parseInt(r.realized_pnl || 0);
+    const pnlColor = pnl > 0 ? '#4ade80' : pnl < 0 ? '#f87171' : '#94a3b8';
+    const pnlStr   = pnl !== 0 ? (pnl > 0 ? '+' : '') + pnl.toLocaleString() + '원' : '-';
+    const lastDate = r.last_trade_at ? r.last_trade_at.slice(0, 10) : '-';
+    return `<tr style="border-bottom:1px solid #0d1117">
+      <td style="padding:8px 12px;color:#e2e8f0;font-weight:500">
+        ${r.stock_name}<span style="font-size:11px;color:#475569;margin-left:5px">${r.stock_code}</span>
+      </td>
+      <td style="padding:8px 12px;text-align:right;color:#60a5fa">
+        ${r.buy_count}회 <span style="font-size:11px;color:#475569">${parseInt(r.total_buy_amount||0).toLocaleString()}원</span>
+      </td>
+      <td style="padding:8px 12px;text-align:right;color:#f87171">
+        ${r.sell_count}회 <span style="font-size:11px;color:#475569">${parseInt(r.total_sell_amount||0).toLocaleString()}원</span>
+      </td>
+      <td style="padding:8px 12px;text-align:right;font-weight:600;color:${pnlColor}">${pnlStr}</td>
+      <td style="padding:8px 12px;text-align:right;font-size:12px;color:#64748b">${lastDate}</td>
+    </tr>`;
+  }).join('');
+}
+
+const _thSourceLabel = { manual:'직접', stock_rebalance:'주식리밸', theme_rebalance:'테마리밸' };
+
+function _thRenderHistory(data, append) {
+  const total  = parseInt(data.total || 0);
+  const rows   = data.rows || [];
+  document.getElementById('th-total-badge').textContent = `총 ${total.toLocaleString()}건`;
+
+  const tbody = document.getElementById('th-history-body');
+  if (!append) tbody.innerHTML = '';
+
+  if (!rows.length && !append) {
+    tbody.innerHTML = '<tr><td colspan="10" style="padding:20px;text-align:center;color:#475569;font-size:13px">데이터 없음</td></tr>';
+    document.getElementById('th-load-more-wrap').style.display = 'none';
+    return;
+  }
+
+  tbody.insertAdjacentHTML('beforeend', rows.map(r => {
+    const isBuy    = r.direction === 'buy';
+    const dirBadge = isBuy
+      ? `<span style="background:#1d3a5f;color:#60a5fa;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">매수</span>`
+      : `<span style="background:#2a1010;color:#f87171;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">매도</span>`;
+    const pnl = r.realized_pnl != null ? parseInt(r.realized_pnl) : null;
+    const pnlColor = pnl != null ? (pnl > 0 ? '#4ade80' : pnl < 0 ? '#f87171' : '#94a3b8') : '';
+    const pnlStr   = pnl != null ? (pnl >= 0 ? '+' : '') + pnl.toLocaleString() + '원' : '-';
+    const avgBefore = r.avg_price_before != null ? parseInt(r.avg_price_before).toLocaleString() + '원' : '-';
+    const dt = r.executed_at ? r.executed_at.slice(0, 16).replace('T', ' ') : '-';
+    const src = _thSourceLabel[r.source] || r.source || '-';
+    return `<tr style="border-bottom:1px solid #0d1117">
+      <td style="padding:7px 12px;font-size:12px;color:#64748b;white-space:nowrap">${dt}</td>
+      <td style="padding:7px 12px;color:#e2e8f0;white-space:nowrap">
+        ${r.stock_name}<span style="font-size:11px;color:#475569;margin-left:4px">${r.stock_code}</span>
+      </td>
+      <td style="padding:7px 12px;text-align:center">${dirBadge}</td>
+      <td style="padding:7px 12px;text-align:right;color:#e2e8f0">${parseInt(r.quantity).toLocaleString()}주</td>
+      <td style="padding:7px 12px;text-align:right;color:#e2e8f0">${parseInt(r.price).toLocaleString()}원</td>
+      <td style="padding:7px 12px;text-align:right;color:#e2e8f0">${parseInt(r.amount).toLocaleString()}원</td>
+      <td style="padding:7px 12px;text-align:right;font-size:12px;color:#64748b">${isBuy ? '-' : avgBefore}</td>
+      <td style="padding:7px 12px;text-align:right;font-weight:600;color:${pnlColor}">${isBuy ? '-' : pnlStr}</td>
+      <td style="padding:7px 12px;font-size:12px;color:#94a3b8">${r.brokerage || '-'}</td>
+      <td style="padding:7px 12px;font-size:11px;color:#475569">${src}</td>
+    </tr>`;
+  }).join(''));
+
+  const shown = _thOffset + rows.length;
+  document.getElementById('th-load-more-wrap').style.display = shown < total ? '' : 'none';
+}
+
 async function trbSaveThemeTarget(theme, inputId, btnId) {
   const inputEl = document.getElementById(inputId);
   if (!inputEl) return;
@@ -8002,8 +8251,8 @@ async function trbSaveThemeTarget(theme, inputId, btnId) {
 // ─── 체결 입력 모달 ──────────────────────────────────────
 let _tradeCtx = null;
 
-async function openTradeModal(stockCode, stockName, direction, qty, price) {
-  _tradeCtx = { stockCode, stockName, direction };
+async function openTradeModal(stockCode, stockName, direction, qty, price, source = 'manual') {
+  _tradeCtx = { stockCode, stockName, direction, source };
   const isBuy = direction === 'buy';
 
   document.getElementById('trade-modal-title').textContent = isBuy ? '📈 매수 체결 입력' : '📉 매도 체결 입력';
@@ -8079,6 +8328,7 @@ async function submitTrade() {
       quantity:   qty,
       price:      price,
       brokerage:  brokerage,
+      source:     _tradeCtx.source || 'manual',
     }),
   });
 
