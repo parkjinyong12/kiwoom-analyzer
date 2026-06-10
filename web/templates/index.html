@@ -3025,12 +3025,13 @@ canvas { max-height: 220px; }
               <th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:600;color:#64748b;white-space:nowrap">체결금액</th>
               <th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:600;color:#64748b;white-space:nowrap">이전 평균단가</th>
               <th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:600;color:#64748b;white-space:nowrap">실현손익</th>
+              <th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:600;color:#64748b;white-space:nowrap">평가손익</th>
               <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:600;color:#64748b;white-space:nowrap">증권사</th>
               <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:600;color:#64748b;white-space:nowrap">출처</th>
             </tr>
           </thead>
           <tbody id="th-history-body">
-            <tr><td colspan="10" style="padding:20px;text-align:center;color:#475569;font-size:13px">데이터 없음</td></tr>
+            <tr><td colspan="11" style="padding:20px;text-align:center;color:#475569;font-size:13px">데이터 없음</td></tr>
           </tbody>
         </table>
       </div>
@@ -8208,7 +8209,7 @@ function _thRenderHistory(data, append) {
   if (!append) tbody.innerHTML = '';
 
   if (!rows.length && !append) {
-    tbody.innerHTML = '<tr><td colspan="10" style="padding:20px;text-align:center;color:#475569;font-size:13px">데이터 없음</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" style="padding:20px;text-align:center;color:#475569;font-size:13px">데이터 없음</td></tr>';
     document.getElementById('th-load-more-wrap').style.display = 'none';
     return;
   }
@@ -8221,6 +8222,9 @@ function _thRenderHistory(data, append) {
     const pnl = r.realized_pnl != null ? parseInt(r.realized_pnl) : null;
     const pnlColor = pnl != null ? (pnl > 0 ? '#4ade80' : pnl < 0 ? '#f87171' : '#94a3b8') : '';
     const pnlStr   = pnl != null ? (pnl >= 0 ? '+' : '') + pnl.toLocaleString() + '원' : '-';
+    const evalPnl  = r.eval_pnl != null ? parseInt(r.eval_pnl) : null;
+    const evalColor = evalPnl != null ? (evalPnl > 0 ? '#4ade80' : evalPnl < 0 ? '#f87171' : '#94a3b8') : '';
+    const evalStr  = evalPnl != null ? (evalPnl >= 0 ? '+' : '') + evalPnl.toLocaleString() + '원' : '-';
     const avgBefore = r.avg_price_before != null ? parseInt(r.avg_price_before).toLocaleString() + '원' : '-';
     const _days = ['일','월','화','수','목','금','토'];
     const dt = r.executed_at ? (() => { const d = new Date(r.executed_at); return r.executed_at.slice(0,10).replace(/-/g,'') + '(' + _days[d.getDay()] + ')'; })() : '-';
@@ -8236,6 +8240,7 @@ function _thRenderHistory(data, append) {
       <td style="padding:7px 12px;text-align:right;color:#e2e8f0">${parseInt(r.amount).toLocaleString()}원</td>
       <td style="padding:7px 12px;text-align:right;font-size:12px;color:#64748b">${isBuy ? '-' : avgBefore}</td>
       <td style="padding:7px 12px;text-align:right;font-weight:600;color:${pnlColor}">${isBuy ? '-' : pnlStr}</td>
+      <td style="padding:7px 12px;text-align:right;font-weight:600;color:${evalColor}">${isBuy ? evalStr : '-'}</td>
       <td style="padding:7px 12px;font-size:12px;color:#94a3b8">${r.brokerage || '-'}</td>
       <td style="padding:7px 12px;font-size:11px;color:#475569">${src}</td>
     </tr>`;

@@ -1526,7 +1526,28 @@ def api_trade_history():
     wc    = " AND ".join(where)
     total = (query_one(f"SELECT COUNT(*) AS cnt FROM trade_history WHERE {wc}", params) or {}).get("cnt", 0)
     rows  = query(
-        f"SELECT * FROM trade_history WHERE {wc} ORDER BY executed_at DESC LIMIT %s OFFSET %s",
+        f"""
+        WITH filtered AS (
+            SELECT * FROM trade_history WHERE {wc}
+        )
+        SELECT f.*,
+               lc.close_price AS current_price,
+               CASE WHEN f.direction = 'buy' AND lc.close_price IS NOT NULL
+                    THEN ROUND((lc.close_price - f.price) * f.quantity)
+                    ELSE NULL
+               END AS eval_pnl
+        FROM filtered f
+        LEFT JOIN LATERAL (
+            SELECT close_price
+            FROM supply_demand
+            WHERE stock_code = f.stock_code
+              AND close_price IS NOT NULL AND close_price > 0
+            ORDER BY date DESC
+            LIMIT 1
+        ) lc ON true
+        ORDER BY f.executed_at DESC
+        LIMIT %s OFFSET %s
+        """,
         params + [limit, offset],
     )
     return jsonify({"total": total, "rows": [dict(r) for r in rows]})
