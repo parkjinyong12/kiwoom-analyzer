@@ -316,9 +316,9 @@ def generate_html(report_rows: list[dict], generated_at: str) -> str:
     _CP = 5                            # padding
 
     def _daily_from_cum(cum: dict) -> list[int | None]:
-        """누적 수급 dict → 시간 순(9D→현재) 일별 값 리스트."""
+        """누적 수급 dict → 시간 순(10D기준→현재) 일별 값 리스트 (11개, 10D위치=None)."""
         data_cols = [9, 8, 7, 6, 5, 4, 3, 2, 1, "현재"]
-        result = []
+        result = [None]  # 10D 컬럼 위치 (기준이므로 일별값 없음)
         for i, c in enumerate(data_cols):
             curr = cum.get(c)
             if i == 0:
@@ -478,7 +478,7 @@ def generate_html(report_rows: list[dict], generated_at: str) -> str:
           <td style="{_TD};color:#60a5fa;font-size:11px;font-weight:700;white-space:nowrap">가격</td>
           {pc_cells}
         </tr>"""
-        price_daily_vals = [pd_daily.get(c) for c in DATA_COLS]
+        price_daily_vals = [pd_daily.get(c) for c in COLS]  # 11개, 10D=None
         body_html += _chart_row(_bar_svg(price_daily_vals), bg_d)
 
         # ③ 기관행 + 바 차트
