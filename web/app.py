@@ -1411,18 +1411,16 @@ def api_manual_holdings_delete(hid: int):
 
 @app.route("/api/manual_holdings/trade", methods=["POST"])
 def api_manual_holdings_trade():
-    """매수/매도 체결 내용을 보유종목에 반영.
-    매수: 기존 보유 있으면 수량+가중평균가 재계산, 없으면 신규 등록.
-    매도: 보유 수량 차감 (0 이하 방지).
-    """
+    """거래 체결 내용을 이력에 pending 상태로 기록.
+    보유종목 반영은 /api/trade_history/<id>/approve 호출 시 수행."""
     uid = _current_uid()
     data = request.get_json() or {}
-    stock_code  = (data.get("stock_code")  or "").strip()
-    stock_name  = (data.get("stock_name")  or "").strip()
-    direction   = (data.get("direction")   or "").lower()   # "buy" | "sell"
-    brokerage   = (data.get("brokerage")   or "").strip()
-    source         = (data.get("source")       or "manual").strip()
-    executed_at_str = (data.get("executed_at")  or "").strip() or None
+    stock_code      = (data.get("stock_code")  or "").strip()
+    stock_name      = (data.get("stock_name")  or "").strip()
+    direction       = (data.get("direction")   or "").lower()
+    brokerage       = (data.get("brokerage")   or "").strip()
+    source          = (data.get("source")      or "manual").strip()
+    executed_at_str = (data.get("executed_at") or "").strip() or None
     try:
         quantity = int(data.get("quantity") or 0)
         price    = float(data.get("price")  or 0)
@@ -1431,6 +1429,37 @@ def api_manual_holdings_trade():
 
     if not stock_code or direction not in ("buy", "sell") or quantity <= 0 or price <= 0:
         return jsonify({"error": "필수 항목 누락 또는 잘못된 값"}), 400
+
+    amount = round(quantity * price)
+    row = query_one("""
+        INSERT INTO trade_history
+            (user_id, stock_code, stock_name, direction, brokerage,
+             quantity, price, amount, source, executed_at, status)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s, COALESCE(%s::timestamp, NOW()), 'pending')
+        RETURNING id
+    """, (uid, stock_code, stock_name or stock_code, direction, brokerage,
+          quantity, price, amount, source, executed_at_str))
+    return jsonify({"ok": True, "id": row["id"] if row else None})
+
+
+@app.route("/api/trade_history/<int:tid>/approve", methods=["POST"])
+def api_trade_history_approve(tid: int):
+    """pending 거래를 승인: 보유종목 반영 후 status='approved'로 변경."""
+    uid = _current_uid()
+    trade = query_one(
+        "SELECT * FROM trade_history WHERE id=%s AND user_id=%s", (tid, uid)
+    )
+    if not trade:
+        return jsonify({"error": "거래 이력을 찾을 수 없습니다"}), 404
+    if trade["status"] != "pending":
+        return jsonify({"error": "승인 대기 상태가 아닙니다"}), 400
+
+    stock_code = trade["stock_code"]
+    stock_name = trade["stock_name"]
+    direction  = trade["direction"]
+    brokerage  = trade["brokerage"]
+    quantity   = int(trade["quantity"])
+    price      = float(trade["price"])
 
     avg_price_before = None
 
@@ -1470,17 +1499,26 @@ def api_manual_holdings_trade():
                     (new_qty, existing["id"]),
                 )
 
-        # 거래 이력 저장
-        amount = round(quantity * price)
         realized_pnl = round((price - avg_price_before) * quantity) if avg_price_before is not None else None
-        cur.execute("""
-            INSERT INTO trade_history
-                (user_id, stock_code, stock_name, direction, brokerage,
-                 quantity, price, amount, avg_price_before, realized_pnl, source, executed_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, COALESCE(%s::timestamp, NOW()))
-        """, (uid, stock_code, stock_name or stock_code, direction, brokerage,
-              quantity, price, amount, avg_price_before, realized_pnl, source, executed_at_str))
+        cur.execute(
+            "UPDATE trade_history SET status='approved', avg_price_before=%s, realized_pnl=%s WHERE id=%s",
+            (avg_price_before, realized_pnl, tid),
+        )
+    return jsonify({"ok": True})
 
+
+@app.route("/api/trade_history/<int:tid>/cancel", methods=["POST"])
+def api_trade_history_cancel(tid: int):
+    """pending 거래를 취소 (보유종목 변경 없음)."""
+    uid = _current_uid()
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE trade_history SET status='cancelled' WHERE id=%s AND user_id=%s AND status='pending'",
+            (tid, uid),
+        )
+        if cur.rowcount == 0:
+            return jsonify({"error": "승인 대기 상태가 아닙니다"}), 400
     return jsonify({"ok": True})
 
 
@@ -1497,12 +1535,13 @@ def api_manual_holdings_brokerages():
 
 @app.route("/api/trade_history")
 def api_trade_history():
-    """거래 이력 조회. 필터: stock_code, direction, from_date, to_date, limit, offset"""
+    """거래 이력 조회. 필터: stock_code, direction, status, from_date, to_date, limit, offset"""
     uid = _current_uid()
-    stock_filter = request.args.get("stock_code", "").strip()
-    direction    = request.args.get("direction",  "").strip()
-    from_date    = request.args.get("from_date",  "").strip()
-    to_date      = request.args.get("to_date",    "").strip()
+    stock_filter  = request.args.get("stock_code", "").strip()
+    direction     = request.args.get("direction",  "").strip()
+    status_filter = request.args.get("status",     "").strip()
+    from_date     = request.args.get("from_date",  "").strip()
+    to_date       = request.args.get("to_date",    "").strip()
     try:
         limit  = min(int(request.args.get("limit",  200)), 500)
         offset = max(int(request.args.get("offset", 0)),   0)
@@ -1517,6 +1556,9 @@ def api_trade_history():
     if direction in ("buy", "sell"):
         where.append("direction = %s")
         params.append(direction)
+    if status_filter in ("pending", "approved", "cancelled"):
+        where.append("status = %s")
+        params.append(status_filter)
     if from_date:
         where.append("executed_at >= %s")
         params.append(from_date)
@@ -1576,7 +1618,7 @@ def api_trade_history_stats():
             COUNT(*) FILTER (WHERE direction='buy')  AS buy_count,
             COUNT(*) FILTER (WHERE direction='sell') AS sell_count,
             COALESCE(SUM(amount), 0) AS total_amount
-        FROM trade_history WHERE user_id = %s
+        FROM trade_history WHERE user_id = %s AND status = 'approved'
     """, (uid,))
     by_stock = query("""
         SELECT
@@ -1588,7 +1630,7 @@ def api_trade_history_stats():
             COALESCE(SUM(CASE WHEN direction='sell' THEN amount ELSE 0 END), 0) AS total_sell_amount,
             COALESCE(SUM(CASE WHEN direction='sell' THEN realized_pnl ELSE 0 END), 0) AS realized_pnl,
             MAX(executed_at) AS last_trade_at
-        FROM trade_history WHERE user_id = %s
+        FROM trade_history WHERE user_id = %s AND status = 'approved'
         GROUP BY stock_code
         ORDER BY last_trade_at DESC
     """, (uid,))
@@ -3424,6 +3466,13 @@ except Exception:
 
 try:
     _ensure_trade_history_table()
+except Exception:
+    pass
+
+try:
+    _run_migration_step(lambda cur: cur.execute(
+        "ALTER TABLE trade_history ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'approved'"
+    ))
 except Exception:
     pass
 

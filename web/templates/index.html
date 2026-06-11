@@ -2994,6 +2994,13 @@ canvas { max-height: 220px; }
         <option value="buy">매수</option>
         <option value="sell">매도</option>
       </select>
+      <select id="th-filter-status"
+              style="padding:7px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none">
+        <option value="">전체 상태</option>
+        <option value="pending">승인 대기</option>
+        <option value="approved">승인 완료</option>
+        <option value="cancelled">취소됨</option>
+      </select>
       <input id="th-filter-from" type="date"
              style="padding:7px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
       <span style="color:#64748b;font-size:12px">~</span>
@@ -3066,11 +3073,12 @@ canvas { max-height: 220px; }
               <th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:600;color:#64748b;white-space:nowrap">평가손익</th>
               <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:600;color:#64748b;white-space:nowrap">증권사</th>
               <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:600;color:#64748b;white-space:nowrap">출처</th>
+              <th style="padding:8px 12px;text-align:center;font-size:11px;font-weight:600;color:#64748b;white-space:nowrap">상태</th>
               <th style="padding:8px 4px;text-align:center;font-size:11px;font-weight:600;color:#64748b;white-space:nowrap"></th>
             </tr>
           </thead>
           <tbody id="th-history-body">
-            <tr><td colspan="11" style="padding:20px;text-align:center;color:#475569;font-size:13px">데이터 없음</td></tr>
+            <tr><td colspan="12" style="padding:20px;text-align:center;color:#475569;font-size:13px">데이터 없음</td></tr>
           </tbody>
         </table>
       </div>
@@ -4129,7 +4137,7 @@ async function loadMsSignals() {
 }
 
 function renderMsStats(list) {
-  const today = new Date().toISOString().slice(0,10);
+  const today = kstDateStr();
   const todayList = list.filter(s => s.ts.startsWith(today));
   document.getElementById('ms-stat-today').textContent = todayList.length;
   document.getElementById('ms-stat-choch').textContent = list.filter(s => s.struct_type === 'CHoCH').length;
@@ -5587,6 +5595,11 @@ async function umDeleteUser(uid) {
   allUsers = allUsers.filter(u => u.id !== uid);
   if (currentUser?.id === uid) selectUser(allUsers[0]?.id);
   renderPermMatrix();
+}
+
+// ─── KST 날짜 헬퍼 ─────────────────────────────────────
+function kstDateStr(d) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(d || new Date());
 }
 
 // ─── 시계 ──────────────────────────────────────────────
@@ -8142,14 +8155,14 @@ function _thDefaultDates() {
   const today = new Date();
   const from  = new Date(today);
   from.setMonth(from.getMonth() - 1);
-  const fmt = d => d.toISOString().slice(0, 10);
-  document.getElementById('th-filter-from').value = fmt(from);
-  document.getElementById('th-filter-to').value   = fmt(today);
+  document.getElementById('th-filter-from').value = kstDateStr(from);
+  document.getElementById('th-filter-to').value   = kstDateStr(today);
 }
 
 function thClearFilter() {
-  document.getElementById('th-filter-stock').value = '';
-  document.getElementById('th-filter-dir').value   = '';
+  document.getElementById('th-filter-stock').value  = '';
+  document.getElementById('th-filter-dir').value    = '';
+  document.getElementById('th-filter-status').value = '';
   _thDefaultDates();
   _thOffset = 0;
   loadTradeHistory();
@@ -8182,15 +8195,17 @@ async function thLoadMore() {
 }
 
 function _thBuildUrl(offset) {
-  const stock = encodeURIComponent(document.getElementById('th-filter-stock').value.trim());
-  const dir   = document.getElementById('th-filter-dir').value;
-  const from  = document.getElementById('th-filter-from').value;
-  const to    = document.getElementById('th-filter-to').value;
+  const stock  = encodeURIComponent(document.getElementById('th-filter-stock').value.trim());
+  const dir    = document.getElementById('th-filter-dir').value;
+  const status = document.getElementById('th-filter-status').value;
+  const from   = document.getElementById('th-filter-from').value;
+  const to     = document.getElementById('th-filter-to').value;
   let url = `/api/trade_history?limit=${_thPageSize}&offset=${offset}`;
-  if (stock) url += `&stock_code=${stock}`;
-  if (dir)   url += `&direction=${dir}`;
-  if (from)  url += `&from_date=${from}`;
-  if (to)    url += `&to_date=${to}`;
+  if (stock)  url += `&stock_code=${stock}`;
+  if (dir)    url += `&direction=${dir}`;
+  if (status) url += `&status=${status}`;
+  if (from)   url += `&from_date=${from}`;
+  if (to)     url += `&to_date=${to}`;
   return url;
 }
 
@@ -8248,19 +8263,19 @@ function _thRenderHistory(data, append) {
   if (!append) tbody.innerHTML = '';
 
   if (!rows.length && !append) {
-    tbody.innerHTML = '<tr><td colspan="11" style="padding:20px;text-align:center;color:#475569;font-size:13px">데이터 없음</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="12" style="padding:20px;text-align:center;color:#475569;font-size:13px">데이터 없음</td></tr>';
     document.getElementById('th-load-more-wrap').style.display = 'none';
     return;
   }
 
   tbody.insertAdjacentHTML('beforeend', rows.map(r => {
     const isBuy    = r.direction === 'buy';
+    const isPending = r.status === 'pending';
+    const isCancelled = r.status === 'cancelled';
     const dirBadge = isBuy
       ? `<span style="background:#1d3a5f;color:#60a5fa;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">매수</span>`
       : `<span style="background:#2a1010;color:#f87171;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">매도</span>`;
     const pnl = r.realized_pnl != null ? parseInt(r.realized_pnl) : null;
-    const pnlColor = pnl != null ? (pnl > 0 ? '#4ade80' : pnl < 0 ? '#f87171' : '#94a3b8') : '';
-    const pnlStr   = pnl != null ? (pnl >= 0 ? '+' : '') + pnl.toLocaleString() + '원' : '-';
     const evalPnl  = r.eval_pnl != null ? parseInt(r.eval_pnl) : null;
     const evalColor = evalPnl != null ? (evalPnl > 0 ? '#4ade80' : evalPnl < 0 ? '#f87171' : '#94a3b8') : '';
     const evalStr  = evalPnl != null ? (evalPnl >= 0 ? '+' : '') + evalPnl.toLocaleString() + '원' : '-';
@@ -8268,7 +8283,23 @@ function _thRenderHistory(data, append) {
     const _days = ['일','월','화','수','목','금','토'];
     const dt = r.executed_at ? (() => { const d = new Date(r.executed_at); return r.executed_at.slice(0,10).replace(/-/g,'') + '(' + _days[d.getDay()] + ')'; })() : '-';
     const src = _thSourceLabel[r.source] || r.source || '-';
-    return `<tr style="border-bottom:1px solid #0d1117">
+    const statusBadge = isPending
+      ? `<span style="background:#292207;color:#f59e0b;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:600;border:1px solid #78350f">승인대기</span>`
+      : isCancelled
+        ? `<span style="background:#1a1a1a;color:#64748b;padding:2px 7px;border-radius:4px;font-size:11px">취소됨</span>`
+        : `<span style="background:#0a2a1a;color:#4ade80;padding:2px 7px;border-radius:4px;font-size:11px">승인완료</span>`;
+    const actionBtns = isPending
+      ? `<button onclick="thApproveTrade(${r.id})" title="승인"
+           style="background:#166534;border:none;color:#4ade80;cursor:pointer;font-size:11px;padding:3px 8px;border-radius:4px;margin-right:3px"
+           onmouseover="this.style.background='#14532d'" onmouseout="this.style.background='#166534'">승인</button>
+         <button onclick="thCancelTrade(${r.id})" title="취소"
+           style="background:none;border:1px solid #334155;color:#64748b;cursor:pointer;font-size:11px;padding:3px 7px;border-radius:4px"
+           onmouseover="this.style.color='#f87171';this.style.borderColor='#f87171'" onmouseout="this.style.color='#64748b';this.style.borderColor='#334155'">취소</button>`
+      : `<button onclick="thDeleteTrade(${r.id})" title="삭제"
+           style="background:none;border:none;color:#475569;cursor:pointer;font-size:14px;padding:2px 4px;line-height:1"
+           onmouseover="this.style.color='#f87171'" onmouseout="this.style.color='#475569'">✕</button>`;
+    const rowBg = isPending ? 'background:#1a1407;' : isCancelled ? 'opacity:0.5;' : '';
+    return `<tr style="border-bottom:1px solid #0d1117;${rowBg}">
       <td style="padding:7px 12px;font-size:12px;color:#64748b;white-space:nowrap">${dt}</td>
       <td style="padding:7px 12px;color:#e2e8f0;white-space:nowrap">
         ${r.stock_name}<span style="font-size:11px;color:#475569;margin-left:4px">${r.stock_code}</span>
@@ -8281,11 +8312,8 @@ function _thRenderHistory(data, append) {
       <td style="padding:7px 12px;text-align:right;font-weight:600;color:${evalColor}">${isBuy ? evalStr : '-'}</td>
       <td style="padding:7px 12px;font-size:12px;color:#94a3b8">${r.brokerage || '-'}</td>
       <td style="padding:7px 12px;font-size:11px;color:#475569">${src}</td>
-      <td style="padding:7px 4px;text-align:center">
-        <button onclick="thDeleteTrade(${r.id})" title="삭제"
-          style="background:none;border:none;color:#475569;cursor:pointer;font-size:14px;padding:2px 4px;line-height:1"
-          onmouseover="this.style.color='#f87171'" onmouseout="this.style.color='#475569'">✕</button>
-      </td>
+      <td style="padding:7px 12px;text-align:center">${statusBadge}</td>
+      <td style="padding:7px 4px;text-align:center;white-space:nowrap">${actionBtns}</td>
     </tr>`;
   }).join(''));
 
@@ -8325,7 +8353,7 @@ async function openTradeModal(stockCode, stockName, direction, qty, price, sourc
   document.getElementById('trade-new-stock-row').style.display  = 'none';
   document.getElementById('trade-preset-stock-row').style.display = '';
   document.getElementById('trade-dir-row').style.display = 'none';
-  document.getElementById('trade-date').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('trade-date').value = kstDateStr();
   updateTradeTotalLine();
 
   await _tradeLoadBrokerages();
@@ -8346,7 +8374,7 @@ async function openTradeModalNew() {
   document.getElementById('trade-stock-dropdown').style.display = 'none';
   document.getElementById('trade-qty').value   = '';
   document.getElementById('trade-price').value = '';
-  document.getElementById('trade-date').value  = new Date().toISOString().slice(0, 10);
+  document.getElementById('trade-date').value  = kstDateStr();
   document.getElementById('trade-msg').style.display = 'none';
   document.getElementById('trade-total-line').textContent = '';
   tradeSetDir('buy');
@@ -8481,28 +8509,15 @@ async function submitTrade() {
     return;
   }
 
-  const tradeSource = _tradeCtx?.source || 'manual';
   closeTradeModal();
 
-  if (tradeSource === 'stock_rebalance') {
-    _rbPatchAndRerender(stockCode, direction, qty, price);
-  } else if (tradeSource === 'theme_rebalance') {
-    _trbPatchAndRerender(stockCode, direction, qty, price);
+  // 거래가 pending 상태로 기록됨 — 보유종목은 승인 후 반영
+  // 거래 이력 탭이 열려 있으면 새로고침, 아니면 이력 탭으로 이동
+  if (document.getElementById('page-trade-history').classList.contains('active')) {
+    loadTradeHistory();
   } else {
-    // 리밸런싱 페이지가 활성화된 경우에만 새로고침
-    if (typeof loadRebalance === 'function' &&
-        (document.getElementById('page-rebalance')?.classList.contains('active') ||
-         document.getElementById('page-stock-rebalance')?.classList.contains('active'))) {
-      loadRebalance();
-    }
-    if (typeof loadThemeRebalance === 'function' &&
-        document.getElementById('page-theme-rebalance')?.classList.contains('active')) {
-      loadThemeRebalance();
-    }
+    showPage('trade-history');
   }
-  if (typeof loadExtHoldings === 'function' &&
-      document.getElementById('page-ext-holdings').classList.contains('active')) loadExtHoldings();
-  if (document.getElementById('page-trade-history').classList.contains('active')) loadTradeHistory();
 }
 
 // 주식 간 리밸런싱: 서버 재조회 없이 메모리 데이터 패치 후 재렌더
@@ -8599,6 +8614,34 @@ async function thDeleteTrade(id) {
   if (!confirm('이 거래 이력을 삭제하시겠습니까?\n(보유종목 수량은 변경되지 않습니다)')) return;
   const res = await fetch(`/api/trade_history/${id}`, { method: 'DELETE' });
   if (!res.ok) { alert('삭제 실패'); return; }
+  loadTradeHistory();
+}
+
+async function thApproveTrade(id) {
+  if (!confirm('이 거래를 승인하시겠습니까?\n승인하면 보유종목 수량과 평균단가가 변경됩니다.')) return;
+  const res = await fetch(`/api/trade_history/${id}/approve`, { method: 'POST' });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    alert(err.error || '승인 실패');
+    return;
+  }
+  loadTradeHistory();
+  if (document.getElementById('page-ext-holdings')?.classList.contains('active')) loadExtHoldings();
+  if (typeof loadRebalance === 'function' &&
+      (document.getElementById('page-rebalance')?.classList.contains('active') ||
+       document.getElementById('page-stock-rebalance')?.classList.contains('active'))) loadRebalance();
+  if (typeof loadThemeRebalance === 'function' &&
+      document.getElementById('page-theme-rebalance')?.classList.contains('active')) loadThemeRebalance();
+}
+
+async function thCancelTrade(id) {
+  if (!confirm('이 거래를 취소하시겠습니까?')) return;
+  const res = await fetch(`/api/trade_history/${id}/cancel`, { method: 'POST' });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    alert(err.error || '취소 실패');
+    return;
+  }
   loadTradeHistory();
 }
 
@@ -8813,7 +8856,7 @@ async function qaShowDetail(itemId, name, category) {
   catEl.style.display = category ? '' : 'none';
 
   // 날짜 기본값 = 오늘
-  const today = new Date().toISOString().slice(0, 10);
+  const today = kstDateStr();
   document.getElementById('qa-score-date').value = today;
   document.getElementById('qa-score-num').value  = 5;
   document.getElementById('qa-score-slider').value = 5;
