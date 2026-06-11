@@ -29,7 +29,7 @@ def resolve_exchange() -> str:
 
     08:00~08:50  → NXT (장전 시간외)
     09:00~15:30  → KRX (정규장)
-    15:30~18:00  → NXT (장후 시간외)
+    15:30~20:00  → NXT (장후 시간외)
     그 외        → KRX
     """
     now = datetime.now(tz=KST)
@@ -38,7 +38,7 @@ def resolve_exchange() -> str:
     t = now.hour * 100 + now.minute  # HHMM 정수 비교
     if 800 <= t < 850:
         return "NXT"
-    if 1530 <= t < 1800:
+    if 1530 <= t < 2000:
         return "NXT"
     return "KRX"
 

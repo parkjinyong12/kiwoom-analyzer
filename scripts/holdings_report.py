@@ -291,23 +291,25 @@ def generate_html(report_rows: list[dict], generated_at: str) -> str:
         if val > 0: return f"background:rgba(74,222,128,{intensity:.2f});"
         return          f"background:rgba(248,113,113,{intensity:.2f});"
 
-    # ── 가격 셀 (수급과 동일 방식: 단일 숫자 + 상대 히트맵) ──
+    # ── 가격 셀: 숫자=누적 등락률, 색상/히트맵=일별 변화율 기준 ──
     def pc_cell(cum: float | None, daily: float | None, is_base: bool = False, ref: float | None = None) -> str:
         if is_base:
             return f'<td style="{_TD};color:#475569;text-align:center;font-size:11px">기준</td>'
         if cum is None:
             return f'<td style="{_TD};font-size:12px;color:#475569">-</td>'
-        bg = _bg(cum, ref)
+        color_src = daily if daily is not None else cum
+        bg = _bg(color_src, ref)
         s  = "+" if cum >= 0 else ""
-        return f'<td style="{_TD};{bg};font-size:12px;color:{_color_class(cum)}">{s}{cum:.2f}%</td>'
+        return f'<td style="{_TD};{bg};font-size:12px;color:{_color_class(color_src)}">{s}{cum:.2f}%</td>'
 
-    # ── 수급 셀 (종목별 상대 히트맵) ─────────────────────────
-    def sc_cell(val: int | None, ref: float | None = None, last: bool = False) -> str:
+    # ── 수급 셀: 숫자=누적 순매수, 색상/히트맵=일별 변화량 기준 ──
+    def sc_cell(val: int | None, daily_val: int | None = None, ref: float | None = None, last: bool = False) -> str:
         td = _TDL if last else _TD
         if val is None:
             return f'<td style="{td};font-size:12px;color:#475569">-</td>'
-        bg = _bg(float(val), ref)
-        return f'<td style="{td};{bg};font-size:12px;color:{_color_class(val)}">{_fmt_k(val)}</td>'
+        color_src = daily_val if daily_val is not None else val
+        bg = _bg(float(color_src), ref)
+        return f'<td style="{td};{bg};font-size:12px;color:{_color_class(color_src)}">{_fmt_k(val)}</td>'
 
     # ── SVG 차트 헬퍼 ────────────────────────────────────────
     _CW, _CH_L, _CH_B = 760, 54, 42  # chart width, line height, bar height
@@ -324,6 +326,19 @@ def generate_html(report_rows: list[dict], generated_at: str) -> str:
             else:
                 prev = cum.get(data_cols[i - 1])
                 result.append((curr - prev) if (curr is not None and prev is not None) else curr)
+        return result
+
+    def _daily_dict(cum: dict) -> dict:
+        """누적 수급 dict → 컬럼별 일별 변화량 dict (색상 기준용)."""
+        data_cols = [9, 8, 7, 6, 5, 4, 3, 2, 1, "현재"]
+        result: dict = {"10D": None}
+        for i, c in enumerate(data_cols):
+            curr = cum.get(c)
+            if i == 0:
+                result[c] = curr
+            else:
+                prev = cum.get(data_cols[i - 1])
+                result[c] = (curr - prev) if (curr is not None and prev is not None) else curr
         return result
 
     def _line_svg(values: list[float | None]) -> str:
@@ -423,10 +438,14 @@ def generate_html(report_rows: list[dict], generated_at: str) -> str:
         oc       = row["orgn_cum"]
         fc       = row["for_cum"]
 
-        # 정규화 기준값 (종목 내 10일 최대 절댓값)
-        price_ref = max((abs(v) for v in pc.values() if v is not None), default=None)
-        orgn_ref  = max((abs(v) for v in oc.values() if v is not None), default=None)
-        for_ref   = max((abs(v) for v in fc.values() if v is not None), default=None)
+        # 일별 변화량 dict (색상/히트맵 기준)
+        orgn_daily = _daily_dict(oc)
+        for_daily  = _daily_dict(fc)
+
+        # 정규화 기준값: 일별 변화량의 최대 절댓값 기준
+        price_ref = max((abs(v) for v in pd_daily.values() if v is not None), default=None)
+        orgn_ref  = max((abs(v) for v in orgn_daily.values() if v is not None), default=None)
+        for_ref   = max((abs(v) for v in for_daily.values() if v is not None), default=None)
 
         pnl_amt   = row["pnl_amount"]
         pnl_rt    = row["pnl_rate"]
@@ -463,7 +482,7 @@ def generate_html(report_rows: list[dict], generated_at: str) -> str:
         body_html += _chart_row(_bar_svg(price_daily_vals), bg_d)
 
         # ③ 기관행 + 바 차트
-        oc_cells = "".join(sc_cell(oc.get(c), ref=orgn_ref) for c in COLS)
+        oc_cells = "".join(sc_cell(oc.get(c), daily_val=orgn_daily.get(c), ref=orgn_ref) for c in COLS)
         body_html += f"""
         <tr style="{bg_d}">
           <td style="{_TD};color:#86efac;font-size:11px;font-weight:700;white-space:nowrap">기관</td>
@@ -472,7 +491,7 @@ def generate_html(report_rows: list[dict], generated_at: str) -> str:
         body_html += _chart_row(_bar_svg(_daily_from_cum(oc)), bg_d)
 
         # ④ 외국인행 + 바 차트
-        fc_cells = "".join(sc_cell(fc.get(c), ref=for_ref, last=True) for c in COLS)
+        fc_cells = "".join(sc_cell(fc.get(c), daily_val=for_daily.get(c), ref=for_ref, last=True) for c in COLS)
         body_html += f"""
         <tr style="{bg_d}">
           <td style="{_TDL};color:#c084fc;font-size:11px;font-weight:700;white-space:nowrap">외국인</td>
