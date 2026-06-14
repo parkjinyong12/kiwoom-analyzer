@@ -2944,7 +2944,9 @@ def api_market_power_save():
     body = request.json or {}
     stock_code = body.get("stock_code", "").strip()
     stock_name = body.get("stock_name", "").strip()
-    scored_at  = body.get("scored_at") or None
+    # scored_at이 없으면 KST 기준 오늘 날짜 사용 (서버 CURRENT_DATE는 UTC 기준)
+    _kst_today = datetime.now(KST).strftime("%Y-%m-%d")
+    scored_at  = (body.get("scored_at") or "").strip() or _kst_today
 
     dims = {
         "supply_bottleneck":    min(max(int(body.get("supply_bottleneck",    0)), 0), 25),
@@ -2972,7 +2974,7 @@ def api_market_power_save():
                  demand_visibility, expansion_difficulty, customer_lockin,
                  total_score, grade,
                  price_attractiveness, earnings_momentum, composite_score, memo)
-            VALUES (%s,%s,%s,COALESCE(%s::date, CURRENT_DATE),%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            VALUES (%s,%s,%s,%s::date,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             ON CONFLICT (user_id, stock_code, scored_at) DO UPDATE SET
                 stock_name=EXCLUDED.stock_name,
                 supply_bottleneck=EXCLUDED.supply_bottleneck,
