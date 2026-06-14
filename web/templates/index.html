@@ -3148,7 +3148,7 @@ canvas { max-height: 220px; }
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px">
         <div>
           <span style="font-size:13px;font-weight:600;color:#94a3b8">테마 목표비율 제안</span>
-          <span style="font-size:11px;color:#475569;margin-left:10px">변곡점 신호 기준: ±7% → ±1%p 조정 / ±12% → ±2%p 조정 → 정규화</span>
+          <span style="font-size:11px;color:#475569;margin-left:10px">변곡점 신호 기준: ±7% → ±1%p 조정 / ±12% → ±2%p 조정 (나머지는 현금)</span>
         </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <label style="font-size:12px;color:#64748b">기본조정
@@ -3160,7 +3160,7 @@ canvas { max-height: 220px; }
                    style="width:50px;margin-left:4px;padding:3px 6px;border-radius:4px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:12px;outline:none">%p
           </label>
           <button class="btn btn-ghost" style="font-size:12px" onclick="mpLoadThemeSuggestions()">계산</button>
-          <button class="btn btn-primary" style="font-size:12px" onclick="mpApplyThemeAll()" id="mp-theme-apply-btn" disabled>정규화 적용</button>
+          <button class="btn btn-primary" style="font-size:12px" onclick="mpApplyThemeAll()" id="mp-theme-apply-btn" disabled>권장목표 적용</button>
         </div>
       </div>
 
@@ -3178,14 +3178,13 @@ canvas { max-height: 220px; }
               <th style="padding:7px 6px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap">이탈률</th>
               <th style="padding:7px 6px;text-align:center;color:#64748b;font-size:11px;white-space:nowrap">변곡점신호</th>
               <th style="padding:7px 6px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap">기존목표</th>
-              <th style="padding:7px 6px;text-align:right;color:#fbbf24;font-size:11px;white-space:nowrap">권장목표</th>
-              <th style="padding:7px 6px;text-align:right;color:#4ade80;font-size:11px;white-space:nowrap">정규화목표</th>
+              <th style="padding:7px 6px;text-align:right;color:#4ade80;font-size:11px;white-space:nowrap">권장목표</th>
               <th style="padding:7px 6px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap">변화</th>
               <th style="padding:7px 6px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap">현재비율</th>
             </tr>
           </thead>
           <tbody id="mp-theme-suggest-body">
-            <tr><td colspan="14" style="padding:30px;text-align:center;color:#475569;font-size:13px">[계산] 버튼을 눌러 테마 목표비율 제안을 확인하세요</td></tr>
+            <tr><td colspan="13" style="padding:30px;text-align:center;color:#475569;font-size:13px">[계산] 버튼을 눌러 테마 목표비율 제안을 확인하세요</td></tr>
           </tbody>
         </table>
       </div>
@@ -10640,8 +10639,9 @@ async function mpLoadThemeSuggestions() {
   tbody.innerHTML = _mpThemeSuggestions.map(r => {
     const devStr   = r.deviation != null ? (r.deviation >= 0 ? '+' : '') + r.deviation.toFixed(1) + '%' : '-';
     const devColor = r.deviation == null ? '#64748b' : r.deviation > 7 ? '#4ade80' : r.deviation < -7 ? '#f87171' : '#94a3b8';
-    const chgStr   = (r.normalized_change >= 0 ? '+' : '') + r.normalized_change.toFixed(2) + 'pp';
-    const chgColor = r.normalized_change > 0 ? '#4ade80' : r.normalized_change < 0 ? '#f87171' : '#64748b';
+    const chg      = r.recommended - r.existing_target;
+    const chgStr   = (chg >= 0 ? '+' : '') + chg.toFixed(2) + 'pp';
+    const chgColor = chg > 0 ? '#4ade80' : chg < 0 ? '#f87171' : '#64748b';
     return `<tr style="border-bottom:1px solid #0d1117" onmouseover="this.style.background='#1a2235'" onmouseout="this.style.background=''">
       <td style="padding:7px 10px;color:#e2e8f0;font-weight:500;white-space:nowrap">${r.theme}</td>
       <td style="padding:7px 6px;text-align:right;color:#64748b">${r.stock_count}</td>
@@ -10653,8 +10653,7 @@ async function mpLoadThemeSuggestions() {
       <td style="padding:7px 6px;text-align:right;color:${devColor};font-weight:600">${devStr}</td>
       <td style="padding:7px 6px;text-align:center;${signalStyle(r.signal)}">${r.signal}</td>
       <td style="padding:7px 6px;text-align:right;color:#64748b">${r.existing_target.toFixed(1)}%</td>
-      <td style="padding:7px 6px;text-align:right;color:#fbbf24;font-weight:600">${r.recommended.toFixed(2)}%</td>
-      <td style="padding:7px 6px;text-align:right;color:#4ade80;font-weight:700">${r.normalized.toFixed(2)}%</td>
+      <td style="padding:7px 6px;text-align:right;color:#4ade80;font-weight:700">${r.recommended.toFixed(2)}%</td>
       <td style="padding:7px 6px;text-align:right;color:${chgColor};font-weight:600">${chgStr}</td>
       <td style="padding:7px 6px;text-align:right;color:#64748b">${r.current_ratio.toFixed(1)}%</td>
     </tr>`;
@@ -10665,8 +10664,8 @@ async function mpLoadThemeSuggestions() {
 
 async function mpApplyThemeAll() {
   if (!_mpThemeSuggestions.length) return;
-  const items = _mpThemeSuggestions.map(r => ({ theme: r.theme, target_ratio: r.normalized }));
-  if (!confirm(`${items.length}개 테마 목표비율을 정규화 값으로 일괄 적용할까요?\n\n` +
+  const items = _mpThemeSuggestions.map(r => ({ theme: r.theme, target_ratio: r.recommended }));
+  if (!confirm(`${items.length}개 테마 목표비율을 권장값으로 일괄 적용할까요?\n\n` +
     items.map(i => `${i.theme}: ${i.target_ratio.toFixed(2)}%`).join('\n'))) return;
   const res = await fetch('/api/market_power/theme_suggestions/apply', {
     method: 'POST',
