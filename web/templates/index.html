@@ -10854,61 +10854,117 @@ async function mpApplyThemeAll() {
     label: r.theme, before: r.existing_target, after: r.recommended,
   }));
 
-  // 종목별 예상 거래량 계산 (테마 내 현재 비중 유지, 테마 크기만 조정)
   const newThemeMap = Object.fromEntries(
     _mpThemeSuggestions.map(r => [r.theme, { before: r.existing_target, after: r.recommended }])
   );
-  // 테마별 현재 평가 합산
-  const themeEvalMap = {};
-  let totalEval = 0;
-  _mpSuggestions.forEach(s => {
-    const ev = (s.current_qty ?? 0) * (s.current_price ?? 0);
-    if (s.theme) themeEvalMap[s.theme] = (themeEvalMap[s.theme] ?? 0) + ev;
-    totalEval += ev;
+
+  // 테마 리밸런싱 데이터 fetch (stock_total, rb_dev_rel, 알림 임계값 포함)
+  const trbRes   = await fetch('/api/theme_rebalance');
+  const trbFresh = trbRes.ok ? await trbRes.json() : null;
+  const stockTotal   = trbFresh?.stock_total ?? 0;
+  const defAlertUp   = trbFresh?.alert_up    ?? 30;
+  const defAlertDown = trbFresh?.alert_down  ?? 25;
+  const trbThemeMap  = {};
+  (trbFresh?.themes || []).forEach(t => { trbThemeMap[t.theme] = t; });
+  const trbStockMap  = {};
+  (trbFresh?.stocks || []).forEach(s => { trbStockMap[s.stock_code] = s; });
+
+  // 각 테마별로 테마 리밸런싱 로직 재현
+  const themeBlocks = [];
+  Object.entries(newThemeMap).forEach(([theme, v]) => {
+    const tInfo     = trbThemeMap[theme];
+    const curRatio  = tInfo?.current_ratio ?? 0;
+    const newTarget = v.after ?? 0;
+    if (newTarget <= 0) return;
+
+    const newDevPp  = curRatio - newTarget;
+    const newDevRel = newTarget > 0 ? newDevPp / newTarget * 100 : 0;
+    const aUp   = tInfo?.theme_alert_up   ?? defAlertUp;
+    const aDown = tInfo?.theme_alert_down ?? defAlertDown;
+    const wUp   = aUp * 0.5, wDown = aDown * 0.5;
+
+    let tier = 'normal', adjRatio = 0;
+    if      (newDevRel >  aUp)   { tier = 'alert'; adjRatio = TRB_ALERT_ADJ; }
+    else if (newDevRel >  wUp)   { tier = 'watch'; adjRatio = TRB_WATCH_ADJ; }
+    else if (newDevRel < -aDown) { tier = 'alert'; adjRatio = TRB_ALERT_ADJ; }
+    else if (newDevRel < -wDown) { tier = 'watch'; adjRatio = TRB_WATCH_ADJ; }
+
+    const isBuy    = newDevPp < 0;
+    const adjAmt   = Math.abs(newDevPp) / 100 * stockTotal * adjRatio;
+
+    // 테마 내 종목 — rb_dev_rel 기준 필터 (테마 리밸런싱 화면 동일 로직)
+    const themeCodes  = (tInfo?.stocks || []).map(s => s.stock_code);
+    const themeStocks = themeCodes.map(c => trbStockMap[c]).filter(s => s?.current_price > 0);
+
+    let eligibleStocks, excludedStocks;
+    if (!isBuy) {
+      eligibleStocks = themeStocks.filter(s => s.rb_dev_rel === null || s.rb_dev_rel === undefined || s.rb_dev_rel >= 0);
+      excludedStocks = themeStocks.filter(s => s.rb_dev_rel != null && s.rb_dev_rel < 0);
+      eligibleStocks.sort((a, b) => (b.rb_dev_rel ?? 0) - (a.rb_dev_rel ?? 0));
+    } else {
+      eligibleStocks = themeStocks.filter(s => s.rb_dev_rel === null || s.rb_dev_rel === undefined || s.rb_dev_rel <= 0);
+      excludedStocks = themeStocks.filter(s => s.rb_dev_rel != null && s.rb_dev_rel > 0);
+      eligibleStocks.sort((a, b) => (a.rb_dev_rel ?? 0) - (b.rb_dev_rel ?? 0));
+    }
+
+    const eligibleEval = eligibleStocks.reduce((s, st) => s + (st.eval_amt ?? 0), 0);
+    const stockTrades  = eligibleStocks.map(st => {
+      const weight = eligibleEval > 0 ? (st.eval_amt ?? 0) / eligibleEval : 1 / eligibleStocks.length;
+      const shares = Math.floor(adjAmt * weight / st.current_price);
+      return { ...st, shares, amt: shares * st.current_price };
+    }).filter(st => st.shares > 0 && st.amt >= TRB_MIN_AMT);
+
+    themeBlocks.push({ theme, curRatio, newTarget, newDevPp, newDevRel, tier, adjRatio, adjAmt, isBuy, stockTrades, excludedStocks });
   });
 
-  // 테마 리밸런싱 화면 미리보기: 현재 실제 보유 비율 vs 새 목표비율
-  const themeCurrentRatio = {};
-  Object.keys(themeEvalMap).forEach(t => {
-    themeCurrentRatio[t] = totalEval > 0 ? themeEvalMap[t] / totalEval * 100 : 0;
-  });
-
+  // 팝업 HTML 생성
   let extraHtml = '';
-  if (totalEval > 0 && Object.keys(newThemeMap).length > 0) {
-    let totalAdjust = 0;
-    const rows = Object.entries(newThemeMap).map(([t, v]) => {
-      const curRatio  = themeCurrentRatio[t] ?? 0;
-      const newTarget = v.after ?? 0;
-      const devPp     = curRatio - newTarget;          // 편차: 양수=과비중, 음수=부족
-      const adjVal    = -devPp * totalEval / 100;      // 조정 필요 금액 (양수=매수, 음수=매도)
-      totalAdjust += adjVal;
-      const color    = devPp > 0.1 ? '#f87171' : devPp < -0.1 ? '#4ade80' : '#64748b';
-      const signal   = devPp > 0.1 ? '▼과비중' : devPp < -0.1 ? '▲부족' : '— 균형';
-      const adjStr   = (adjVal >= 0 ? '+' : '') + Math.round(adjVal / 10000).toLocaleString() + '만';
-      return `<tr style="border-bottom:1px solid #0d1117">
-        <td style="padding:6px 10px;color:#e2e8f0">${t}</td>
-        <td style="padding:6px 8px;text-align:right;color:#94a3b8">${curRatio.toFixed(1)}%</td>
-        <td style="padding:6px 8px;text-align:right;color:#60a5fa;font-weight:600">${newTarget.toFixed(1)}%</td>
-        <td style="padding:6px 8px;text-align:right;color:${color};font-weight:600">${devPp >= 0 ? '+' : ''}${devPp.toFixed(2)}pp</td>
-        <td style="padding:6px 8px;text-align:right;color:${color}">${signal}</td>
-        <td style="padding:6px 8px;text-align:right;color:${color};font-weight:600">${adjStr}</td>
-      </tr>`;
+  if (themeBlocks.length > 0) {
+    const blockHtml = themeBlocks.map(b => {
+      const devColor  = b.newDevPp > 0.1 ? '#f87171' : b.newDevPp < -0.1 ? '#4ade80' : '#64748b';
+      const tierBadge = b.tier === 'alert'
+        ? `<span style="background:#7f1d1d;color:#f87171;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:700">리밸런싱 필요</span>`
+        : b.tier === 'watch'
+        ? `<span style="background:#78350f;color:#f59e0b;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:700">주의</span>`
+        : `<span style="background:#052e16;color:#4ade80;padding:1px 6px;border-radius:3px;font-size:10px">정상</span>`;
+      const dirColor = b.isBuy ? '#4ade80' : '#f87171';
+      const dirStr   = b.isBuy ? '▲매수' : '▼매도';
+
+      let stockHtml = '';
+      if (b.tier !== 'normal') {
+        if (b.stockTrades.length > 0) {
+          const tradeRows = b.stockTrades.map(st => {
+            const rbNote = (st.rb_dev_rel != null)
+              ? `<span style="font-size:10px;color:#475569;margin-left:4px">개별${st.rb_dev_rel >= 0 ? '+' : ''}${st.rb_dev_rel.toFixed(1)}%</span>` : '';
+            return `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #0d1117">
+              <span style="color:#cbd5e1;font-size:12px">${st.stock_name ?? st.stock_code}${rbNote}</span>
+              <span style="color:${dirColor};font-weight:700;font-size:12px">${dirStr} ${st.shares.toLocaleString()}주&nbsp;<span style="color:#64748b;font-weight:400">${Math.round(st.amt/10000).toLocaleString()}만</span></span>
+            </div>`;
+          }).join('');
+          const excNote = b.excludedStocks.length
+            ? `<div style="font-size:10px;color:#475569;margin-top:4px">종목 편차 충돌로 제외: ${b.excludedStocks.map(s => s.stock_name ?? s.stock_code).join(', ')}</div>` : '';
+          stockHtml = `<div style="margin-top:8px;padding:8px 10px;background:#0a0d14;border-radius:4px">${tradeRows}${excNote}</div>`;
+        } else {
+          stockHtml = `<div style="margin-top:6px;font-size:11px;color:#f59e0b">조정 가능 종목 없음 (종목별 편차 충돌 또는 최소 금액 미달)</div>`;
+        }
+      }
+
+      return `<div style="padding:10px 0;border-bottom:1px solid #1e2535">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:${b.tier !== 'normal' ? '0' : '0'}">
+          <span style="color:#e2e8f0;font-weight:600;font-size:13px">${b.theme}</span>
+          ${tierBadge}
+          <span style="color:#64748b;font-size:12px">현재 ${b.curRatio.toFixed(1)}% → 목표 ${b.newTarget.toFixed(1)}%</span>
+          <span style="color:${devColor};font-size:12px;font-weight:600">${b.newDevPp >= 0 ? '+' : ''}${b.newDevPp.toFixed(2)}pp</span>
+          ${b.tier !== 'normal' ? `<span style="color:${dirColor};font-size:12px">${dirStr} 목표 ${Math.round(b.adjAmt/10000).toLocaleString()}만</span>` : ''}
+        </div>
+        ${stockHtml}
+      </div>`;
     }).join('');
 
     extraHtml = `<div style="border-top:1px solid #1e2535;padding-top:14px;margin-top:4px">
-      <div style="font-size:12px;font-weight:600;color:#94a3b8;margin-bottom:4px">적용 후 테마 리밸런싱 화면 미리보기</div>
-      <div style="font-size:11px;color:#475569;margin-bottom:10px">현재 실제 보유 비율 기준 · 주식 총액 ${Math.round(totalEval/10000).toLocaleString()}만</div>
-      <table style="width:100%;border-collapse:collapse;font-size:12px">
-        <thead><tr style="border-bottom:1px solid #1e2535">
-          <th style="padding:5px 10px;text-align:left;color:#64748b;font-size:11px">테마</th>
-          <th style="padding:5px 8px;text-align:right;color:#64748b;font-size:11px">현재비율</th>
-          <th style="padding:5px 8px;text-align:right;color:#60a5fa;font-size:11px">새 목표</th>
-          <th style="padding:5px 8px;text-align:right;color:#64748b;font-size:11px">편차</th>
-          <th style="padding:5px 8px;text-align:center;color:#64748b;font-size:11px">상태</th>
-          <th style="padding:5px 8px;text-align:right;color:#fbbf24;font-size:11px">조정금액</th>
-        </tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
+      <div style="font-size:12px;font-weight:600;color:#94a3b8;margin-bottom:2px">적용 후 테마 리밸런싱 화면 미리보기</div>
+      <div style="font-size:11px;color:#475569;margin-bottom:10px">주식 총액 ${Math.round(stockTotal/10000).toLocaleString()}만 기준 · 종목별 편차 반영</div>
+      ${blockHtml}
     </div>`;
   }
 
