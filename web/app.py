@@ -3078,7 +3078,7 @@ def api_market_power_suggestions():
         if s["theme"]:
             theme_alloc_sum[s["theme"]] += s["allocation_score"]
 
-    # 제안비율 + 앵커링 + 수동검토 플래그
+    # 제안비율 + 앵커링
     for s in stocks:
         t = s["theme"]
         if t and theme_alloc_sum[t] > 0 and t in theme_target:
@@ -3093,13 +3093,11 @@ def api_market_power_suggestions():
             s["raw_ratio"]       = round(raw_ratio, 2)
             s["suggested_ratio"] = final_ratio
             s["diff"]            = round(final_ratio - s["existing_target"], 2)
-            s["review_flag"]     = abs(s["diff"]) > s["max_change_pp"]
         else:
             s["theme_target_ratio"] = theme_target.get(t)
             s["raw_ratio"]          = None
             s["suggested_ratio"]    = None
             s["diff"]               = None
-            s["review_flag"]        = False
 
     stocks.sort(key=lambda x: (x["theme"] or "zzz", -(x["allocation_score"] or 0)))
     return jsonify(stocks)
