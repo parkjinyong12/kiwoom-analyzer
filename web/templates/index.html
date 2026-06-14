@@ -628,6 +628,16 @@ canvas { max-height: 220px; }
           <span class="icon">📒</span> 거래 이력
         </div>
         <div class="nav-item" data-page="qualitative" onclick="showPage('qualitative')"><span class="icon">📝</span> 정성 점수</div>
+      </div>
+    </div>
+
+    <!-- 전략 분석 그룹 -->
+    <div class="nav-group" id="navg-strategy">
+      <div class="nav-group-header" onclick="toggleNavGroup('navg-strategy')">
+        <span>전략 분석</span>
+        <span class="caret">▼</span>
+      </div>
+      <div class="nav-group-body">
         <div class="nav-item" data-page="market-power" onclick="showPage('market-power')">
           <span class="icon">⚡</span> 전략 스코어링
         </div>
@@ -3786,7 +3796,8 @@ const NAV_GROUP_MAP = {
   'ext-holdings':'navg-portfolio', report:'navg-portfolio',
   'cash-assets':'navg-portfolio',  credit:'navg-portfolio',
   rebalance:'navg-portfolio', 'stock-rebalance':'navg-portfolio',
-  'theme-rebalance':'navg-portfolio', 'trade-history':'navg-portfolio', qualitative:'navg-portfolio', 'market-power':'navg-portfolio',
+  'theme-rebalance':'navg-portfolio', 'trade-history':'navg-portfolio', qualitative:'navg-portfolio',
+  'market-power':'navg-strategy', 'strategy-history':'navg-strategy',
   auditlog:'navg-system',    stocks:'navg-system',
   batch:'navg-admin',        spec:'navg-admin', 'common-codes':'navg-admin', usermgmt:'navg-admin',
   'alert-emails':'navg-admin',
