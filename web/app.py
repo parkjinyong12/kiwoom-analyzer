@@ -500,13 +500,26 @@ def _ensure_user_id_migration():
     _run_migration_step(_step_theme_constraint)
 
     def _step_theme_fit_cols(cur):
-        cur.execute("ALTER TABLE theme_targets ADD COLUMN IF NOT EXISTS core_logic_fit        SMALLINT      DEFAULT NULL")
-        cur.execute("ALTER TABLE theme_targets ADD COLUMN IF NOT EXISTS bottleneck_directness SMALLINT      DEFAULT NULL")
-        cur.execute("ALTER TABLE theme_targets ADD COLUMN IF NOT EXISTS ai_capex_sensitivity  SMALLINT      DEFAULT NULL")
-        cur.execute("ALTER TABLE theme_targets ADD COLUMN IF NOT EXISTS theme_cohesion        SMALLINT      DEFAULT NULL")
-        cur.execute("ALTER TABLE theme_targets ADD COLUMN IF NOT EXISTS uncorrelated_effect   SMALLINT      DEFAULT NULL")
+        # 신규 6차원 공급결정력 컬럼 (구 컬럼명 → 새 컬럼명으로 이미 리네임됨)
+        cur.execute("ALTER TABLE theme_targets ADD COLUMN IF NOT EXISTS listed_company_depth      SMALLINT DEFAULT NULL")
+        cur.execute("ALTER TABLE theme_targets ADD COLUMN IF NOT EXISTS bottleneck_scale           SMALLINT DEFAULT NULL")
+        cur.execute("ALTER TABLE theme_targets ADD COLUMN IF NOT EXISTS demand_continuity          SMALLINT DEFAULT NULL")
+        cur.execute("ALTER TABLE theme_targets ADD COLUMN IF NOT EXISTS earnings_visibility        SMALLINT DEFAULT NULL")
+        cur.execute("ALTER TABLE theme_targets ADD COLUMN IF NOT EXISTS earnings_reflection_speed  SMALLINT DEFAULT NULL")
         cur.execute("ALTER TABLE theme_targets ADD COLUMN IF NOT EXISTS portfolio_role_weight DECIMAL(4,2)  DEFAULT 1.00")
     _run_migration_step(_step_theme_fit_cols)
+
+    def _step_drop_old_fit_cols(cur):
+        """구 적합도 컬럼 제거 (데이터 없음, 새 컬럼으로 대체)."""
+        for col in ["core_logic_fit", "bottleneck_directness", "ai_capex_sensitivity",
+                    "theme_cohesion", "uncorrelated_effect"]:
+            cur.execute(f"""
+                DO $$ BEGIN
+                    ALTER TABLE theme_targets DROP COLUMN IF EXISTS {col};
+                EXCEPTION WHEN others THEN NULL;
+                END $$
+            """)
+    _run_migration_step(_step_drop_old_fit_cols)
 
     def _step_strategy_history(cur):
         cur.execute("""
@@ -3281,29 +3294,25 @@ def api_market_power_theme_suggestions():
         if t:
             theme_map[r["stock_code"]] = t
 
-    # 현재 테마 목표비율 + 포트 적합도 점수 + 포트 역할 가중치
+    # 현재 테마 목표비율 + 포트 적합도 점수 (새 6차원 곱셈 공식)
     tt_rows = query("""
         SELECT theme, target_ratio,
-               core_logic_fit, bottleneck_directness,
-               ai_capex_sensitivity, theme_cohesion, uncorrelated_effect,
-               portfolio_role_weight
+               bottleneck_scale, demand_continuity, earnings_visibility,
+               earnings_reflection_speed, listed_company_depth
         FROM theme_targets WHERE user_id = %s
     """, [uid])
-    theme_target    = {}
-    theme_fit_map   = {}   # theme → fit_score
-    theme_role_map  = {}   # theme → portfolio_role_weight
+    theme_target  = {}
+    theme_fit_map = {}   # theme → {bs, dc, ev, ers, lcd} raw values
     for r in tt_rows:
         theme_target[r["theme"]] = float(r["target_ratio"] or 0)
-        theme_role_map[r["theme"]] = float(r["portfolio_role_weight"] or 1.00)
-        clf, bd, acs, tc, ue = (
-            r["core_logic_fit"], r["bottleneck_directness"],
-            r["ai_capex_sensitivity"], r["theme_cohesion"], r["uncorrelated_effect"],
+        bs, dc, ev, ers, lcd = (
+            r["bottleneck_scale"], r["demand_continuity"],
+            r["earnings_visibility"], r["earnings_reflection_speed"], r["listed_company_depth"],
         )
-        if any(v is not None for v in [clf, bd, acs, tc, ue]):
-            theme_fit_map[r["theme"]] = round(
-                (clf or 0) * 0.35 + (bd or 0) * 0.25 +
-                (acs or 0) * 0.20 + (tc or 0) * 0.10 + (ue or 0) * 0.10, 2
-            )
+        if any(v is not None for v in [bs, dc, ev, ers, lcd]):
+            theme_fit_map[r["theme"]] = {
+                "bs": bs, "dc": dc, "ev": ev, "ers": ers, "lcd": lcd
+            }
 
     # 보유종목 평가금액 (테마 현재비율 계산용)
     hold_rows = query("""
@@ -3411,26 +3420,37 @@ def api_market_power_theme_suggestions():
         else:
             signal = "강한 하향"
 
-        existing     = theme_target.get(theme, 0.0)
-        fit_score    = theme_fit_map.get(theme)   # None이면 미입력
-        role_weight  = theme_role_map.get(theme, 1.00)
-        cur_ratio    = round(theme_eval.get(theme, 0) / total_eval * 100, 2) if total_eval > 0 else 0
+        existing  = theme_target.get(theme, 0.0)
+        cur_ratio = round(theme_eval.get(theme, 0) / total_eval * 100, 2) if total_eval > 0 else 0
+
+        # 곱셈 공식: (mp/100)^2.0 × (bs/100)^1.2 × (dc/100)^0.8 × (ev/100)^1.0 × (ers/100)^1.1 × (lcd/100)^1.0
+        fit_vals = theme_fit_map.get(theme)
+        fit_score = None
+        if fit_vals and mp_avg and mp_avg > 0:
+            bs_v  = (fit_vals["bs"]  or 0)
+            dc_v  = (fit_vals["dc"]  or 0)
+            ev_v  = (fit_vals["ev"]  or 0)
+            ers_v = (fit_vals["ers"] or 0)
+            lcd_v = (fit_vals["lcd"] or 0)
+            if all(v > 0 for v in [bs_v, dc_v, ev_v, ers_v, lcd_v]):
+                raw = ((mp_avg/100)**2.0 * (bs_v/100)**1.2 * (dc_v/100)**0.8
+                       * (ev_v/100)**1.0 * (ers_v/100)**1.1 * (lcd_v/100)**1.0)
+                fit_score = round(raw * 100, 2)
 
         result.append({
-            "theme":                 theme,
-            "stock_count":           len(mp_list),
-            "current_ratio":         cur_ratio,
-            "existing_target":       existing,
-            "mp_avg":                mp_avg,
-            "pa_avg":                pa_avg,
-            "em_avg":                em_avg,
-            "composite":             composite,
-            "avg_20d":               avg_20d,
-            "deviation":             deviation,
-            "signal":                signal,
-            "fit_score":             fit_score,
-            "portfolio_role_weight": role_weight,
-            "recommended":           0.0,   # 아래에서 채움
+            "theme":           theme,
+            "stock_count":     len(mp_list),
+            "current_ratio":   cur_ratio,
+            "existing_target": existing,
+            "mp_avg":          mp_avg,
+            "pa_avg":          pa_avg,
+            "em_avg":          em_avg,
+            "composite":       composite,
+            "avg_20d":         avg_20d,
+            "deviation":       deviation,
+            "signal":          signal,
+            "fit_score":       fit_score,
+            "recommended":     0.0,   # 아래에서 채움
         })
 
     # 마켓파워 점수 있는 테마만 필터
@@ -3438,35 +3458,21 @@ def api_market_power_theme_suggestions():
     if not result:
         return jsonify({"themes": [], "total_eval": total_eval})
 
-    # ── 권장 목표비율: 기존목표 + 변곡점 조정폭 → 합계 100% 정규화 ────────────
-    # 테마 목표비율은 정책값 — 점수 비례 전체 재배분 금지.
-    # 변곡점 신호가 기존 목표에 ±1~2%p 조정을 가할지 결정하는 용도로만 사용.
-    _ADJ_PP = {
-        "강한 상향":     +2.0,
-        "상향 후보":     +1.0,
-        "유지":           0.0,
-        "하락 후보":     -1.0,
-        "강한 하향":     -2.0,
-        "20일평균 없음":  0.0,
-    }
+    # ── 권장 목표비율: 곱셈 품질점수 비례 배분 ─────────────────────────────────
+    # fit_score(품질점수×100) 있으면 사용, 없으면 composite 기반 fallback
     for r in result:
-        existing = r["existing_target"]
-        adj      = _ADJ_PP.get(r["signal"], 0.0)
-        # 기존 목표가 없는 테마(신규)는 제안 보류
-        r["_temp"] = max(0.0, existing + adj) if existing > 0 else 0.0
+        fs = r["fit_score"]
+        if fs is not None:
+            r["_alloc"] = fs / 100   # 원래 raw multiplicative 값
+        else:
+            r["_alloc"] = (r["composite"] or 0) / 100
 
-    total_temp = sum(r["_temp"] for r in result)
-    if total_temp > 0:
-        for r in result:
-            r["recommended"] = round(r["_temp"] / total_temp * 100, 2)
-    else:
-        # 기존 목표가 전혀 없는 경우: composite 비례 fallback
-        total_comp = sum((r["composite"] or 0) for r in result) or 1
-        for r in result:
-            r["recommended"] = round((r["composite"] or 0) / total_comp * 100, 2)
+    total_alloc = sum(r["_alloc"] for r in result) or 1
+    for r in result:
+        r["recommended"] = round(r["_alloc"] / total_alloc * 100, 2)
 
     for r in result:
-        del r["_temp"]
+        del r["_alloc"]
 
     result.sort(key=lambda x: -(x["composite"] or 0))
     return jsonify({"themes": result, "total_eval": total_eval})
@@ -3500,94 +3506,125 @@ def api_market_power_theme_suggestions_apply():
 
 @app.route("/api/theme_fit_scores")
 def api_theme_fit_scores_get():
-    """테마별 포트 적합도 점수 조회."""
-    uid  = _current_uid()
+    """테마별 포트 적합도 점수 조회 (6차원 곱셈 공식)."""
+    uid = _current_uid()
+
+    # 종목→테마 매핑
+    stock_rows = query(
+        "SELECT stock_code, themes FROM stocks WHERE user_id = %s AND themes IS NOT NULL AND themes != ''",
+        [uid]
+    )
+    stock_theme_map: dict[str, str] = {}
+    for r in stock_rows:
+        t = (r["themes"] or "").split(",")[0].strip()
+        if t:
+            stock_theme_map[r["stock_code"]] = t
+
+    # 최신 MP 점수 per 종목
+    mp_rows = query("""
+        SELECT DISTINCT ON (stock_code) stock_code, total_score
+        FROM market_power_scores WHERE user_id = %s AND total_score IS NOT NULL
+        ORDER BY stock_code, scored_at DESC
+    """, [uid])
+    from collections import defaultdict as _dd
+    _tm_mp: dict[str, list] = _dd(list)
+    for r in mp_rows:
+        t = stock_theme_map.get(r["stock_code"], "")
+        if t:
+            _tm_mp[t].append(float(r["total_score"]))
+    theme_mp_avg = {t: round(sum(v) / len(v), 1) for t, v in _tm_mp.items()}
+
     rows = query("""
-        SELECT tt.theme, tt.target_ratio,
-               tt.core_logic_fit, tt.bottleneck_directness,
-               tt.ai_capex_sensitivity, tt.theme_cohesion, tt.uncorrelated_effect,
-               tt.portfolio_role_weight
-        FROM theme_targets tt
-        WHERE tt.user_id = %s
-        ORDER BY tt.theme
-    """, (uid,))
+        SELECT theme, target_ratio,
+               bottleneck_scale, demand_continuity, earnings_visibility,
+               earnings_reflection_speed, listed_company_depth
+        FROM theme_targets WHERE user_id = %s ORDER BY theme
+    """, [uid])
+
     result = []
     for r in rows:
-        clf  = r["core_logic_fit"]
-        bd   = r["bottleneck_directness"]
-        acs  = r["ai_capex_sensitivity"]
-        tc   = r["theme_cohesion"]
-        ue   = r["uncorrelated_effect"]
-        rw   = float(r["portfolio_role_weight"] or 1.00)
-        fit_entered = any(v is not None for v in [clf, bd, acs, tc, ue])
-        if fit_entered:
-            fit_score = round(
-                (clf or 0) * 0.35 + (bd or 0) * 0.25 +
-                (acs or 0) * 0.20 + (tc or 0) * 0.10 + (ue or 0) * 0.10, 2
-            )
-        else:
-            fit_score = None
-        alloc_score = round(fit_score * rw, 2) if fit_score is not None else None
+        bs  = r["bottleneck_scale"]
+        dc  = r["demand_continuity"]
+        ev  = r["earnings_visibility"]
+        ers = r["earnings_reflection_speed"]
+        lcd = r["listed_company_depth"]
+        mp_avg = theme_mp_avg.get(r["theme"])
+
+        fit_score = None
+        if all(v is not None and v > 0 for v in [bs, dc, ev, ers, lcd]) and mp_avg and mp_avg > 0:
+            raw = ((mp_avg/100)**2.0 * (bs/100)**1.2 * (dc/100)**0.8
+                   * (ev/100)**1.0 * (ers/100)**1.1 * (lcd/100)**1.0)
+            fit_score = round(raw * 100, 2)
+
         result.append({
-            "theme":                  r["theme"],
-            "target_ratio":           float(r["target_ratio"] or 0),
-            "core_logic_fit":         int(clf) if clf is not None else None,
-            "bottleneck_directness":  int(bd)  if bd  is not None else None,
-            "ai_capex_sensitivity":   int(acs) if acs is not None else None,
-            "theme_cohesion":         int(tc)  if tc  is not None else None,
-            "uncorrelated_effect":    int(ue)  if ue  is not None else None,
-            "fit_score":              fit_score,
-            "portfolio_role_weight":  rw,
-            "alloc_score":            alloc_score,
+            "theme":                     r["theme"],
+            "target_ratio":              float(r["target_ratio"] or 0),
+            "mp_avg":                    mp_avg,
+            "bottleneck_scale":          int(bs)  if bs  is not None else None,
+            "demand_continuity":         int(dc)  if dc  is not None else None,
+            "earnings_visibility":       int(ev)  if ev  is not None else None,
+            "earnings_reflection_speed": int(ers) if ers is not None else None,
+            "listed_company_depth":      int(lcd) if lcd is not None else None,
+            "fit_score":                 fit_score,
         })
     return jsonify(result)
 
 
 @app.route("/api/theme_fit_scores/<path:theme>", methods=["PUT"])
 def api_theme_fit_scores_put(theme):
-    """테마 포트 적합도 점수 저장."""
+    """테마 포트 적합도 점수 저장 (6차원 곱셈 공식)."""
     uid  = _current_uid()
     data = request.json or {}
+
     def _clamp(v):
         if v is None: return None
         return max(0, min(100, int(v)))
-    clf  = _clamp(data.get("core_logic_fit"))
-    bd   = _clamp(data.get("bottleneck_directness"))
-    acs  = _clamp(data.get("ai_capex_sensitivity"))
-    tc   = _clamp(data.get("theme_cohesion"))
-    ue   = _clamp(data.get("uncorrelated_effect"))
-    # portfolio_role_weight: 0.10 ~ 2.00 범위 허용
-    rw_raw = data.get("portfolio_role_weight")
-    rw = round(max(0.10, min(2.00, float(rw_raw))), 2) if rw_raw is not None else 1.00
 
-    fit_score = None
-    if any(v is not None for v in [clf, bd, acs, tc, ue]):
-        fit_score = round(
-            (clf or 0) * 0.35 + (bd or 0) * 0.25 +
-            (acs or 0) * 0.20 + (tc or 0) * 0.10 + (ue or 0) * 0.10, 2
-        )
+    bs  = _clamp(data.get("bottleneck_scale"))
+    dc  = _clamp(data.get("demand_continuity"))
+    ev  = _clamp(data.get("earnings_visibility"))
+    ers = _clamp(data.get("earnings_reflection_speed"))
+    lcd = _clamp(data.get("listed_company_depth"))
+
     with get_conn() as conn:
         cur = conn.cursor()
         cur.execute("""
-            INSERT INTO theme_targets (user_id, theme, target_ratio, core_logic_fit,
-                bottleneck_directness, ai_capex_sensitivity, theme_cohesion, uncorrelated_effect,
-                portfolio_role_weight, updated_at)
-            VALUES (%s, %s, 0, %s, %s, %s, %s, %s, %s, NOW())
+            INSERT INTO theme_targets (user_id, theme, target_ratio,
+                bottleneck_scale, demand_continuity, earnings_visibility,
+                earnings_reflection_speed, listed_company_depth, updated_at)
+            VALUES (%s, %s, 0, %s, %s, %s, %s, %s, NOW())
             ON CONFLICT (user_id, theme) DO UPDATE
-            SET core_logic_fit        = EXCLUDED.core_logic_fit,
-                bottleneck_directness = EXCLUDED.bottleneck_directness,
-                ai_capex_sensitivity  = EXCLUDED.ai_capex_sensitivity,
-                theme_cohesion        = EXCLUDED.theme_cohesion,
-                uncorrelated_effect   = EXCLUDED.uncorrelated_effect,
-                portfolio_role_weight = EXCLUDED.portfolio_role_weight,
-                updated_at            = NOW()
-        """, (uid, theme, clf, bd, acs, tc, ue, rw))
-        if fit_score is not None:
-            cur.execute("""
-                INSERT INTO theme_targets_history (user_id, theme, fit_score, recorded_at)
-                VALUES (%s, %s, %s, CURRENT_DATE)
-                ON CONFLICT DO NOTHING
-            """, (uid, theme, fit_score))
+            SET bottleneck_scale          = EXCLUDED.bottleneck_scale,
+                demand_continuity         = EXCLUDED.demand_continuity,
+                earnings_visibility       = EXCLUDED.earnings_visibility,
+                earnings_reflection_speed = EXCLUDED.earnings_reflection_speed,
+                listed_company_depth      = EXCLUDED.listed_company_depth,
+                updated_at                = NOW()
+        """, (uid, theme, bs, dc, ev, ers, lcd))
+
+        # 이력 기록: MP 평균으로 fit_score 계산
+        if all(v is not None and v > 0 for v in [bs, dc, ev, ers, lcd]):
+            mp_rows = query("""
+                SELECT mps.total_score
+                FROM stocks s
+                JOIN LATERAL (
+                    SELECT total_score FROM market_power_scores
+                    WHERE user_id = %s AND stock_code = s.stock_code AND total_score IS NOT NULL
+                    ORDER BY scored_at DESC LIMIT 1
+                ) mps ON TRUE
+                WHERE s.user_id = %s AND s.themes ILIKE %s
+            """, [uid, uid, f"%{theme}%"])
+            if mp_rows:
+                mp_avg = sum(float(r["total_score"]) for r in mp_rows) / len(mp_rows)
+                raw = ((mp_avg/100)**2.0 * (bs/100)**1.2 * (dc/100)**0.8
+                       * (ev/100)**1.0 * (ers/100)**1.1 * (lcd/100)**1.0)
+                fit_score = round(raw * 100, 2)
+                cur.execute("""
+                    INSERT INTO theme_targets_history (user_id, theme, fit_score, recorded_at)
+                    VALUES (%s, %s, %s, CURRENT_DATE)
+                    ON CONFLICT DO NOTHING
+                """, (uid, theme, fit_score))
+
     return jsonify({"ok": True})
 
 

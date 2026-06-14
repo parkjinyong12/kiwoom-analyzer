@@ -3305,32 +3305,31 @@ canvas { max-height: 220px; }
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
         <div>
           <span style="font-size:13px;font-weight:600;color:#94a3b8">테마 포트 적합도</span>
-          <span style="font-size:11px;color:#475569;margin-left:10px">배분가중 = 적합도 점수 × 역할가중 → 합계 100% 정규화</span>
+          <span style="font-size:11px;color:#475569;margin-left:10px">공급결정력 품질 6차원 곱셈 공식 → 합계 100% 정규화</span>
         </div>
         <button class="btn btn-ghost" style="font-size:12px" onclick="tfLoad()">새로고침</button>
       </div>
       <div style="font-size:11px;color:#475569;margin-bottom:12px">
-        적합도 점수 × 역할가중 = 배분가중. 이 값을 정규화해 목표비율 제안을 결정합니다. 역할 설정 없이는 ×1.00(보조확장) 적용.
+        품질점수 = (MP평균/100)^2.0 × (병목/100)^1.2 × (수요/100)^0.8 × (실적가시성/100)^1.0 × (실적반영/100)^1.1 × (상장깊이/100)^1.0 × 100
       </div>
       <div style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;font-size:12px">
           <thead>
             <tr style="border-bottom:1px solid #1e2535">
               <th style="padding:7px 10px;text-align:left;color:#64748b;font-size:11px;white-space:nowrap">테마</th>
-              <th style="padding:7px 8px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap" title="핵심 투자 논리와의 부합도">핵심논리<br>적합도</th>
-              <th style="padding:7px 8px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap" title="AI CAPEX 확대 시 직접 수혜 병목인가">병목<br>직접성</th>
-              <th style="padding:7px 8px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap" title="AI 투자 증가와의 직접 연결성">AI CAPEX<br>민감도</th>
-              <th style="padding:7px 8px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap" title="테마 내 종목들이 같은 논리로 움직이는가">테마<br>응집도</th>
-              <th style="padding:7px 8px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap" title="다른 테마와 비상관 분산 효과">비상관<br>분산</th>
-              <th style="padding:7px 8px;text-align:right;color:#60a5fa;font-size:11px;white-space:nowrap">적합도<br>점수</th>
-              <th style="padding:7px 8px;text-align:center;color:#4ade80;font-size:11px;white-space:nowrap">포트<br>역할</th>
-              <th style="padding:7px 8px;text-align:right;color:#a78bfa;font-size:11px;white-space:nowrap">배분<br>가중</th>
+              <th style="padding:7px 8px;text-align:right;color:#4ade80;font-size:11px;white-space:nowrap" title="종목 마켓파워 평균 (자동 계산)">MP평균<br><span style="color:#334155;font-size:10px">자동</span></th>
+              <th style="padding:7px 8px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap" title="공급 병목의 규모·강도 (^1.2)">병목<br>스케일</th>
+              <th style="padding:7px 8px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap" title="수요의 지속성·구조적 성격 (^0.8)">수요<br>지속성</th>
+              <th style="padding:7px 8px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap" title="실적 가시성·예측 가능성 (^1.0)">실적<br>가시성</th>
+              <th style="padding:7px 8px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap" title="실적이 주가에 반영되는 속도 (^1.1)">실적반영<br>속도</th>
+              <th style="padding:7px 8px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap" title="상장사 투자 깊이·커버리지 (^1.0)">상장사<br>투자깊이</th>
+              <th style="padding:7px 8px;text-align:right;color:#60a5fa;font-size:11px;white-space:nowrap">품질<br>점수</th>
               <th style="padding:7px 8px;text-align:right;color:#fbbf24;font-size:11px;white-space:nowrap">현재<br>목표</th>
               <th style="padding:7px 4px;text-align:center;color:#64748b;font-size:11px"></th>
             </tr>
           </thead>
           <tbody id="tf-list-body">
-            <tr><td colspan="11" style="padding:30px;text-align:center;color:#475569;font-size:13px">데이터 없음</td></tr>
+            <tr><td colspan="10" style="padding:30px;text-align:center;color:#475569;font-size:13px">데이터 없음</td></tr>
           </tbody>
         </table>
       </div>
@@ -3394,63 +3393,53 @@ canvas { max-height: 220px; }
         <button onclick="tfCloseModal()" style="background:none;border:none;color:#64748b;font-size:18px;cursor:pointer">✕</button>
       </div>
       <input type="hidden" id="tf-modal-theme">
-      <div style="font-size:11px;color:#475569;margin-bottom:18px">각 항목 0~100. 숫자를 직접 입력하거나 슬라이더를 조절하세요.</div>
+      <div style="font-size:11px;color:#475569;margin-bottom:18px">각 항목 0~100. 숫자를 직접 입력하거나 슬라이더를 조절하세요. MP평균은 마켓파워 점수에서 자동 계산됩니다.</div>
 
       <div style="display:flex;flex-direction:column;gap:16px;margin-bottom:24px">
         <div>
           <div style="display:flex;justify-content:space-between;margin-bottom:6px">
-            <span style="font-size:12px;color:#94a3b8">핵심논리 적합도 <span style="color:#475569;font-size:11px">— AI 병목 공급망 포트 정체성과의 부합도</span></span>
-            <input type="number" id="tf-v-clf" min="0" max="100" style="width:52px;background:#0d1117;border:1px solid #1e2535;border-radius:4px;color:#e2e8f0;text-align:right;font-size:13px;padding:2px 4px" oninput="tfUpdateVal('clf',this.value)">
+            <span style="font-size:12px;color:#94a3b8">병목 스케일 <span style="color:#475569;font-size:11px">— 공급 병목의 규모·강도·구조적 희소성 (지수^1.2)</span></span>
+            <input type="number" id="tf-v-bs" min="0" max="100" style="width:52px;background:#0d1117;border:1px solid #1e2535;border-radius:4px;color:#e2e8f0;text-align:right;font-size:13px;padding:2px 4px" oninput="tfUpdateVal('bs',this.value)">
           </div>
-          <input type="range" id="tf-s-clf" min="0" max="100" value="0" oninput="tfUpdateVal('clf',this.value)" style="width:100%;accent-color:#60a5fa">
+          <input type="range" id="tf-s-bs" min="0" max="100" value="0" oninput="tfUpdateVal('bs',this.value)" style="width:100%;accent-color:#60a5fa">
         </div>
         <div>
           <div style="display:flex;justify-content:space-between;margin-bottom:6px">
-            <span style="font-size:12px;color:#94a3b8">병목 직접성 <span style="color:#475569;font-size:11px">— AI CAPEX 확대 시 직접 막히는 공급 병목인가</span></span>
-            <input type="number" id="tf-v-bd" min="0" max="100" style="width:52px;background:#0d1117;border:1px solid #1e2535;border-radius:4px;color:#e2e8f0;text-align:right;font-size:13px;padding:2px 4px" oninput="tfUpdateVal('bd',this.value)">
+            <span style="font-size:12px;color:#94a3b8">수요 지속성 <span style="color:#475569;font-size:11px">— 수요의 지속성·구조적 성격·사이클 저항성 (지수^0.8)</span></span>
+            <input type="number" id="tf-v-dc" min="0" max="100" style="width:52px;background:#0d1117;border:1px solid #1e2535;border-radius:4px;color:#e2e8f0;text-align:right;font-size:13px;padding:2px 4px" oninput="tfUpdateVal('dc',this.value)">
           </div>
-          <input type="range" id="tf-s-bd" min="0" max="100" value="0" oninput="tfUpdateVal('bd',this.value)" style="width:100%;accent-color:#60a5fa">
+          <input type="range" id="tf-s-dc" min="0" max="100" value="0" oninput="tfUpdateVal('dc',this.value)" style="width:100%;accent-color:#60a5fa">
         </div>
         <div>
           <div style="display:flex;justify-content:space-between;margin-bottom:6px">
-            <span style="font-size:12px;color:#94a3b8">AI CAPEX 민감도 <span style="color:#475569;font-size:11px">— AI 투자 증가와의 직접 연결성</span></span>
-            <input type="number" id="tf-v-acs" min="0" max="100" style="width:52px;background:#0d1117;border:1px solid #1e2535;border-radius:4px;color:#e2e8f0;text-align:right;font-size:13px;padding:2px 4px" oninput="tfUpdateVal('acs',this.value)">
+            <span style="font-size:12px;color:#94a3b8">실적 가시성 <span style="color:#475569;font-size:11px">— 실적 예측 가능성·수주 가시성·이익 안정성 (지수^1.0)</span></span>
+            <input type="number" id="tf-v-ev" min="0" max="100" style="width:52px;background:#0d1117;border:1px solid #1e2535;border-radius:4px;color:#e2e8f0;text-align:right;font-size:13px;padding:2px 4px" oninput="tfUpdateVal('ev',this.value)">
           </div>
-          <input type="range" id="tf-s-acs" min="0" max="100" value="0" oninput="tfUpdateVal('acs',this.value)" style="width:100%;accent-color:#60a5fa">
+          <input type="range" id="tf-s-ev" min="0" max="100" value="0" oninput="tfUpdateVal('ev',this.value)" style="width:100%;accent-color:#60a5fa">
         </div>
         <div>
           <div style="display:flex;justify-content:space-between;margin-bottom:6px">
-            <span style="font-size:12px;color:#94a3b8">테마 응집도 <span style="color:#475569;font-size:11px">— 테마 내 종목이 같은 논리로 움직이는가</span></span>
-            <input type="number" id="tf-v-tc" min="0" max="100" style="width:52px;background:#0d1117;border:1px solid #1e2535;border-radius:4px;color:#e2e8f0;text-align:right;font-size:13px;padding:2px 4px" oninput="tfUpdateVal('tc',this.value)">
+            <span style="font-size:12px;color:#94a3b8">실적 반영 속도 <span style="color:#475569;font-size:11px">— 실적이 주가에 얼마나 빠르게 반영되는가 (지수^1.1)</span></span>
+            <input type="number" id="tf-v-ers" min="0" max="100" style="width:52px;background:#0d1117;border:1px solid #1e2535;border-radius:4px;color:#e2e8f0;text-align:right;font-size:13px;padding:2px 4px" oninput="tfUpdateVal('ers',this.value)">
           </div>
-          <input type="range" id="tf-s-tc" min="0" max="100" value="0" oninput="tfUpdateVal('tc',this.value)" style="width:100%;accent-color:#60a5fa">
+          <input type="range" id="tf-s-ers" min="0" max="100" value="0" oninput="tfUpdateVal('ers',this.value)" style="width:100%;accent-color:#60a5fa">
         </div>
         <div>
           <div style="display:flex;justify-content:space-between;margin-bottom:6px">
-            <span style="font-size:12px;color:#94a3b8">비상관 분산 효과 <span style="color:#475569;font-size:11px">— 다른 테마와 비상관으로 분산 기여</span></span>
-            <input type="number" id="tf-v-ue" min="0" max="100" style="width:52px;background:#0d1117;border:1px solid #1e2535;border-radius:4px;color:#e2e8f0;text-align:right;font-size:13px;padding:2px 4px" oninput="tfUpdateVal('ue',this.value)">
+            <span style="font-size:12px;color:#94a3b8">상장사 투자깊이 <span style="color:#475569;font-size:11px">— 상장 주체의 다양성·직접 투자 가능한 종목 커버리지 (지수^1.0)</span></span>
+            <input type="number" id="tf-v-lcd" min="0" max="100" style="width:52px;background:#0d1117;border:1px solid #1e2535;border-radius:4px;color:#e2e8f0;text-align:right;font-size:13px;padding:2px 4px" oninput="tfUpdateVal('lcd',this.value)">
           </div>
-          <input type="range" id="tf-s-ue" min="0" max="100" value="0" oninput="tfUpdateVal('ue',this.value)" style="width:100%;accent-color:#60a5fa">
+          <input type="range" id="tf-s-lcd" min="0" max="100" value="0" oninput="tfUpdateVal('lcd',this.value)" style="width:100%;accent-color:#60a5fa">
         </div>
       </div>
 
-      <!-- 적합도 합산 미리보기 -->
-      <div style="background:#0d1117;border-radius:8px;padding:12px 16px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center">
-        <span style="font-size:12px;color:#64748b">적합도 점수 (가중합)</span>
-        <span id="tf-total-display" style="font-size:22px;font-weight:800;color:#60a5fa">—</span>
-      </div>
-
-      <!-- 포트 내 역할 선택 -->
-      <div style="margin-bottom:20px">
-        <div style="font-size:12px;color:#94a3b8;margin-bottom:8px">포트 내 역할 <span style="color:#475569;font-size:11px">— 배분 배율 결정 (alloc = fit_score × 역할가중)</span></div>
-        <select id="tf-role-weight" style="width:100%;background:#0d1117;border:1px solid #1e2535;border-radius:6px;color:#e2e8f0;font-size:13px;padding:8px 10px">
-          <option value="1.30">핵심 1축 (×1.30) — 포트 정체성 정의, 최대 배분</option>
-          <option value="1.25">핵심 2축 (×1.25) — 강한 보완 축, 대형 비중</option>
-          <option value="0.85" selected>보조 확장축 (×0.85) — 테마 다양성 확장</option>
-          <option value="0.40">비상관 보조축 (×0.40) — 분산 목적, 소형 비중</option>
-          <option value="0.15">장기 옵션 (×0.15) — 초소형, 모니터링 포지션</option>
-        </select>
-        <div id="tf-role-preview" style="font-size:11px;color:#475569;margin-top:6px;padding:6px 10px;background:#0a0e17;border-radius:4px">배분 가중 = 적합도 점수 × 역할가중</div>
+      <!-- 품질점수 미리보기 -->
+      <div style="background:#0d1117;border-radius:8px;padding:12px 16px;margin-bottom:20px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <span style="font-size:12px;color:#64748b">품질점수 미리보기</span>
+          <span id="tf-total-display" style="font-size:22px;font-weight:800;color:#60a5fa">—</span>
+        </div>
+        <div id="tf-mp-display" style="font-size:11px;color:#475569;text-align:right">MP평균 로딩 중...</div>
       </div>
 
       <div style="display:flex;gap:10px;justify-content:flex-end">
@@ -11561,25 +11550,7 @@ async function rsSave() {
 // ─── 테마 포트 적합도 관리 ───────────────────────────────────────────────────
 
 const _tfRows = [];  // 인덱스 기반 캐시
-
-const _TF_ROLE_OPTIONS = [
-  { value: 1.30, label: '핵심 1축',    color: '#f87171' },
-  { value: 1.25, label: '핵심 2축',    color: '#fb923c' },
-  { value: 0.85, label: '보조 확장',   color: '#60a5fa' },
-  { value: 0.40, label: '비상관 보조', color: '#94a3b8' },
-  { value: 0.15, label: '장기 옵션',   color: '#475569' },
-];
-
-function _tfRoleLabel(rw) {
-  const v = parseFloat(rw) || 1.00;
-  let best = _TF_ROLE_OPTIONS[2];
-  let minDiff = Infinity;
-  for (const o of _TF_ROLE_OPTIONS) {
-    const d = Math.abs(o.value - v);
-    if (d < minDiff) { minDiff = d; best = o; }
-  }
-  return best;
-}
+let _tfCurrentMpAvg = null;
 
 async function tfLoad() {
   const res  = await fetch('/api/theme_fit_scores');
@@ -11590,7 +11561,7 @@ async function tfLoad() {
 
   const tbody = document.getElementById('tf-list-body');
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="11" style="padding:30px;text-align:center;color:#475569;font-size:13px">데이터 없음 — 테마 리밸런싱에서 목표비율을 먼저 설정하세요</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" style="padding:30px;text-align:center;color:#475569;font-size:13px">데이터 없음 — 테마 리밸런싱에서 목표비율을 먼저 설정하세요</td></tr>';
     return;
   }
   const cell = v => v !== null && v !== undefined
@@ -11598,23 +11569,18 @@ async function tfLoad() {
     : `<span style="color:#334155">—</span>`;
   tbody.innerHTML = rows.map((r, idx) => {
     const fs = r.fit_score;
-    const fsColor = fs === null ? '#475569' : fs >= 70 ? '#4ade80' : fs >= 50 ? '#60a5fa' : fs >= 30 ? '#f59e0b' : '#f87171';
-    const fsText  = fs !== null ? fs.toFixed(1) : '미입력';
-    const rw      = parseFloat(r.portfolio_role_weight) || 1.00;
-    const roleInfo = _tfRoleLabel(rw);
-    const alloc   = fs !== null ? (fs * rw).toFixed(1) : '—';
+    const fsColor = fs === null ? '#475569' : fs >= 40 ? '#4ade80' : fs >= 25 ? '#60a5fa' : fs >= 10 ? '#f59e0b' : '#f87171';
+    const fsText  = fs !== null ? fs.toFixed(2) : '미입력';
+    const mp      = r.mp_avg !== null && r.mp_avg !== undefined ? r.mp_avg.toFixed(1) : '—';
     return `<tr style="border-bottom:1px solid #0f1117">
       <td style="padding:7px 10px;color:#e2e8f0;font-weight:600">${r.theme}</td>
-      <td style="padding:7px 8px;text-align:right">${cell(r.core_logic_fit)}</td>
-      <td style="padding:7px 8px;text-align:right">${cell(r.bottleneck_directness)}</td>
-      <td style="padding:7px 8px;text-align:right">${cell(r.ai_capex_sensitivity)}</td>
-      <td style="padding:7px 8px;text-align:right">${cell(r.theme_cohesion)}</td>
-      <td style="padding:7px 8px;text-align:right">${cell(r.uncorrelated_effect)}</td>
+      <td style="padding:7px 8px;text-align:right;color:#4ade80;font-weight:600">${mp}</td>
+      <td style="padding:7px 8px;text-align:right">${cell(r.bottleneck_scale)}</td>
+      <td style="padding:7px 8px;text-align:right">${cell(r.demand_continuity)}</td>
+      <td style="padding:7px 8px;text-align:right">${cell(r.earnings_visibility)}</td>
+      <td style="padding:7px 8px;text-align:right">${cell(r.earnings_reflection_speed)}</td>
+      <td style="padding:7px 8px;text-align:right">${cell(r.listed_company_depth)}</td>
       <td style="padding:7px 8px;text-align:right;font-weight:700;color:${fsColor}">${fsText}</td>
-      <td style="padding:7px 8px;text-align:center">
-        <span style="font-size:11px;font-weight:600;color:${roleInfo.color};white-space:nowrap">${roleInfo.label}<br><span style="color:#64748b">×${rw.toFixed(2)}</span></span>
-      </td>
-      <td style="padding:7px 8px;text-align:right;color:#a78bfa;font-weight:700">${alloc}</td>
       <td style="padding:7px 8px;text-align:right;color:#fbbf24">${r.target_ratio.toFixed(1)}%</td>
       <td style="padding:7px 4px;text-align:center">
         <button class="btn btn-ghost" style="font-size:11px;padding:3px 8px" onclick="tfOpenModal(${idx})">편집</button>
@@ -11628,21 +11594,19 @@ function tfOpenModal(idx) {
   if (!r) return;
   document.getElementById('tf-modal-theme').value = r.theme;
   document.getElementById('tf-modal-title').textContent = `포트 적합도 편집 — ${r.theme}`;
-  const fields = { clf: r.core_logic_fit, bd: r.bottleneck_directness, acs: r.ai_capex_sensitivity, tc: r.theme_cohesion, ue: r.uncorrelated_effect };
+  _tfCurrentMpAvg = r.mp_avg ?? null;
+  const fields = {
+    bs:  r.bottleneck_scale,
+    dc:  r.demand_continuity,
+    ev:  r.earnings_visibility,
+    ers: r.earnings_reflection_speed,
+    lcd: r.listed_company_depth,
+  };
   Object.entries(fields).forEach(([k, v]) => {
     const val = v ?? 0;
     document.getElementById(`tf-v-${k}`).value = val;
     document.getElementById(`tf-s-${k}`).value = val;
   });
-  // 역할가중 선택 — 가장 가까운 옵션 선택
-  const rw  = parseFloat(r.portfolio_role_weight) || 1.00;
-  const sel = document.getElementById('tf-role-weight');
-  let bestOpt = sel.options[0], minDiff = Infinity;
-  for (const opt of sel.options) {
-    const d = Math.abs(parseFloat(opt.value) - rw);
-    if (d < minDiff) { minDiff = d; bestOpt = opt; }
-  }
-  sel.value = bestOpt.value;
   tfRefreshTotal();
   document.getElementById('tf-modal').style.display = 'flex';
 }
@@ -11659,27 +11623,37 @@ function tfUpdateVal(key, val) {
 }
 
 function tfRefreshTotal() {
-  const clf = +document.getElementById('tf-v-clf').value || 0;
-  const bd  = +document.getElementById('tf-v-bd').value  || 0;
-  const acs = +document.getElementById('tf-v-acs').value || 0;
-  const tc  = +document.getElementById('tf-v-tc').value  || 0;
-  const ue  = +document.getElementById('tf-v-ue').value  || 0;
-  const total = clf * 0.35 + bd * 0.25 + acs * 0.20 + tc * 0.10 + ue * 0.10;
-  const el = document.getElementById('tf-total-display');
-  el.textContent = total.toFixed(1);
-  el.style.color = total >= 70 ? '#4ade80' : total >= 50 ? '#60a5fa' : total >= 30 ? '#f59e0b' : '#f87171';
+  const bs  = +document.getElementById('tf-v-bs').value  || 0;
+  const dc  = +document.getElementById('tf-v-dc').value  || 0;
+  const ev  = +document.getElementById('tf-v-ev').value  || 0;
+  const ers = +document.getElementById('tf-v-ers').value || 0;
+  const lcd = +document.getElementById('tf-v-lcd').value || 0;
+  const el    = document.getElementById('tf-total-display');
+  const mpEl  = document.getElementById('tf-mp-display');
+  if (_tfCurrentMpAvg && bs > 0 && dc > 0 && ev > 0 && ers > 0 && lcd > 0) {
+    const mp  = _tfCurrentMpAvg / 100;
+    const raw = Math.pow(mp, 2.0) * Math.pow(bs/100, 1.2) * Math.pow(dc/100, 0.8)
+              * Math.pow(ev/100, 1.0) * Math.pow(ers/100, 1.1) * Math.pow(lcd/100, 1.0);
+    const score = (raw * 100).toFixed(2);
+    el.textContent = score;
+    el.style.color = raw >= 0.40 ? '#4ade80' : raw >= 0.25 ? '#60a5fa' : raw >= 0.10 ? '#f59e0b' : '#f87171';
+    if (mpEl) mpEl.textContent = `MP평균 ${_tfCurrentMpAvg.toFixed(1)} 기준`;
+  } else {
+    el.textContent = '—';
+    el.style.color = '#475569';
+    if (mpEl) mpEl.textContent = _tfCurrentMpAvg ? `MP평균 ${_tfCurrentMpAvg.toFixed(1)} (5개 항목 모두 입력 필요)` : 'MP 데이터 없음 (마켓파워 점수 먼저 입력)';
+  }
 }
 
 async function tfSave() {
   const theme = document.getElementById('tf-modal-theme').value;
   if (!theme) return;
   const body = {
-    core_logic_fit:          +document.getElementById('tf-v-clf').value,
-    bottleneck_directness:    +document.getElementById('tf-v-bd').value,
-    ai_capex_sensitivity:     +document.getElementById('tf-v-acs').value,
-    theme_cohesion:           +document.getElementById('tf-v-tc').value,
-    uncorrelated_effect:      +document.getElementById('tf-v-ue').value,
-    portfolio_role_weight:    +document.getElementById('tf-role-weight').value,
+    bottleneck_scale:          +document.getElementById('tf-v-bs').value,
+    demand_continuity:         +document.getElementById('tf-v-dc').value,
+    earnings_visibility:       +document.getElementById('tf-v-ev').value,
+    earnings_reflection_speed: +document.getElementById('tf-v-ers').value,
+    listed_company_depth:      +document.getElementById('tf-v-lcd').value,
   };
   const res = await fetch(`/api/theme_fit_scores/${encodeURIComponent(theme)}`, {
     method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body),
@@ -11687,7 +11661,6 @@ async function tfSave() {
   if (!res.ok) { alert('저장 실패'); return; }
   tfCloseModal();
   await tfLoad();
-  // 제안 테이블도 갱신
   mpLoadThemeSuggestions();
 }
 
