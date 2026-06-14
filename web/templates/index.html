@@ -3337,6 +3337,34 @@ canvas { max-height: 220px; }
     </div>
   </div>
 
+  <!-- 마켓파워 적용 확인 모달 -->
+  <div id="mp-apply-confirm-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1100;align-items:center;justify-content:center">
+    <div style="background:#161b27;border:1px solid #1e2535;border-radius:12px;padding:24px 28px;width:min(540px,95vw);max-height:85vh;overflow-y:auto">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <span id="mp-acm-title" style="font-size:15px;font-weight:700;color:#f1f5f9">변경 확인</span>
+        <button onclick="mpApplyConfirmClose()" style="background:none;border:none;color:#64748b;font-size:18px;cursor:pointer;line-height:1">✕</button>
+      </div>
+      <p id="mp-acm-desc" style="font-size:12px;color:#475569;margin:0 0 14px"></p>
+      <div style="overflow-x:auto;margin-bottom:20px">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead>
+            <tr style="border-bottom:1px solid #1e2535">
+              <th style="padding:7px 10px;text-align:left;color:#64748b;font-size:11px">항목</th>
+              <th style="padding:7px 8px;text-align:right;color:#64748b;font-size:11px">기존</th>
+              <th style="padding:7px 8px;text-align:right;color:#4ade80;font-size:11px">변경</th>
+              <th style="padding:7px 8px;text-align:right;color:#64748b;font-size:11px">변화</th>
+            </tr>
+          </thead>
+          <tbody id="mp-acm-body"></tbody>
+        </table>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:10px">
+        <button class="btn btn-ghost" onclick="mpApplyConfirmClose()">취소</button>
+        <button class="btn btn-primary" id="mp-acm-ok-btn" onclick="mpApplyConfirmOk()">적용</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ─── 기획서 ─── -->
   <section id="page-spec" class="page">
     <div class="page-header" style="display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap">
@@ -10664,18 +10692,22 @@ async function mpLoadThemeSuggestions() {
 
 async function mpApplyThemeAll() {
   if (!_mpThemeSuggestions.length) return;
-  const items = _mpThemeSuggestions.map(r => ({ theme: r.theme, target_ratio: r.recommended }));
-  if (!confirm(`${items.length}개 테마 목표비율을 권장값으로 일괄 적용할까요?\n\n` +
-    items.map(i => `${i.theme}: ${i.target_ratio.toFixed(2)}%`).join('\n'))) return;
-  const res = await fetch('/api/market_power/theme_suggestions/apply', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(items),
+  const rows = _mpThemeSuggestions.map(r => ({
+    label:  r.theme,
+    before: r.existing_target,
+    after:  r.recommended,
+  }));
+  mpApplyConfirmOpen('테마 목표비율 변경 확인', '아래 내용으로 테마 목표비율을 업데이트합니다. 나머지 비율은 현금으로 처리됩니다.', rows, async () => {
+    const items = _mpThemeSuggestions.map(r => ({ theme: r.theme, target_ratio: r.recommended }));
+    const res = await fetch('/api/market_power/theme_suggestions/apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(items),
+    });
+    if (res.ok) {
+      mpLoadThemeSuggestions();
+    }
   });
-  if (res.ok) {
-    alert('테마 목표비율 적용 완료. 종목별 제안도 다시 계산하세요.');
-    mpLoadThemeSuggestions();
-  }
 }
 
 let _mpSuggestions = [];
@@ -10750,32 +10782,73 @@ async function mpLoadSuggestions() {
 }
 
 async function mpApplyOne(stock_code, suggested_ratio) {
-  const res = await fetch('/api/rebalance/target', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ stock_code, target_ratio: suggested_ratio }),
+  const s = _mpSuggestions.find(x => x.stock_code === stock_code);
+  const rows = [{
+    label:  `${s?.stock_name || stock_code} (${stock_code})`,
+    before: s?.existing_target ?? 0,
+    after:  suggested_ratio,
+  }];
+  mpApplyConfirmOpen('종목 목표비율 변경 확인', '주식간 리밸런싱 목표비율을 아래 내용으로 업데이트합니다.', rows, async () => {
+    const res = await fetch('/api/rebalance/target', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stock_code, target_ratio: suggested_ratio }),
+    });
+    if (res.ok) mpLoadSuggestions();
   });
-  if (res.ok) {
-    alert(`${stock_code} 목표비율 ${suggested_ratio.toFixed(2)}% 적용 완료`);
-    mpLoadSuggestions();
-  }
 }
 
 async function mpApplyAll() {
-  const items = _mpSuggestions
-    .filter(s => s.suggested_ratio != null)
-    .map(s => ({ stock_code: s.stock_code, target_ratio: s.suggested_ratio }));
+  const items = _mpSuggestions.filter(s => s.suggested_ratio != null);
   if (!items.length) return;
-  if (!confirm(`${items.length}개 종목 목표비율을 일괄 적용할까요?`)) return;
-  const res = await fetch('/api/rebalance/targets', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(items),
+  const rows = items.map(s => ({
+    label:  `${s.stock_name} (${s.stock_code})`,
+    before: s.existing_target ?? 0,
+    after:  s.suggested_ratio,
+  }));
+  mpApplyConfirmOpen('종목 목표비율 일괄 변경 확인', `${items.length}개 종목 목표비율을 아래 내용으로 업데이트합니다.`, rows, async () => {
+    const payload = items.map(s => ({ stock_code: s.stock_code, target_ratio: s.suggested_ratio }));
+    const res = await fetch('/api/rebalance/targets', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) mpLoadSuggestions();
   });
-  if (res.ok) {
-    alert('일괄 적용 완료');
-    mpLoadSuggestions();
-  }
+}
+
+// 적용 확인 모달 공통 함수
+let _mpApplyConfirmCallback = null;
+
+function mpApplyConfirmOpen(title, desc, rows, callback) {
+  _mpApplyConfirmCallback = callback;
+  document.getElementById('mp-acm-title').textContent = title;
+  document.getElementById('mp-acm-desc').textContent  = desc;
+  const tbody = document.getElementById('mp-acm-body');
+  tbody.innerHTML = rows.map(r => {
+    const diff      = r.after - r.before;
+    const diffStr   = (diff >= 0 ? '+' : '') + diff.toFixed(2) + 'pp';
+    const diffColor = diff > 0 ? '#4ade80' : diff < 0 ? '#f87171' : '#64748b';
+    const afterColor = diff !== 0 ? '#4ade80' : '#94a3b8';
+    return `<tr style="border-bottom:1px solid #0d1117">
+      <td style="padding:8px 10px;color:#e2e8f0;font-weight:500">${r.label}</td>
+      <td style="padding:8px 8px;text-align:right;color:#64748b">${r.before.toFixed(2)}%</td>
+      <td style="padding:8px 8px;text-align:right;color:${afterColor};font-weight:${diff !== 0 ? 700 : 400}">${r.after.toFixed(2)}%</td>
+      <td style="padding:8px 8px;text-align:right;color:${diffColor};font-weight:600">${diffStr}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('mp-apply-confirm-modal').style.display = 'flex';
+}
+
+function mpApplyConfirmClose() {
+  document.getElementById('mp-apply-confirm-modal').style.display = 'none';
+  _mpApplyConfirmCallback = null;
+}
+
+async function mpApplyConfirmOk() {
+  const cb = _mpApplyConfirmCallback;
+  mpApplyConfirmClose();
+  if (cb) await cb();
 }
 </script>
 
