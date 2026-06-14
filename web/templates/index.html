@@ -3213,10 +3213,13 @@ canvas { max-height: 220px; }
             <tr style="border-bottom:1px solid #1e2535">
               <th style="padding:7px 10px;text-align:left;color:#64748b;font-size:11px;white-space:nowrap">종목</th>
               <th style="padding:7px 6px;text-align:left;color:#64748b;font-size:11px;white-space:nowrap">테마</th>
+              <th style="padding:7px 6px;text-align:center;color:#64748b;font-size:11px;white-space:nowrap">티어</th>
               <th style="padding:7px 6px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap">마켓파워</th>
               <th style="padding:7px 6px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap">가격매력</th>
               <th style="padding:7px 6px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap">실적모멘텀</th>
-              <th style="padding:7px 6px;text-align:right;color:#a78bfa;font-size:11px;white-space:nowrap">종합점수</th>
+              <th style="padding:7px 6px;text-align:right;color:#a78bfa;font-size:11px;white-space:nowrap">전략점수</th>
+              <th style="padding:7px 6px;text-align:right;color:#60a5fa;font-size:11px;white-space:nowrap">매수우선</th>
+              <th style="padding:7px 6px;text-align:right;color:#fb923c;font-size:11px;white-space:nowrap">감액우선</th>
               <th style="padding:7px 6px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap">테마비율</th>
               <th style="padding:7px 6px;text-align:right;color:#4ade80;font-size:11px;white-space:nowrap">제안비율</th>
               <th style="padding:7px 6px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap">기존목표</th>
@@ -3226,7 +3229,7 @@ canvas { max-height: 220px; }
             </tr>
           </thead>
           <tbody id="mp-suggest-body">
-            <tr><td colspan="12" style="padding:30px;text-align:center;color:#475569;font-size:13px">[계산] 버튼을 눌러 제안 비율을 확인하세요</td></tr>
+            <tr><td colspan="15" style="padding:30px;text-align:center;color:#475569;font-size:13px">로딩 중...</td></tr>
           </tbody>
         </table>
       </div>
@@ -10825,10 +10828,13 @@ async function mpLoadSuggestions() {
   // 제안 테이블
   const tbody = document.getElementById('mp-suggest-body');
   if (!_mpSuggestions.length) {
-    tbody.innerHTML = '<tr><td colspan="12" style="padding:20px;text-align:center;color:#475569">마켓파워 점수를 먼저 입력하고, 테마/목표비율이 설정되어 있어야 합니다</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="15" style="padding:20px;text-align:center;color:#475569">마켓파워 점수를 먼저 입력하고, 테마/목표비율이 설정되어 있어야 합니다</td></tr>';
     document.getElementById('mp-apply-all-btn').disabled = true;
     return;
   }
+
+  const TIER_COLORS = { CORE:'#f59e0b', MID:'#60a5fa', SATELLITE:'#a78bfa', OPTION:'#94a3b8' };
+  const TIER_LABELS = { CORE:'CORE', MID:'MID', SATELLITE:'SAT', OPTION:'OPT' };
 
   let prevTheme = null;
   tbody.innerHTML = _mpSuggestions.map(s => {
@@ -10836,13 +10842,33 @@ async function mpLoadSuggestions() {
     prevTheme = s.theme;
     const diff = s.diff;
     const diffColor = diff == null ? '#64748b' : diff > 0.5 ? '#4ade80' : diff < -0.5 ? '#f87171' : '#94a3b8';
-    const diffStr = diff == null ? '-' : (diff >= 0 ? '+' : '') + diff.toFixed(2) + 'pp';
-    const signal = diff == null ? '-'
-      : diff > 2  ? '<span style="color:#4ade80;font-weight:600">▲ 증액</span>'
-      : diff > 0.5 ? '<span style="color:#86efac">△ 소폭증</span>'
-      : diff < -2  ? '<span style="color:#f87171;font-weight:600">▼ 감액</span>'
-      : diff < -0.5 ? '<span style="color:#fca5a5">▽ 소폭감</span>'
-      : '<span style="color:#64748b">— 유지</span>';
+    const diffStr   = diff == null ? '-' : (diff >= 0 ? '+' : '') + diff.toFixed(2) + 'pp';
+
+    // 신호: 수동검토 우선, 그 다음 증감 방향
+    let signal;
+    if (s.review_flag && diff != null) {
+      signal = `<span style="color:#f59e0b;font-weight:700">⚠ 수동검토</span>`;
+    } else if (diff == null) {
+      signal = '-';
+    } else if (diff > 0.5) {
+      signal = `<span style="color:#4ade80">▲ 증액</span>`;
+    } else if (diff < -0.5) {
+      signal = `<span style="color:#f87171">▼ 감액</span>`;
+    } else {
+      signal = `<span style="color:#64748b">— 유지</span>`;
+    }
+
+    const tier      = s.position_tier || 'MID';
+    const tierColor = TIER_COLORS[tier] || '#64748b';
+    const tierLabel = TIER_LABELS[tier] || tier;
+    const tierCell  = `<select onchange="mpSetTier('${s.stock_code}',this.value)"
+        style="background:#0f1117;border:1px solid #1e2535;color:${tierColor};font-size:11px;
+               font-weight:600;padding:1px 3px;border-radius:4px;cursor:pointer;outline:none">
+      ${['CORE','MID','SATELLITE','OPTION'].map(t =>
+        `<option value="${t}" ${t===tier?'selected':''}>${TIER_LABELS[t]}</option>`
+      ).join('')}
+    </select>`;
+
     const applyBtn = s.suggested_ratio != null
       ? `<button onclick="mpApplyOne('${s.stock_code}',${s.suggested_ratio})"
               style="background:none;border:1px solid #1e2535;color:#60a5fa;cursor:pointer;font-size:11px;padding:2px 8px;border-radius:4px"
@@ -10854,10 +10880,13 @@ async function mpLoadSuggestions() {
         ${s.stock_name}<span style="font-size:10px;color:#475569;margin-left:4px">${s.stock_code}</span>
       </td>
       <td style="padding:7px 6px;font-size:11px;color:#64748b;white-space:nowrap">${s.theme||'-'}</td>
+      <td style="padding:7px 6px;text-align:center">${tierCell}</td>
       <td style="padding:7px 6px;text-align:right;color:#e2e8f0">${s.mp_score??'-'}<span style="color:#334155;font-size:10px">/100</span></td>
       <td style="padding:7px 6px;text-align:right;color:#94a3b8">${s.price_attractiveness??'-'}</td>
       <td style="padding:7px 6px;text-align:right;color:#94a3b8">${s.earnings_momentum??'-'}</td>
-      <td style="padding:7px 6px;text-align:right;color:#a78bfa;font-weight:600">${s.composite_score!=null?parseFloat(s.composite_score).toFixed(1):s.mp_score??'-'}</td>
+      <td style="padding:7px 6px;text-align:right;color:#a78bfa;font-weight:600">${s.target_score?.toFixed(1)??'-'}</td>
+      <td style="padding:7px 6px;text-align:right;color:#60a5fa;font-weight:600">${s.buy_score?.toFixed(1)??'-'}</td>
+      <td style="padding:7px 6px;text-align:right;color:#fb923c;font-weight:600">${s.sell_score?.toFixed(1)??'-'}</td>
       <td style="padding:7px 6px;text-align:right;color:#64748b">${s.theme_target_ratio!=null?s.theme_target_ratio.toFixed(1)+'%':'-'}</td>
       <td style="padding:7px 6px;text-align:right;color:#4ade80;font-weight:700">${s.suggested_ratio!=null?s.suggested_ratio.toFixed(2)+'%':'-'}</td>
       <td style="padding:7px 6px;text-align:right;color:#64748b">${s.existing_target!=null?s.existing_target.toFixed(2)+'%':'-'}</td>
@@ -10868,6 +10897,16 @@ async function mpLoadSuggestions() {
   }).join('');
 
   document.getElementById('mp-apply-all-btn').disabled = false;
+}
+
+async function mpSetTier(stock_code, tier) {
+  await fetch('/api/rebalance/stock_setting', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ stock_code, position_tier: tier }),
+  });
+  // 티어 변경 후 제안 재계산
+  mpLoadSuggestions();
 }
 
 async function mpApplyOne(stock_code, suggested_ratio) {

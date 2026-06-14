@@ -492,10 +492,14 @@ def _ensure_rebalance_targets_table():
                 updated_at   TIMESTAMP     DEFAULT NOW()
             )
         """)
-        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS alert_up   DECIMAL(6,2) DEFAULT NULL")
-        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS alert_down DECIMAL(6,2) DEFAULT NULL")
-        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS watch_up   DECIMAL(6,2) DEFAULT NULL")
-        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS watch_down DECIMAL(6,2) DEFAULT NULL")
+        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS alert_up          DECIMAL(6,2) DEFAULT NULL")
+        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS alert_down        DECIMAL(6,2) DEFAULT NULL")
+        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS watch_up          DECIMAL(6,2) DEFAULT NULL")
+        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS watch_down        DECIMAL(6,2) DEFAULT NULL")
+        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS position_tier     VARCHAR(20)  DEFAULT 'MID'")
+        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS max_change_pp     DECIMAL(4,2) DEFAULT 1.5")
+        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS overweight_band_pp DECIMAL(4,2) DEFAULT 3.0")
+        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS review_band_pp    DECIMAL(4,2) DEFAULT 1.5")
 
 
 def _ensure_common_codes_table():
@@ -1862,23 +1866,48 @@ def api_rebalance_stock_setting():
             return float(v) if v not in (None, "") else None
         except (ValueError, TypeError):
             return None
-    target_ratio = _to_float_or_none(data.get("target_ratio"))
-    alert_up     = _to_float_or_none(data.get("alert_up"))
-    alert_down   = _to_float_or_none(data.get("alert_down"))
-    watch_up     = _to_float_or_none(data.get("watch_up"))
-    watch_down   = _to_float_or_none(data.get("watch_down"))
+    target_ratio       = _to_float_or_none(data.get("target_ratio"))
+    alert_up           = _to_float_or_none(data.get("alert_up"))
+    alert_down         = _to_float_or_none(data.get("alert_down"))
+    watch_up           = _to_float_or_none(data.get("watch_up"))
+    watch_down         = _to_float_or_none(data.get("watch_down"))
+    position_tier      = (data.get("position_tier") or "").strip() or None
+    max_change_pp      = _to_float_or_none(data.get("max_change_pp"))
+    overweight_band_pp = _to_float_or_none(data.get("overweight_band_pp"))
+    review_band_pp     = _to_float_or_none(data.get("review_band_pp"))
+
+    # 티어 기본값 자동 적용
+    TIER_DEFAULTS = {
+        "CORE":      (2.0, 5.0, 2.5),
+        "MID":       (1.5, 3.0, 1.5),
+        "SATELLITE": (1.0, 2.0, 1.0),
+        "OPTION":    (1.0, 1.5, 0.75),
+    }
+    if position_tier and position_tier in TIER_DEFAULTS:
+        defs = TIER_DEFAULTS[position_tier]
+        if max_change_pp      is None: max_change_pp      = defs[0]
+        if overweight_band_pp is None: overweight_band_pp = defs[1]
+        if review_band_pp     is None: review_band_pp     = defs[2]
+
     with get_conn() as conn:
         conn.cursor().execute("""
-            INSERT INTO rebalance_targets (user_id, stock_code, target_ratio, alert_up, alert_down, watch_up, watch_down, updated_at)
-            VALUES (%s, %s, COALESCE(%s, 0), %s, %s, %s, %s, NOW())
+            INSERT INTO rebalance_targets
+                (user_id, stock_code, target_ratio, alert_up, alert_down, watch_up, watch_down,
+                 position_tier, max_change_pp, overweight_band_pp, review_band_pp, updated_at)
+            VALUES (%s, %s, COALESCE(%s, 0), %s, %s, %s, %s, %s, %s, %s, %s, NOW())
             ON CONFLICT (user_id, stock_code) DO UPDATE SET
-                target_ratio = COALESCE(EXCLUDED.target_ratio, rebalance_targets.target_ratio),
-                alert_up     = EXCLUDED.alert_up,
-                alert_down   = EXCLUDED.alert_down,
-                watch_up     = EXCLUDED.watch_up,
-                watch_down   = EXCLUDED.watch_down,
-                updated_at   = NOW()
-        """, (uid, stock_code, target_ratio, alert_up, alert_down, watch_up, watch_down))
+                target_ratio       = COALESCE(EXCLUDED.target_ratio, rebalance_targets.target_ratio),
+                alert_up           = EXCLUDED.alert_up,
+                alert_down         = EXCLUDED.alert_down,
+                watch_up           = EXCLUDED.watch_up,
+                watch_down         = EXCLUDED.watch_down,
+                position_tier      = COALESCE(EXCLUDED.position_tier,      rebalance_targets.position_tier),
+                max_change_pp      = COALESCE(EXCLUDED.max_change_pp,      rebalance_targets.max_change_pp),
+                overweight_band_pp = COALESCE(EXCLUDED.overweight_band_pp, rebalance_targets.overweight_band_pp),
+                review_band_pp     = COALESCE(EXCLUDED.review_band_pp,     rebalance_targets.review_band_pp),
+                updated_at         = NOW()
+        """, (uid, stock_code, target_ratio, alert_up, alert_down, watch_up, watch_down,
+              position_tier, max_change_pp, overweight_band_pp, review_band_pp))
     return jsonify({"ok": True})
 
 
@@ -2911,14 +2940,18 @@ def api_market_power_save():
 
 @app.route("/api/market_power/suggestions")
 def api_market_power_suggestions():
-    """마켓파워 기반 종목별 목표비율 제안.
+    """마켓파워 기반 종목별 목표비율 제안 (3-점수 체계).
 
-    제안 비율 = 테마 목표비율 × (배분 점수 / 테마 내 배분 점수 합)
-    배분 점수  = composite_score if available, else total_score (마켓파워만)
+    전략점수(alloc) = MP×75% + 실적모멘텀×20% + 가격매력×5%   ← 목표비율 배분
+    매수우선점수    = MP×30% + 가격매력×45% + 실적모멘텀×25%   ← 매수 순서
+    감액우선점수    = 초과비중×50% + 가격부담×30% + 모멘텀둔화×20%
+
+    제안비율 = 테마 목표비율 × (전략점수 / 테마 내 전략점수 합)
     """
+    from collections import defaultdict
     uid = _current_uid()
 
-    # 최신 마켓파워 점수 (종목별 1건)
+    # 최신 마켓파워 점수
     mp_rows = query("""
         SELECT DISTINCT ON (stock_code)
             stock_code, stock_name, total_score, grade,
@@ -2928,7 +2961,7 @@ def api_market_power_suggestions():
         ORDER BY stock_code, scored_at DESC
     """, [uid])
 
-    # 테마 매핑 (첫 번째 테마만 사용)
+    # 테마 매핑
     theme_rows = query("SELECT stock_code, themes FROM stock_themes")
     theme_map  = {}
     for r in theme_rows:
@@ -2936,21 +2969,62 @@ def api_market_power_suggestions():
         if t:
             theme_map[r["stock_code"]] = t
 
-    # 테마 목표비율 (0~100)
+    # 테마 목표비율
     tt_rows = query("SELECT theme, target_ratio FROM theme_targets WHERE user_id = %s", [uid])
     theme_target = {r["theme"]: float(r["target_ratio"] or 0) for r in tt_rows}
 
-    # 기존 설정 목표비율 (0~100)
-    rb_rows = query("SELECT stock_code, target_ratio FROM rebalance_targets WHERE user_id = %s", [uid])
-    existing_target_map = {r["stock_code"]: float(r["target_ratio"] or 0) for r in rb_rows}
+    # 기존 목표비율 + 티어 정보
+    rb_rows = query("""
+        SELECT stock_code, target_ratio,
+               COALESCE(position_tier, 'MID')       AS position_tier,
+               COALESCE(max_change_pp, 1.5)         AS max_change_pp,
+               COALESCE(overweight_band_pp, 3.0)    AS overweight_band_pp,
+               COALESCE(review_band_pp, 1.5)        AS review_band_pp
+        FROM rebalance_targets WHERE user_id = %s
+    """, [uid])
+    rb_map = {r["stock_code"]: r for r in rb_rows}
 
-    # 종목별 배분 점수 계산
+    # 현재 보유 평가금액 (감액점수의 초과비중 계산용)
+    hold_rows = query("""
+        WITH lc AS (
+            SELECT DISTINCT ON (stock_code) stock_code, close_price
+            FROM supply_demand WHERE close_price IS NOT NULL AND close_price > 0
+            ORDER BY stock_code, date DESC
+        )
+        SELECT mh.stock_code, SUM(mh.quantity) AS qty,
+               COALESCE(lc.close_price, 0) AS price
+        FROM manual_holdings mh
+        LEFT JOIN lc ON lc.stock_code = mh.stock_code
+        WHERE mh.user_id = %s AND mh.quantity > 0
+        GROUP BY mh.stock_code, lc.close_price
+    """, [uid])
+    stock_eval = {r["stock_code"]: int(r["qty"] or 0) * int(r["price"] or 0) for r in hold_rows}
+    total_eval = sum(stock_eval.values())
+
+    # 종목별 3-점수 계산
     stocks = []
     for r in mp_rows:
-        code      = r["stock_code"]
-        mp        = float(r["total_score"] or 0)
-        composite = float(r["composite_score"]) if r["composite_score"] is not None else None
-        alloc     = composite if composite is not None else mp  # 배분 기준 점수
+        code = r["stock_code"]
+        mp   = float(r["total_score"]          or 0)
+        pa   = float(r["price_attractiveness"] or 0) if r["price_attractiveness"] is not None else 0.0
+        em   = float(r["earnings_momentum"]    or 0) if r["earnings_momentum"]    is not None else 0.0
+
+        target_score = round(mp * 0.75 + em * 0.20 + pa * 0.05, 2)
+        buy_score    = round(mp * 0.30 + pa * 0.45 + em * 0.25, 2)
+
+        rb         = rb_map.get(code, {})
+        existing   = float(rb.get("target_ratio") or 0)
+        ob_pp      = float(rb.get("overweight_band_pp") or 3.0)
+
+        # 현재비율 (주식총액 기준)
+        cur_eval   = stock_eval.get(code, 0)
+        cur_ratio  = round(cur_eval / total_eval * 100, 2) if total_eval > 0 else 0.0
+
+        # 감액우선점수 (현재비율 > 목표비율 인 경우만 의미)
+        overweight_raw   = cur_ratio - existing
+        overweight_score = min(100.0, max(0.0, overweight_raw / ob_pp * 100)) if ob_pp > 0 else 0.0
+        sell_score       = round(overweight_score * 0.50 + (100 - pa) * 0.30 + (100 - em) * 0.20, 2)
+
         stocks.append({
             "stock_code":           code,
             "stock_name":           r["stock_name"],
@@ -2959,32 +3033,37 @@ def api_market_power_suggestions():
             "grade":                r["grade"],
             "price_attractiveness": r["price_attractiveness"],
             "earnings_momentum":    r["earnings_momentum"],
-            "composite_score":      composite,
-            "alloc_score":          alloc,
-            "existing_target":      existing_target_map.get(code, 0),
+            "composite_score":      r["composite_score"],
+            "target_score":         target_score,
+            "buy_score":            buy_score,
+            "sell_score":           sell_score,
+            "existing_target":      existing,
+            "current_ratio":        cur_ratio,
+            "position_tier":        rb.get("position_tier") or "MID",
+            "max_change_pp":        float(rb.get("max_change_pp") or 1.5),
         })
 
-    # 테마별 배분 점수 합산
-    from collections import defaultdict
+    # 테마별 전략점수 합산
     theme_alloc_sum: dict[str, float] = defaultdict(float)
     for s in stocks:
         if s["theme"]:
-            theme_alloc_sum[s["theme"]] += s["alloc_score"]
+            theme_alloc_sum[s["theme"]] += s["target_score"]
 
-    # 제안 비율 계산
+    # 제안비율 + 수동검토 플래그
     for s in stocks:
         t = s["theme"]
         if t and theme_alloc_sum[t] > 0 and t in theme_target:
             s["theme_target_ratio"] = theme_target[t]
-            s["suggested_ratio"]    = round(theme_target[t] * s["alloc_score"] / theme_alloc_sum[t], 2)
+            s["suggested_ratio"]    = round(theme_target[t] * s["target_score"] / theme_alloc_sum[t], 2)
             s["diff"]               = round(s["suggested_ratio"] - s["existing_target"], 2)
+            s["review_flag"]        = abs(s["diff"]) > s["max_change_pp"]
         else:
             s["theme_target_ratio"] = theme_target.get(t)
             s["suggested_ratio"]    = None
             s["diff"]               = None
+            s["review_flag"]        = False
 
-    # 테마 → 종합점수 내림차순 정렬
-    stocks.sort(key=lambda x: (x["theme"] or "zzz", -(x["alloc_score"] or 0)))
+    stocks.sort(key=lambda x: (x["theme"] or "zzz", -(x["target_score"] or 0)))
     return jsonify(stocks)
 
 
