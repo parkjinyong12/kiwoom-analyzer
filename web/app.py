@@ -3174,6 +3174,121 @@ def api_market_power_theme_suggestions_apply():
     return jsonify({"ok": True})
 
 
+@app.route("/api/market_power/theme_suggestions/stock_preview", methods=["POST"])
+def api_market_power_stock_preview():
+    """테마 목표비율(안) → 종목별 예상 거래량 계산.
+
+    요청: [{theme, target_ratio}, ...]
+    응답: {stocks: [...], total_eval: int}
+    """
+    from collections import defaultdict
+    uid      = _current_uid()
+    proposed = request.json or []
+    proposed_map = {item["theme"]: float(item["target_ratio"]) for item in proposed}
+
+    # 현재 보유 종목 + 최신 현재가
+    hold_rows = query("""
+        WITH lc AS (
+            SELECT DISTINCT ON (stock_code) stock_code, close_price
+            FROM supply_demand WHERE close_price IS NOT NULL AND close_price > 0
+            ORDER BY stock_code, date DESC
+        )
+        SELECT mh.stock_code, MAX(mh.stock_name) AS stock_name,
+               SUM(mh.quantity) AS qty,
+               COALESCE(lc.close_price, 0) AS price
+        FROM manual_holdings mh
+        LEFT JOIN lc ON lc.stock_code = mh.stock_code
+        WHERE mh.user_id = %s AND mh.quantity > 0
+        GROUP BY mh.stock_code, lc.close_price
+    """, [uid])
+
+    # 테마 매핑 (첫 번째 테마)
+    theme_rows = query("SELECT stock_code, themes FROM stock_themes")
+    theme_map  = {}
+    for r in theme_rows:
+        t = (r["themes"] or "").split(",")[0].strip()
+        if t:
+            theme_map[r["stock_code"]] = t
+
+    # 최신 마켓파워 배분 점수
+    mp_rows = query("""
+        SELECT DISTINCT ON (stock_code)
+            stock_code,
+            COALESCE(composite_score, total_score, 0) AS alloc_score
+        FROM market_power_scores
+        WHERE user_id = %s
+        ORDER BY stock_code, scored_at DESC
+    """, [uid])
+    mp_map = {r["stock_code"]: float(r["alloc_score"]) for r in mp_rows}
+
+    # 종목별 현재 평가금액
+    stocks   = []
+    total_eval = 0
+    for r in hold_rows:
+        code     = r["stock_code"]
+        qty      = int(r["qty"] or 0)
+        price    = int(r["price"] or 0)
+        eval_amt = qty * price
+        total_eval += eval_amt
+        theme = theme_map.get(code, "")
+        stocks.append({
+            "stock_code": code,
+            "stock_name": r["stock_name"],
+            "theme":      theme,
+            "qty":        qty,
+            "price":      price,
+            "eval_amt":   eval_amt,
+            "has_mp":     code in mp_map,
+        })
+
+    # 테마별 그룹 & eval 합계
+    theme_stocks: dict[str, list] = defaultdict(list)
+    theme_eval:   dict[str, float] = defaultdict(float)
+    for s in stocks:
+        t = s["theme"]
+        if t:
+            theme_stocks[t].append(s)
+            theme_eval[t] += s["eval_amt"]
+
+    result = []
+    for theme, slist in theme_stocks.items():
+        proposed_ratio = proposed_map.get(theme)
+        if proposed_ratio is None:
+            continue
+
+        theme_target_eval = total_eval * proposed_ratio / 100
+
+        # alloc_score: MP 있으면 점수, 없으면 현재 eval 비율(= 테마 내 현 비중 유지)
+        th_eval = theme_eval[theme]
+        for s in slist:
+            s["alloc_score"] = mp_map[s["stock_code"]] if s["has_mp"] else (
+                s["eval_amt"] / th_eval * 100 if th_eval > 0 else 1.0
+            )
+
+        total_alloc = sum(s["alloc_score"] for s in slist) or 1
+
+        for s in slist:
+            target_eval = round(theme_target_eval * s["alloc_score"] / total_alloc)
+            diff_eval   = target_eval - s["eval_amt"]
+            shares      = abs(diff_eval) // s["price"] if s["price"] > 0 else 0
+            result.append({
+                "stock_code":   s["stock_code"],
+                "stock_name":   s["stock_name"],
+                "theme":        theme,
+                "qty":          s["qty"],
+                "price":        s["price"],
+                "current_eval": s["eval_amt"],
+                "target_eval":  target_eval,
+                "diff_eval":    diff_eval,
+                "shares":       int(shares),
+                "direction":    "매수" if diff_eval > 1000 else "매도" if diff_eval < -1000 else "유지",
+                "has_mp":       s["has_mp"],
+            })
+
+    result.sort(key=lambda x: (x["theme"], -abs(x["diff_eval"])))
+    return jsonify({"stocks": result, "total_eval": total_eval})
+
+
 @app.route("/api/market_power/<int:sid>", methods=["DELETE"])
 def api_market_power_delete(sid: int):
     """점수 레코드 삭제."""
