@@ -3214,11 +3214,14 @@ canvas { max-height: 220px; }
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
         <div>
           <span style="font-size:13px;font-weight:600;color:#94a3b8">목표비율 제안</span>
-          <span style="font-size:11px;color:#475569;margin-left:10px">allocation = (전략점수/100)^1.5 × (역할점수/20)^1.8 → 테마 내 비례 배분</span>
+          <span style="font-size:11px;color:#475569;margin-left:10px">품질점수(MP×60%+EM×40%)^1.5 × 역할가중 × 가격보정(±10%) → 전역 정규화</span>
         </div>
-        <div style="display:flex;gap:8px">
+        <div style="display:flex;gap:8px;align-items:center">
           <button class="btn btn-ghost" style="font-size:12px" onclick="mpLoadSuggestions()">계산</button>
-          <button class="btn btn-primary" style="font-size:12px" onclick="mpApplyAll()" id="mp-apply-all-btn" disabled>전체 적용</button>
+          <button class="btn btn-ghost" style="font-size:12px;color:#fbbf24;border-color:#444" onclick="mpApplyAllStep()" id="mp-apply-step-btn" disabled
+            title="max_change_pp 범위 내로 점진 적용">1단계 일괄</button>
+          <button class="btn btn-primary" style="font-size:12px" onclick="mpApplyAll()" id="mp-apply-all-btn" disabled
+            title="제안비율 전체 즉시 적용">전체 적용</button>
         </div>
       </div>
 
@@ -3240,7 +3243,8 @@ canvas { max-height: 220px; }
               <th style="padding:7px 6px;text-align:right;color:#60a5fa;font-size:11px;white-space:nowrap">매수우선</th>
               <th style="padding:7px 6px;text-align:right;color:#fb923c;font-size:11px;white-space:nowrap">감액우선</th>
               <th style="padding:7px 6px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap">테마비율</th>
-              <th style="padding:7px 6px;text-align:right;color:#4ade80;font-size:11px;white-space:nowrap">제안비율</th>
+              <th style="padding:7px 6px;text-align:right;color:#fbbf24;font-size:11px;white-space:nowrap" title="이번 주기 적용 비중 (max_change_pp 제한)">이번단계</th>
+              <th style="padding:7px 6px;text-align:right;color:#4ade80;font-size:11px;white-space:nowrap" title="최종 목표 제안비율">최종목표</th>
               <th style="padding:7px 6px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap">기존목표</th>
               <th style="padding:7px 6px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap">변화(pp)</th>
               <th style="padding:7px 6px;text-align:center;color:#64748b;font-size:11px;white-space:nowrap">신호</th>
@@ -3248,7 +3252,7 @@ canvas { max-height: 220px; }
             </tr>
           </thead>
           <tbody id="mp-suggest-body">
-            <tr><td colspan="15" style="padding:30px;text-align:center;color:#475569;font-size:13px">로딩 중...</td></tr>
+            <tr><td colspan="16" style="padding:30px;text-align:center;color:#475569;font-size:13px">로딩 중...</td></tr>
           </tbody>
         </table>
       </div>
@@ -3591,7 +3595,7 @@ canvas { max-height: 220px; }
 
       <!-- 가격 매력 / 실적 모멘텀 (선택) -->
       <div style="background:#0f1117;border-radius:8px;padding:12px 16px;margin-bottom:16px">
-        <div style="font-size:11px;color:#64748b;margin-bottom:10px">종합 투자 점수 보정 (선택) — 입력 시: 마켓파워×60% + 가격매력×25% + 실적모멘텀×15%</div>
+        <div style="font-size:11px;color:#64748b;margin-bottom:10px">품질점수 보정 (선택) — 입력 시: 마켓파워×60% + 실적모멘텀×40% / 가격매력은 배분 보정계수(±10%)로만 사용</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
           <div>
             <div style="font-size:11px;color:#94a3b8;margin-bottom:5px">가격 매력 점수 <span style="color:#334155">(0~100)</span></div>
@@ -10992,11 +10996,12 @@ function mpRecalc() {
   const em = document.getElementById('mp-earnings-momentum')?.value;
   const compEl = document.getElementById('mp-composite-display');
   if (compEl) {
-    if (pa !== '' && em !== '' && pa !== null && em !== null) {
-      const composite = (total * 0.6 + parseFloat(pa||0) * 0.25 + parseFloat(em||0) * 0.15).toFixed(2);
-      compEl.textContent = composite + '점 (마켓파워×60% + 가격매력×25% + 실적모멘텀×15%)';
+    if (em !== '' && em !== null) {
+      const composite = (total * 0.60 + parseFloat(em||0) * 0.40).toFixed(2);
+      const paNote = pa !== '' && pa !== null ? ` | 가격보정 ×${(1 + Math.max(-1, Math.min(1, (parseFloat(pa)-55)/30))*0.10).toFixed(3)}` : '';
+      compEl.textContent = composite + '점 (품질점수: MP×60% + EM×40%)' + paNote;
     } else {
-      compEl.textContent = '- (가격매력·실적모멘텀 미입력 시 마켓파워만 사용)';
+      compEl.textContent = '- (실적모멘텀 입력 시 품질점수 계산)';
     }
   }
 }
@@ -11262,8 +11267,9 @@ async function mpLoadSuggestions() {
   // 제안 테이블
   const tbody = document.getElementById('mp-suggest-body');
   if (!_mpSuggestions.length) {
-    tbody.innerHTML = '<tr><td colspan="15" style="padding:20px;text-align:center;color:#475569">마켓파워 점수를 먼저 입력하고, 테마/목표비율이 설정되어 있어야 합니다</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="16" style="padding:20px;text-align:center;color:#475569">마켓파워 점수를 먼저 입력하고, 테마/목표비율이 설정되어 있어야 합니다</td></tr>';
     document.getElementById('mp-apply-all-btn').disabled = true;
+    document.getElementById('mp-apply-step-btn').disabled = true;
     return;
   }
 
@@ -11287,10 +11293,30 @@ async function mpLoadSuggestions() {
       signal = `<span style="color:#64748b">— 유지</span>`;
     }
 
-    const applyBtn = s.suggested_ratio != null
-      ? `<button onclick="mpApplyOne('${s.stock_code}',${s.suggested_ratio})"
-              style="background:none;border:1px solid #1e2535;color:#60a5fa;cursor:pointer;font-size:11px;padding:2px 8px;border-radius:4px"
-              onmouseover="this.style.borderColor='#60a5fa'" onmouseout="this.style.borderColor='#1e2535'">적용</button>`
+    // 이번단계 (step_ratio) 표시
+    const stepRatio   = s.step_ratio;
+    const stepDiff    = s.step_diff;
+    const stepsNeeded = s.steps_needed ?? 1;
+    const stepColor   = stepDiff == null ? '#64748b' : stepDiff > 0.1 ? '#fbbf24' : stepDiff < -0.1 ? '#fb923c' : '#475569';
+    let stepCell;
+    if (stepRatio != null) {
+      const stepsLabel = stepsNeeded > 1 ? `<br><span style="font-size:10px;color:#475569">${stepsNeeded}단계</span>` : '';
+      stepCell = `<span style="color:${stepColor};font-weight:700">${stepRatio.toFixed(2)}%</span>${stepsLabel}`;
+    } else {
+      stepCell = '-';
+    }
+
+    const applyBtns = s.suggested_ratio != null
+      ? `<div style="display:flex;flex-direction:column;gap:3px;align-items:center">
+          <button onclick="mpApplyOneStep('${s.stock_code}')"
+            style="background:none;border:1px solid #444;color:#fbbf24;cursor:pointer;font-size:10px;padding:1px 7px;border-radius:3px;white-space:nowrap"
+            onmouseover="this.style.borderColor='#fbbf24'" onmouseout="this.style.borderColor='#444'"
+            title="이번단계(${stepRatio?.toFixed(2)}%) 적용">1단계</button>
+          <button onclick="mpApplyOne('${s.stock_code}',${s.suggested_ratio})"
+            style="background:none;border:1px solid #1e2535;color:#60a5fa;cursor:pointer;font-size:10px;padding:1px 7px;border-radius:3px;white-space:nowrap"
+            onmouseover="this.style.borderColor='#60a5fa'" onmouseout="this.style.borderColor='#1e2535'"
+            title="최종목표(${s.suggested_ratio?.toFixed(2)}%) 즉시 적용">전체</button>
+        </div>`
       : '-';
     const bg = themeBreak ? 'border-top:2px solid #2d3748;' : '';
     return `<tr style="border-bottom:1px solid #0d1117;${bg}">
@@ -11306,15 +11332,17 @@ async function mpLoadSuggestions() {
       <td style="padding:7px 6px;text-align:right;color:#60a5fa;font-weight:600">${s.buy_score?.toFixed(1)??'-'}</td>
       <td style="padding:7px 6px;text-align:right;color:#fb923c;font-weight:600">${s.sell_score?.toFixed(1)??'-'}</td>
       <td style="padding:7px 6px;text-align:right;color:#64748b">${s.theme_target_ratio!=null?s.theme_target_ratio.toFixed(1)+'%':'-'}<br><span style="font-size:10px;color:#a78bfa">${s.theme_fit_score!=null?'적합'+s.theme_fit_score:'미입력'}</span></td>
+      <td style="padding:7px 6px;text-align:right">${stepCell}</td>
       <td style="padding:7px 6px;text-align:right;color:#4ade80;font-weight:700">${s.suggested_ratio!=null?s.suggested_ratio.toFixed(2)+'%':'-'}</td>
       <td style="padding:7px 6px;text-align:right;color:#64748b">${s.existing_target!=null?s.existing_target.toFixed(2)+'%':'-'}</td>
       <td style="padding:7px 6px;text-align:right;color:${diffColor};font-weight:600">${diffStr}</td>
       <td style="padding:7px 6px;text-align:center">${signal}</td>
-      <td style="padding:7px 4px;text-align:center">${applyBtn}</td>
+      <td style="padding:7px 4px;text-align:center">${applyBtns}</td>
     </tr>`;
   }).join('');
 
   document.getElementById('mp-apply-all-btn').disabled = false;
+  document.getElementById('mp-apply-step-btn').disabled = false;
 }
 
 function _mpTradeHtml(items) {
@@ -11352,6 +11380,25 @@ function _mpTradeHtml(items) {
   </div>`;
 }
 
+async function mpApplyOneStep(stock_code) {
+  const s = _mpSuggestions.find(x => x.stock_code === stock_code);
+  if (!s || s.step_ratio == null) return;
+  const stepsLabel = (s.steps_needed ?? 1) > 1 ? ` (총 ${s.steps_needed}단계 중 1단계)` : '';
+  const rows = [{
+    label:  `${s.stock_name || stock_code} (${stock_code})${stepsLabel}`,
+    before: s.existing_target ?? 0,
+    after:  s.step_ratio,
+  }];
+  mpApplyConfirmOpen('1단계 목표비율 적용', `이번 주기 조정폭(${s.max_change_pp}%p)만큼만 적용합니다.`, rows, async () => {
+    const res = await fetch('/api/rebalance/target', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stock_code, target_ratio: s.step_ratio }),
+    });
+    if (res.ok) mpLoadSuggestions();
+  }, '');
+}
+
 async function mpApplyOne(stock_code, suggested_ratio) {
   const s = _mpSuggestions.find(x => x.stock_code === stock_code);
   const rows = [{
@@ -11359,7 +11406,7 @@ async function mpApplyOne(stock_code, suggested_ratio) {
     before: s?.existing_target ?? 0,
     after:  suggested_ratio,
   }];
-  mpApplyConfirmOpen('종목 목표비율 변경 확인', '주식간 리밸런싱 목표비율을 아래 내용으로 업데이트합니다.', rows, async () => {
+  mpApplyConfirmOpen('최종목표 즉시 적용', '주식간 리밸런싱 목표비율을 제안비율로 바로 업데이트합니다.', rows, async () => {
     const res = await fetch('/api/rebalance/target', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -11367,6 +11414,31 @@ async function mpApplyOne(stock_code, suggested_ratio) {
     });
     if (res.ok) mpLoadSuggestions();
   }, s ? _mpTradeHtml([s]) : '');
+}
+
+async function mpApplyAllStep() {
+  const items = _mpSuggestions.filter(s => s.step_ratio != null);
+  if (!items.length) return;
+  const rows = items.map(s => ({
+    label:  `${s.stock_name} (${s.stock_code})${(s.steps_needed??1) > 1 ? ` [${s.steps_needed}단계]` : ''}`,
+    before: s.existing_target ?? 0,
+    after:  s.step_ratio,
+  }));
+  mpApplyConfirmOpen(
+    '1단계 일괄 적용',
+    `${items.length}개 종목을 각 max_change_pp 범위 내로 점진 적용합니다.`,
+    rows,
+    async () => {
+      const payload = items.map(s => ({ stock_code: s.stock_code, target_ratio: s.step_ratio }));
+      const res = await fetch('/api/rebalance/targets', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) mpLoadSuggestions();
+    },
+    ''
+  );
 }
 
 async function mpApplyAll() {
@@ -11377,7 +11449,7 @@ async function mpApplyAll() {
     before: s.existing_target ?? 0,
     after:  s.suggested_ratio,
   }));
-  mpApplyConfirmOpen('종목 목표비율 일괄 변경 확인', `${items.length}개 종목 목표비율을 아래 내용으로 업데이트합니다.`, rows, async () => {
+  mpApplyConfirmOpen('최종목표 전체 즉시 적용', `${items.length}개 종목 목표비율을 제안비율로 바로 업데이트합니다.`, rows, async () => {
     const payload = items.map(s => ({ stock_code: s.stock_code, target_ratio: s.suggested_ratio }));
     const res = await fetch('/api/rebalance/targets', {
       method: 'PUT',
