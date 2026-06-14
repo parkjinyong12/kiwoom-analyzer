@@ -3305,57 +3305,42 @@ def api_market_power_theme_suggestions():
         else:
             signal = "강한 하향"
 
-        existing  = theme_target.get(theme, 0.0)
+        existing = theme_target.get(theme, 0.0)
+        if signal == "강한 상향":
+            recommended = existing + adj_strong
+        elif signal == "상향 후보":
+            recommended = existing + adj_basic
+        elif signal == "하향 후보":
+            recommended = existing - adj_basic
+        elif signal == "강한 하향":
+            recommended = existing - adj_strong
+        else:
+            recommended = existing
+        recommended = round(max(0.0, recommended), 2)
+
         cur_ratio = round(theme_eval.get(theme, 0) / total_eval * 100, 2) if total_eval > 0 else 0
 
         result.append({
-            "theme":           theme,
-            "stock_count":     len(mp_list),
-            "current_ratio":   cur_ratio,
+            "theme":         theme,
+            "stock_count":   len(mp_list),
+            "current_ratio": cur_ratio,
             "existing_target": existing,
-            "mp_avg":          mp_avg,
-            "pa_avg":          pa_avg,
-            "em_avg":          em_avg,
-            "composite":       composite,
-            "avg_20d":         avg_20d,
-            "deviation":       deviation,
-            "signal":          signal,
-            "recommended":     0.0,  # 아래에서 채움
+            "mp_avg":        mp_avg,
+            "pa_avg":        pa_avg,
+            "em_avg":        em_avg,
+            "composite":     composite,
+            "avg_20d":       avg_20d,
+            "deviation":     deviation,
+            "signal":        signal,
+            "recommended":   recommended,
         })
 
-    # 마켓파워 점수 있는 테마만 필터
+    # 마켓파워 점수 있는 테마만 (현금 등 비주식 테마 제외), recommended 합계 100%로 정규화
     result = [r for r in result if r["stock_count"] > 0]
-
-    # Step 1: composite 점수 비례로 이상적 목표비율(ideal) 계산 — 수렴 기준점
-    total_composite = sum((r["composite"] or 0) for r in result)
-    for r in result:
-        r["_ideal"] = (r["composite"] or 0) / total_composite * 100 if total_composite > 0 else r["existing_target"]
-
-    # Step 2: existing → ideal 방향으로 신호 강도만큼 이동 (이미 도달하면 유지)
-    #   - 강한 상향/하향: adj_strong, 상향/하향 후보: adj_basic
-    #   - ideal에 이미 충분히 근접(0.5pp 이내)하면 더 이상 조정 없음
-    _signal_adj = {
-        "강한 상향": adj_strong, "상향 후보": adj_basic, "유지": 0.0,
-        "하향 후보": adj_basic,  "강한 하향": adj_strong, "20일평균 없음": 0.0,
-    }
-    for r in result:
-        ideal    = r["_ideal"]
-        existing = r["existing_target"]
-        gap      = ideal - existing          # 양수=올려야, 음수=내려야
-        max_step = _signal_adj.get(r["signal"], 0.0)
-        if abs(gap) < 0.5:                   # 이미 수렴 → 유지
-            r["recommended"] = existing
-        else:
-            step = min(abs(gap), max_step) * (1 if gap > 0 else -1)
-            r["recommended"] = round(max(0.0, existing + step), 2)
-        del r["_ideal"]
-
-    # Step 3: 합계 100% 정규화
     total_rec = sum(r["recommended"] for r in result)
     if total_rec > 0:
         for r in result:
             r["recommended"] = round(r["recommended"] / total_rec * 100, 2)
-
     result.sort(key=lambda x: -(x["composite"] or 0))
     return jsonify({"themes": result, "total_eval": total_eval})
 
