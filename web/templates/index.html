@@ -11345,6 +11345,48 @@ async function mpLoadSuggestions() {
   document.getElementById('mp-apply-step-btn').disabled = false;
 }
 
+function _mpStepTradeHtml(items) {
+  const hasQty = items.some(s => s.step_trade_qty != null && s.step_trade_qty !== 0);
+  if (!hasQty) return '<p style="font-size:12px;color:#475569;margin-top:10px">이번 단계 거래량 없음 (비중 이미 근접)</p>';
+  return `<div style="margin-top:14px">
+    <div style="font-size:12px;font-weight:600;color:#fbbf24;margin-bottom:8px">이번 단계 예상 거래량</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead>
+        <tr style="border-bottom:1px solid #1e2535">
+          <th style="padding:6px 10px;text-align:left;color:#64748b;font-size:11px">종목</th>
+          <th style="padding:6px 8px;text-align:right;color:#64748b;font-size:11px">현재</th>
+          <th style="padding:6px 8px;text-align:right;color:#fbbf24;font-size:11px">단계목표</th>
+          <th style="padding:6px 8px;text-align:right;color:#fbbf24;font-size:11px">예상거래</th>
+          <th style="padding:6px 8px;text-align:right;color:#64748b;font-size:11px">금액(만)</th>
+          <th style="padding:6px 8px;text-align:right;color:#475569;font-size:11px">최종목표</th>
+          <th style="padding:6px 8px;text-align:right;color:#475569;font-size:11px">잔여단계</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${items.filter(s => s.step_trade_qty != null).map(s => {
+          const qty   = s.step_trade_qty;
+          const color = qty > 0 ? '#4ade80' : qty < 0 ? '#f87171' : '#64748b';
+          const sign  = qty > 0 ? '▲매수 ' : qty < 0 ? '▼매도 ' : '— ';
+          const val   = s.step_trade_value != null
+            ? (s.step_trade_value >= 0 ? '+' : '') + Math.round(s.step_trade_value / 10000).toLocaleString() + '만'
+            : '-';
+          const tgtQty    = (s.current_qty ?? 0) + qty;
+          const remaining = (s.steps_needed ?? 1) - 1;
+          return `<tr style="border-bottom:1px solid #0d1117">
+            <td style="padding:6px 10px;color:#e2e8f0">${s.stock_name}</td>
+            <td style="padding:6px 8px;text-align:right;color:#64748b">${(s.current_qty ?? 0).toLocaleString()}주</td>
+            <td style="padding:6px 8px;text-align:right;color:#fbbf24">${tgtQty.toLocaleString()}주</td>
+            <td style="padding:6px 8px;text-align:right;color:${color};font-weight:700">${sign}${Math.abs(qty).toLocaleString()}주</td>
+            <td style="padding:6px 8px;text-align:right;color:${color}">${val}</td>
+            <td style="padding:6px 8px;text-align:right;color:#475569;font-size:11px">${s.suggested_ratio?.toFixed(2)||'-'}%</td>
+            <td style="padding:6px 8px;text-align:right;color:#475569;font-size:11px">${remaining > 0 ? remaining+'단계 남음' : '완료'}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+  </div>`;
+}
+
 function _mpTradeHtml(items) {
   const hasQty = items.some(s => s.trade_qty != null);
   if (!hasQty) return '';
@@ -11396,7 +11438,7 @@ async function mpApplyOneStep(stock_code) {
       body: JSON.stringify({ stock_code, target_ratio: s.step_ratio }),
     });
     if (res.ok) mpLoadSuggestions();
-  }, '');
+  }, _mpStepTradeHtml([s]));
 }
 
 async function mpApplyOne(stock_code, suggested_ratio) {
@@ -11420,7 +11462,7 @@ async function mpApplyAllStep() {
   const items = _mpSuggestions.filter(s => s.step_ratio != null);
   if (!items.length) return;
   const rows = items.map(s => ({
-    label:  `${s.stock_name} (${s.stock_code})${(s.steps_needed??1) > 1 ? ` [${s.steps_needed}단계]` : ''}`,
+    label:  `${s.stock_name} (${s.stock_code})${(s.steps_needed??1) > 1 ? ` [총${s.steps_needed}단계]` : ''}`,
     before: s.existing_target ?? 0,
     after:  s.step_ratio,
   }));
@@ -11437,7 +11479,7 @@ async function mpApplyAllStep() {
       });
       if (res.ok) mpLoadSuggestions();
     },
-    ''
+    _mpStepTradeHtml(items)
   );
 }
 

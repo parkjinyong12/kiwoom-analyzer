@@ -3307,14 +3307,20 @@ def api_market_power_suggestions():
 
             price = s["current_price"]
             if total_eval > 0 and price > 0:
-                target_val  = total_eval * suggested / 100
-                current_val = s["current_qty"] * price
-                trade_qty   = round((target_val - current_val) / price)
-                s["trade_qty"]   = trade_qty
-                s["trade_value"] = round(target_val - current_val)
+                current_val       = s["current_qty"] * price
+                target_val        = total_eval * suggested / 100
+                step_target_val   = total_eval * step / 100
+                trade_qty         = round((target_val - current_val) / price)
+                step_trade_qty    = round((step_target_val - current_val) / price)
+                s["trade_qty"]        = trade_qty
+                s["trade_value"]      = round(target_val - current_val)
+                s["step_trade_qty"]   = step_trade_qty
+                s["step_trade_value"] = round(step_target_val - current_val)
             else:
-                s["trade_qty"]   = None
-                s["trade_value"] = None
+                s["trade_qty"]        = None
+                s["trade_value"]      = None
+                s["step_trade_qty"]   = None
+                s["step_trade_value"] = None
         else:
             s["suggested_ratio"] = None
             s["step_ratio"]      = None
@@ -3324,6 +3330,8 @@ def api_market_power_suggestions():
             s["steps_needed"]    = None
             s["trade_qty"]       = None
             s["trade_value"]     = None
+            s["step_trade_qty"]  = None
+            s["step_trade_value"]= None
 
     stocks.sort(key=lambda x: (x["theme"] or "zzz", -(x["allocation_score"] or 0)))
     return jsonify(stocks)
