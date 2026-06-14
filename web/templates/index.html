@@ -3314,12 +3314,12 @@ canvas { max-height: 220px; }
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
         <div>
           <span style="font-size:13px;font-weight:600;color:#94a3b8">테마 포트 적합도</span>
-          <span style="font-size:11px;color:#475569;margin-left:10px">테마 목표비율 제안 = composite × 45% + 적합도 × 55%</span>
+          <span style="font-size:11px;color:#475569;margin-left:10px">배분가중 = 적합도 점수 × 역할가중 → 합계 100% 정규화</span>
         </div>
         <button class="btn btn-ghost" style="font-size:12px" onclick="tfLoad()">새로고침</button>
       </div>
       <div style="font-size:11px;color:#475569;margin-bottom:12px">
-        입력하지 않은 테마는 마켓파워 점수만으로 비례 배분됩니다. 입력 시 포트 정체성이 비율에 반영됩니다.
+        적합도 점수 × 역할가중 = 배분가중. 이 값을 정규화해 목표비율 제안을 결정합니다. 역할 설정 없이는 ×1.00(보조확장) 적용.
       </div>
       <div style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;font-size:12px">
@@ -3332,12 +3332,14 @@ canvas { max-height: 220px; }
               <th style="padding:7px 8px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap" title="테마 내 종목들이 같은 논리로 움직이는가">테마<br>응집도</th>
               <th style="padding:7px 8px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap" title="다른 테마와 비상관 분산 효과">비상관<br>분산</th>
               <th style="padding:7px 8px;text-align:right;color:#60a5fa;font-size:11px;white-space:nowrap">적합도<br>점수</th>
+              <th style="padding:7px 8px;text-align:center;color:#4ade80;font-size:11px;white-space:nowrap">포트<br>역할</th>
+              <th style="padding:7px 8px;text-align:right;color:#a78bfa;font-size:11px;white-space:nowrap">배분<br>가중</th>
               <th style="padding:7px 8px;text-align:right;color:#fbbf24;font-size:11px;white-space:nowrap">현재<br>목표</th>
               <th style="padding:7px 4px;text-align:center;color:#64748b;font-size:11px"></th>
             </tr>
           </thead>
           <tbody id="tf-list-body">
-            <tr><td colspan="9" style="padding:30px;text-align:center;color:#475569;font-size:13px">데이터 없음</td></tr>
+            <tr><td colspan="11" style="padding:30px;text-align:center;color:#475569;font-size:13px">데이터 없음</td></tr>
           </tbody>
         </table>
       </div>
@@ -3396,6 +3398,19 @@ canvas { max-height: 220px; }
       <div style="background:#0d1117;border-radius:8px;padding:12px 16px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center">
         <span style="font-size:12px;color:#64748b">적합도 점수 (가중합)</span>
         <span id="tf-total-display" style="font-size:22px;font-weight:800;color:#60a5fa">—</span>
+      </div>
+
+      <!-- 포트 내 역할 선택 -->
+      <div style="margin-bottom:20px">
+        <div style="font-size:12px;color:#94a3b8;margin-bottom:8px">포트 내 역할 <span style="color:#475569;font-size:11px">— 배분 배율 결정 (alloc = fit_score × 역할가중)</span></div>
+        <select id="tf-role-weight" style="width:100%;background:#0d1117;border:1px solid #1e2535;border-radius:6px;color:#e2e8f0;font-size:13px;padding:8px 10px">
+          <option value="1.30">핵심 1축 (×1.30) — 포트 정체성 정의, 최대 배분</option>
+          <option value="1.25">핵심 2축 (×1.25) — 강한 보완 축, 대형 비중</option>
+          <option value="0.85" selected>보조 확장축 (×0.85) — 테마 다양성 확장</option>
+          <option value="0.40">비상관 보조축 (×0.40) — 분산 목적, 소형 비중</option>
+          <option value="0.15">장기 옵션 (×0.15) — 초소형, 모니터링 포지션</option>
+        </select>
+        <div id="tf-role-preview" style="font-size:11px;color:#475569;margin-top:6px;padding:6px 10px;background:#0a0e17;border-radius:4px">배분 가중 = 적합도 점수 × 역할가중</div>
       </div>
 
       <div style="display:flex;gap:10px;justify-content:flex-end">
@@ -11447,6 +11462,25 @@ async function rsSave() {
 
 const _tfRows = [];  // 인덱스 기반 캐시
 
+const _TF_ROLE_OPTIONS = [
+  { value: 1.30, label: '핵심 1축',    color: '#f87171' },
+  { value: 1.25, label: '핵심 2축',    color: '#fb923c' },
+  { value: 0.85, label: '보조 확장',   color: '#60a5fa' },
+  { value: 0.40, label: '비상관 보조', color: '#94a3b8' },
+  { value: 0.15, label: '장기 옵션',   color: '#475569' },
+];
+
+function _tfRoleLabel(rw) {
+  const v = parseFloat(rw) || 1.00;
+  let best = _TF_ROLE_OPTIONS[2];
+  let minDiff = Infinity;
+  for (const o of _TF_ROLE_OPTIONS) {
+    const d = Math.abs(o.value - v);
+    if (d < minDiff) { minDiff = d; best = o; }
+  }
+  return best;
+}
+
 async function tfLoad() {
   const res  = await fetch('/api/theme_fit_scores');
   if (!res.ok) return;
@@ -11456,7 +11490,7 @@ async function tfLoad() {
 
   const tbody = document.getElementById('tf-list-body');
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="9" style="padding:30px;text-align:center;color:#475569;font-size:13px">데이터 없음 — 테마 리밸런싱에서 목표비율을 먼저 설정하세요</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" style="padding:30px;text-align:center;color:#475569;font-size:13px">데이터 없음 — 테마 리밸런싱에서 목표비율을 먼저 설정하세요</td></tr>';
     return;
   }
   const cell = v => v !== null && v !== undefined
@@ -11466,6 +11500,9 @@ async function tfLoad() {
     const fs = r.fit_score;
     const fsColor = fs === null ? '#475569' : fs >= 70 ? '#4ade80' : fs >= 50 ? '#60a5fa' : fs >= 30 ? '#f59e0b' : '#f87171';
     const fsText  = fs !== null ? fs.toFixed(1) : '미입력';
+    const rw      = parseFloat(r.portfolio_role_weight) || 1.00;
+    const roleInfo = _tfRoleLabel(rw);
+    const alloc   = fs !== null ? (fs * rw).toFixed(1) : '—';
     return `<tr style="border-bottom:1px solid #0f1117">
       <td style="padding:7px 10px;color:#e2e8f0;font-weight:600">${r.theme}</td>
       <td style="padding:7px 8px;text-align:right">${cell(r.core_logic_fit)}</td>
@@ -11474,6 +11511,10 @@ async function tfLoad() {
       <td style="padding:7px 8px;text-align:right">${cell(r.theme_cohesion)}</td>
       <td style="padding:7px 8px;text-align:right">${cell(r.uncorrelated_effect)}</td>
       <td style="padding:7px 8px;text-align:right;font-weight:700;color:${fsColor}">${fsText}</td>
+      <td style="padding:7px 8px;text-align:center">
+        <span style="font-size:11px;font-weight:600;color:${roleInfo.color};white-space:nowrap">${roleInfo.label}<br><span style="color:#64748b">×${rw.toFixed(2)}</span></span>
+      </td>
+      <td style="padding:7px 8px;text-align:right;color:#a78bfa;font-weight:700">${alloc}</td>
       <td style="padding:7px 8px;text-align:right;color:#fbbf24">${r.target_ratio.toFixed(1)}%</td>
       <td style="padding:7px 4px;text-align:center">
         <button class="btn btn-ghost" style="font-size:11px;padding:3px 8px" onclick="tfOpenModal(${idx})">편집</button>
@@ -11493,6 +11534,15 @@ function tfOpenModal(idx) {
     document.getElementById(`tf-v-${k}`).value = val;
     document.getElementById(`tf-s-${k}`).value = val;
   });
+  // 역할가중 선택 — 가장 가까운 옵션 선택
+  const rw  = parseFloat(r.portfolio_role_weight) || 1.00;
+  const sel = document.getElementById('tf-role-weight');
+  let bestOpt = sel.options[0], minDiff = Infinity;
+  for (const opt of sel.options) {
+    const d = Math.abs(parseFloat(opt.value) - rw);
+    if (d < minDiff) { minDiff = d; bestOpt = opt; }
+  }
+  sel.value = bestOpt.value;
   tfRefreshTotal();
   document.getElementById('tf-modal').style.display = 'flex';
 }
@@ -11524,11 +11574,12 @@ async function tfSave() {
   const theme = document.getElementById('tf-modal-theme').value;
   if (!theme) return;
   const body = {
-    core_logic_fit:       +document.getElementById('tf-v-clf').value,
-    bottleneck_directness: +document.getElementById('tf-v-bd').value,
-    ai_capex_sensitivity:  +document.getElementById('tf-v-acs').value,
-    theme_cohesion:        +document.getElementById('tf-v-tc').value,
-    uncorrelated_effect:   +document.getElementById('tf-v-ue').value,
+    core_logic_fit:          +document.getElementById('tf-v-clf').value,
+    bottleneck_directness:    +document.getElementById('tf-v-bd').value,
+    ai_capex_sensitivity:     +document.getElementById('tf-v-acs').value,
+    theme_cohesion:           +document.getElementById('tf-v-tc').value,
+    uncorrelated_effect:      +document.getElementById('tf-v-ue').value,
+    portfolio_role_weight:    +document.getElementById('tf-role-weight').value,
   };
   const res = await fetch(`/api/theme_fit_scores/${encodeURIComponent(theme)}`, {
     method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body),

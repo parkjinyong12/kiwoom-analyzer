@@ -482,11 +482,12 @@ def _ensure_user_id_migration():
     _run_migration_step(_step_theme_constraint)
 
     def _step_theme_fit_cols(cur):
-        cur.execute("ALTER TABLE theme_targets ADD COLUMN IF NOT EXISTS core_logic_fit        SMALLINT DEFAULT NULL")
-        cur.execute("ALTER TABLE theme_targets ADD COLUMN IF NOT EXISTS bottleneck_directness SMALLINT DEFAULT NULL")
-        cur.execute("ALTER TABLE theme_targets ADD COLUMN IF NOT EXISTS ai_capex_sensitivity  SMALLINT DEFAULT NULL")
-        cur.execute("ALTER TABLE theme_targets ADD COLUMN IF NOT EXISTS theme_cohesion        SMALLINT DEFAULT NULL")
-        cur.execute("ALTER TABLE theme_targets ADD COLUMN IF NOT EXISTS uncorrelated_effect   SMALLINT DEFAULT NULL")
+        cur.execute("ALTER TABLE theme_targets ADD COLUMN IF NOT EXISTS core_logic_fit        SMALLINT      DEFAULT NULL")
+        cur.execute("ALTER TABLE theme_targets ADD COLUMN IF NOT EXISTS bottleneck_directness SMALLINT      DEFAULT NULL")
+        cur.execute("ALTER TABLE theme_targets ADD COLUMN IF NOT EXISTS ai_capex_sensitivity  SMALLINT      DEFAULT NULL")
+        cur.execute("ALTER TABLE theme_targets ADD COLUMN IF NOT EXISTS theme_cohesion        SMALLINT      DEFAULT NULL")
+        cur.execute("ALTER TABLE theme_targets ADD COLUMN IF NOT EXISTS uncorrelated_effect   SMALLINT      DEFAULT NULL")
+        cur.execute("ALTER TABLE theme_targets ADD COLUMN IF NOT EXISTS portfolio_role_weight DECIMAL(4,2)  DEFAULT 1.00")
     _run_migration_step(_step_theme_fit_cols)
 
     def _step_strategy_history(cur):
@@ -3259,17 +3260,20 @@ def api_market_power_theme_suggestions():
         if t:
             theme_map[r["stock_code"]] = t
 
-    # 현재 테마 목표비율 + 포트 적합도 점수
+    # 현재 테마 목표비율 + 포트 적합도 점수 + 포트 역할 가중치
     tt_rows = query("""
         SELECT theme, target_ratio,
                core_logic_fit, bottleneck_directness,
-               ai_capex_sensitivity, theme_cohesion, uncorrelated_effect
+               ai_capex_sensitivity, theme_cohesion, uncorrelated_effect,
+               portfolio_role_weight
         FROM theme_targets WHERE user_id = %s
     """, [uid])
-    theme_target  = {}
-    theme_fit_map = {}
+    theme_target    = {}
+    theme_fit_map   = {}   # theme → fit_score
+    theme_role_map  = {}   # theme → portfolio_role_weight
     for r in tt_rows:
         theme_target[r["theme"]] = float(r["target_ratio"] or 0)
+        theme_role_map[r["theme"]] = float(r["portfolio_role_weight"] or 1.00)
         clf, bd, acs, tc, ue = (
             r["core_logic_fit"], r["bottleneck_directness"],
             r["ai_capex_sensitivity"], r["theme_cohesion"], r["uncorrelated_effect"],
@@ -3370,24 +3374,26 @@ def api_market_power_theme_suggestions():
         else:
             signal = "강한 하향"
 
-        existing  = theme_target.get(theme, 0.0)
-        fit_score = theme_fit_map.get(theme)   # None이면 미입력
-        cur_ratio = round(theme_eval.get(theme, 0) / total_eval * 100, 2) if total_eval > 0 else 0
+        existing     = theme_target.get(theme, 0.0)
+        fit_score    = theme_fit_map.get(theme)   # None이면 미입력
+        role_weight  = theme_role_map.get(theme, 1.00)
+        cur_ratio    = round(theme_eval.get(theme, 0) / total_eval * 100, 2) if total_eval > 0 else 0
 
         result.append({
-            "theme":           theme,
-            "stock_count":     len(mp_list),
-            "current_ratio":   cur_ratio,
-            "existing_target": existing,
-            "mp_avg":          mp_avg,
-            "pa_avg":          pa_avg,
-            "em_avg":          em_avg,
-            "composite":       composite,
-            "avg_20d":         avg_20d,
-            "deviation":       deviation,
-            "signal":          signal,
-            "fit_score":       fit_score,
-            "recommended":     0.0,   # 아래에서 채움
+            "theme":                 theme,
+            "stock_count":           len(mp_list),
+            "current_ratio":         cur_ratio,
+            "existing_target":       existing,
+            "mp_avg":                mp_avg,
+            "pa_avg":                pa_avg,
+            "em_avg":                em_avg,
+            "composite":             composite,
+            "avg_20d":               avg_20d,
+            "deviation":             deviation,
+            "signal":                signal,
+            "fit_score":             fit_score,
+            "portfolio_role_weight": role_weight,
+            "recommended":           0.0,   # 아래에서 채움
         })
 
     # 마켓파워 점수 있는 테마만 필터
@@ -3397,22 +3403,28 @@ def api_market_power_theme_suggestions():
 
     # ── 권장 목표비율 계산 ────────────────────────────────────────────────────
     # recommended는 existing에 의존하지 않아야 수렴 가능.
-    # fit_score 입력 시: fit_score 비례 정규화 (고정값 → 안정)
+    # alloc_score = fit_score × portfolio_role_weight (역할 가중치로 배분 차별화)
     # fit_score 없음: composite 비례 정규화 (마켓파워 점수 기반)
     fit_themes   = [r for r in result if r["fit_score"] is not None]
     nofit_themes = [r for r in result if r["fit_score"] is None]
 
     if fit_themes and not nofit_themes:
-        # 전체 fit_score 비례 → 가장 안정적
-        total_fit = sum(r["fit_score"] for r in fit_themes)
+        # 전체 alloc_score(=fit × role_weight) 비례 → 역할 가중치 반영
         for r in fit_themes:
-            r["recommended"] = r["fit_score"] / total_fit * 100 if total_fit > 0 else 0.0
+            r["_alloc"] = r["fit_score"] * r["portfolio_role_weight"]
+        total_alloc = sum(r["_alloc"] for r in fit_themes) or 1
+        for r in fit_themes:
+            r["recommended"] = r["_alloc"] / total_alloc * 100
+            del r["_alloc"]
     elif fit_themes:
         # 일부만 입력: fit 테마 80% 배분, 나머지 20%를 composite 비례
-        total_fit  = sum(r["fit_score"] for r in fit_themes)
-        total_comp = sum((r["composite"] or 0) for r in nofit_themes) or 1
         for r in fit_themes:
-            r["recommended"] = r["fit_score"] / total_fit * 80 if total_fit > 0 else 0.0
+            r["_alloc"] = r["fit_score"] * r["portfolio_role_weight"]
+        total_alloc = sum(r["_alloc"] for r in fit_themes) or 1
+        total_comp  = sum((r["composite"] or 0) for r in nofit_themes) or 1
+        for r in fit_themes:
+            r["recommended"] = r["_alloc"] / total_alloc * 80
+            del r["_alloc"]
         for r in nofit_themes:
             r["recommended"] = (r["composite"] or 0) / total_comp * 20
     else:
@@ -3464,7 +3476,8 @@ def api_theme_fit_scores_get():
     rows = query("""
         SELECT tt.theme, tt.target_ratio,
                tt.core_logic_fit, tt.bottleneck_directness,
-               tt.ai_capex_sensitivity, tt.theme_cohesion, tt.uncorrelated_effect
+               tt.ai_capex_sensitivity, tt.theme_cohesion, tt.uncorrelated_effect,
+               tt.portfolio_role_weight
         FROM theme_targets tt
         WHERE tt.user_id = %s
         ORDER BY tt.theme
@@ -3476,6 +3489,7 @@ def api_theme_fit_scores_get():
         acs  = r["ai_capex_sensitivity"]
         tc   = r["theme_cohesion"]
         ue   = r["uncorrelated_effect"]
+        rw   = float(r["portfolio_role_weight"] or 1.00)
         fit_entered = any(v is not None for v in [clf, bd, acs, tc, ue])
         if fit_entered:
             fit_score = round(
@@ -3484,6 +3498,7 @@ def api_theme_fit_scores_get():
             )
         else:
             fit_score = None
+        alloc_score = round(fit_score * rw, 2) if fit_score is not None else None
         result.append({
             "theme":                  r["theme"],
             "target_ratio":           float(r["target_ratio"] or 0),
@@ -3493,6 +3508,8 @@ def api_theme_fit_scores_get():
             "theme_cohesion":         int(tc)  if tc  is not None else None,
             "uncorrelated_effect":    int(ue)  if ue  is not None else None,
             "fit_score":              fit_score,
+            "portfolio_role_weight":  rw,
+            "alloc_score":            alloc_score,
         })
     return jsonify(result)
 
@@ -3510,6 +3527,10 @@ def api_theme_fit_scores_put(theme):
     acs  = _clamp(data.get("ai_capex_sensitivity"))
     tc   = _clamp(data.get("theme_cohesion"))
     ue   = _clamp(data.get("uncorrelated_effect"))
+    # portfolio_role_weight: 0.10 ~ 2.00 범위 허용
+    rw_raw = data.get("portfolio_role_weight")
+    rw = round(max(0.10, min(2.00, float(rw_raw))), 2) if rw_raw is not None else 1.00
+
     fit_score = None
     if any(v is not None for v in [clf, bd, acs, tc, ue]):
         fit_score = round(
@@ -3520,16 +3541,18 @@ def api_theme_fit_scores_put(theme):
         cur = conn.cursor()
         cur.execute("""
             INSERT INTO theme_targets (user_id, theme, target_ratio, core_logic_fit,
-                bottleneck_directness, ai_capex_sensitivity, theme_cohesion, uncorrelated_effect, updated_at)
-            VALUES (%s, %s, 0, %s, %s, %s, %s, %s, NOW())
+                bottleneck_directness, ai_capex_sensitivity, theme_cohesion, uncorrelated_effect,
+                portfolio_role_weight, updated_at)
+            VALUES (%s, %s, 0, %s, %s, %s, %s, %s, %s, NOW())
             ON CONFLICT (user_id, theme) DO UPDATE
             SET core_logic_fit        = EXCLUDED.core_logic_fit,
                 bottleneck_directness = EXCLUDED.bottleneck_directness,
                 ai_capex_sensitivity  = EXCLUDED.ai_capex_sensitivity,
                 theme_cohesion        = EXCLUDED.theme_cohesion,
                 uncorrelated_effect   = EXCLUDED.uncorrelated_effect,
+                portfolio_role_weight = EXCLUDED.portfolio_role_weight,
                 updated_at            = NOW()
-        """, (uid, theme, clf, bd, acs, tc, ue))
+        """, (uid, theme, clf, bd, acs, tc, ue, rw))
         if fit_score is not None:
             cur.execute("""
                 INSERT INTO theme_targets_history (user_id, theme, fit_score, recorded_at)
