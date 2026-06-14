@@ -3450,9 +3450,11 @@ def api_role_scores_put(stock_code):
                 updated_at                  = NOW()
             WHERE user_id = %s AND stock_code = %s
         """, (tp, tl, bc, es, pr, role_score, role_weight, uid, stock_code))
-        # 종목명 조회 후 히스토리 기록
-        name_row = cur.execute("""
-            SELECT stock_name FROM rebalance_targets WHERE user_id = %s AND stock_code = %s
+        # 종목명 조회 후 히스토리 기록 (market_power_scores에서 조회)
+        cur.execute("""
+            SELECT stock_name FROM market_power_scores
+            WHERE user_id = %s AND stock_code = %s
+            ORDER BY scored_at DESC LIMIT 1
         """, (uid, stock_code))
         name_rows = cur.fetchall()
         stock_name = name_rows[0]["stock_name"] if name_rows else stock_code
