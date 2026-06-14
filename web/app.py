@@ -3030,14 +3030,17 @@ def api_market_power_save():
 
 @app.route("/api/market_power/suggestions")
 def api_market_power_suggestions():
-    """마켓파워 기반 종목별 목표비율 제안 (3-점수 체계).
+    """마켓파워 기반 종목별 목표비율 제안 (종목 먼저 → 테마 비율 도출, A안).
 
     전략점수       = MP×75% + 실적모멘텀×20% + 가격매력×5%
-    allocation     = (전략점수/100)^1.5 × (역할점수/20)^1.8
+    배분점수       = (전략점수/100)^1.5 × (역할점수/20)^1.8 × 테마적합도 보정 × 변곡점신호 배율
+    테마적합도보정 = fit_score / 100  (미입력 시 1.0)
+    변곡점신호배율 = 테마 20일 이탈률 기준 0.85~1.15
     매수우선점수   = MP×30% + 가격매력×45% + 실적모멘텀×25%
     감액우선점수   = 초과비중×50% + 가격부담×30% + 모멘텀둔화×20%
 
-    제안비율 = 테마 목표비율 × (allocation / 테마 내 allocation 합)
+    제안비율 = 배분점수 / 전체합계 × 100  (전종목 전역 정규화, 테마 목표비율 미사용)
+    테마 제안비율 = 해당 테마 종목 제안비율 합산 (자동 도출)
     """
     from collections import defaultdict
     uid = _current_uid()
@@ -3060,9 +3063,23 @@ def api_market_power_suggestions():
         if t:
             theme_map[r["stock_code"]] = t
 
-    # 테마 목표비율
-    tt_rows = query("SELECT theme, target_ratio FROM theme_targets WHERE user_id = %s", [uid])
-    theme_target = {r["theme"]: float(r["target_ratio"] or 0) for r in tt_rows}
+    # 테마 목표비율 (참고용) + 포트 적합도 6차원
+    tt_rows = query("""
+        SELECT theme, target_ratio,
+               bottleneck_scale, demand_continuity, earnings_visibility,
+               earnings_reflection_speed, listed_company_depth
+        FROM theme_targets WHERE user_id = %s
+    """, [uid])
+    theme_target  = {}
+    theme_fit_map = {}
+    for r in tt_rows:
+        theme_target[r["theme"]] = float(r["target_ratio"] or 0)
+        bs, dc, ev, ers, lcd = (
+            r["bottleneck_scale"], r["demand_continuity"],
+            r["earnings_visibility"], r["earnings_reflection_speed"], r["listed_company_depth"],
+        )
+        if any(v is not None for v in [bs, dc, ev, ers, lcd]):
+            theme_fit_map[r["theme"]] = {"bs": bs, "dc": dc, "ev": ev, "ers": ers, "lcd": lcd}
 
     # 기존 목표비율 + 티어 정보 + 역할점수
     rb_rows = query("""
@@ -3095,7 +3112,88 @@ def api_market_power_suggestions():
     stock_eval   = {c: d["qty"] * d["price"] for c, d in stock_detail.items()}
     total_eval   = sum(stock_eval.values())
 
-    # 종목별 3-점수 계산
+    # ── 테마별 fit_score 계산 ───────────────────────────────────────────────
+    tm_mp_lists: dict[str, list] = defaultdict(list)
+    for r in mp_rows:
+        t = theme_map.get(r["stock_code"], "")
+        if t:
+            tm_mp_lists[t].append(float(r["total_score"] or 0))
+
+    theme_fit_score: dict[str, float] = {}
+    for t, fv in theme_fit_map.items():
+        mp_list = tm_mp_lists.get(t, [])
+        mp_avg  = sum(mp_list) / len(mp_list) if mp_list else None
+        if mp_avg and mp_avg > 0:
+            bs_v, dc_v, ev_v, ers_v, lcd_v = (
+                fv["bs"] or 0, fv["dc"] or 0, fv["ev"] or 0,
+                fv["ers"] or 0, fv["lcd"] or 0,
+            )
+            if all(v > 0 for v in [bs_v, dc_v, ev_v, ers_v, lcd_v]):
+                raw = ((mp_avg/100)**2.0 * (bs_v/100)**1.2 * (dc_v/100)**0.8
+                       * (ev_v/100)**1.0 * (ers_v/100)**1.1 * (lcd_v/100)**1.0)
+                theme_fit_score[t] = round(raw * 100, 2)
+
+    # ── 테마별 변곡점 신호 계산 ─────────────────────────────────────────────
+    tm_comp: dict[str, list] = defaultdict(list)
+    tm_mp_s: dict[str, list] = defaultdict(list)
+    for r in mp_rows:
+        t = theme_map.get(r["stock_code"], "")
+        if not t:
+            continue
+        tm_mp_s[t].append(float(r["total_score"] or 0))
+        if r["composite_score"] is not None:
+            tm_comp[t].append(float(r["composite_score"]))
+
+    hist_rows = query("""
+        SELECT stock_code,
+               AVG(total_score)     AS avg_mp,
+               AVG(composite_score) AS avg_composite
+        FROM market_power_scores
+        WHERE user_id = %s AND scored_at >= CURRENT_DATE - INTERVAL '20 days'
+        GROUP BY stock_code
+    """, [uid])
+    tm_hist_comp: dict[str, list] = defaultdict(list)
+    tm_hist_mp:   dict[str, list] = defaultdict(list)
+    for r in hist_rows:
+        t = theme_map.get(r["stock_code"], "")
+        if not t:
+            continue
+        if r["avg_composite"] is not None:
+            tm_hist_comp[t].append(float(r["avg_composite"]))
+        if r["avg_mp"] is not None:
+            tm_hist_mp[t].append(float(r["avg_mp"]))
+
+    _SIGNAL_MULT = {
+        "강한 상향":     1.15,
+        "상향 후보":     1.07,
+        "유지":          1.00,
+        "하향 후보":     0.93,
+        "강한 하향":     0.85,
+        "20일평균 없음": 1.00,
+    }
+
+    theme_signal: dict[str, str] = {}
+    for t in set(list(tm_mp_s.keys()) + list(tm_comp.keys())):
+        comp_list = tm_comp.get(t, [])
+        mp_list   = tm_mp_s.get(t, [])
+        composite = (sum(comp_list) / len(comp_list)) if comp_list else (
+                     (sum(mp_list)  / len(mp_list))   if mp_list  else None)
+        hist_c = tm_hist_comp.get(t, [])
+        hist_m = tm_hist_mp.get(t, [])
+        avg_20d = (sum(hist_c) / len(hist_c)) if hist_c else (
+                   (sum(hist_m) / len(hist_m)) if hist_m else None)
+        if composite is not None and avg_20d and avg_20d > 0:
+            dev = (composite - avg_20d) / avg_20d * 100
+            if dev >= 12:   sig = "강한 상향"
+            elif dev >= 7:  sig = "상향 후보"
+            elif dev >= -7: sig = "유지"
+            elif dev >= -12: sig = "하향 후보"
+            else:            sig = "강한 하향"
+        else:
+            sig = "20일평균 없음"
+        theme_signal[t] = sig
+
+    # ── 종목별 배분점수 계산 ────────────────────────────────────────────────
     stocks = []
     for r in mp_rows:
         code = r["stock_code"]
@@ -3112,23 +3210,26 @@ def api_market_power_suggestions():
         role_weight = float(rb.get("role_weight") or 1.00)
         role_score  = int(rb.get("role_score") or 0)
 
-        # allocation_score: 비선형 배분 점수
-        # (전략점수/100)^1.5 × (역할점수/20)^1.8  — 역할점수 10 이하는 제안 제외
-        if role_score > 10:
-            allocation_score = round((target_score / 100) ** 1.5 * (role_score / 20) ** 1.8, 6)
-        elif role_score > 0:
-            allocation_score = 0.0  # 후보 제외
-        else:
-            allocation_score = round((target_score / 100) ** 1.5, 6)  # 역할점수 미입력: 전략점수만
+        theme   = theme_map.get(code, "")
+        fs      = theme_fit_score.get(theme)
+        fit_mod = (fs / 100) if fs is not None else 1.0
+        sig     = theme_signal.get(theme, "20일평균 없음")
+        sig_mod = _SIGNAL_MULT.get(sig, 1.00)
 
-        # 현재 보유 정보
+        # 배분점수: 종목 품질 × 테마 적합도 보정 × 변곡점 신호
+        if role_score > 10:
+            allocation_score = round((target_score / 100) ** 1.5 * (role_score / 20) ** 1.8 * fit_mod * sig_mod, 6)
+        elif role_score > 0:
+            allocation_score = 0.0
+        else:
+            allocation_score = round((target_score / 100) ** 1.5 * fit_mod * sig_mod, 6)
+
         cur_detail = stock_detail.get(code, {"qty": 0, "price": 0})
         cur_qty    = cur_detail["qty"]
         cur_price  = cur_detail["price"]
         cur_eval   = stock_eval.get(code, 0)
         cur_ratio  = round(cur_eval / total_eval * 100, 2) if total_eval > 0 else 0.0
 
-        # 감액우선점수 (현재비율 > 목표비율 인 경우만 의미)
         overweight_raw   = cur_ratio - existing
         overweight_score = min(100.0, max(0.0, overweight_raw / ob_pp * 100)) if ob_pp > 0 else 0.0
         sell_score       = round(overweight_score * 0.50 + (100 - pa) * 0.30 + (100 - em) * 0.20, 2)
@@ -3136,7 +3237,7 @@ def api_market_power_suggestions():
         stocks.append({
             "stock_code":           code,
             "stock_name":           r["stock_name"],
-            "theme":                theme_map.get(code, ""),
+            "theme":                theme,
             "mp_score":             mp,
             "grade":                r["grade"],
             "price_attractiveness": r["price_attractiveness"],
@@ -3152,23 +3253,18 @@ def api_market_power_suggestions():
             "current_ratio":        cur_ratio,
             "current_qty":          cur_qty,
             "current_price":        cur_price,
+            "theme_fit_score":      fs,
+            "theme_signal":         sig,
+            "theme_target_ratio":   theme_target.get(theme),  # 참고용
         })
 
-    # 테마별 allocation_score 합산
-    theme_alloc_sum: dict[str, float] = defaultdict(float)
+    # ── 전역 정규화 → 종목별 제안비율 ──────────────────────────────────────
+    total_alloc = sum(s["allocation_score"] for s in stocks) or 1
     for s in stocks:
-        if s["theme"]:
-            theme_alloc_sum[s["theme"]] += s["allocation_score"]
-
-    # 제안비율 + 예상 거래량
-    for s in stocks:
-        t = s["theme"]
-        if t and theme_alloc_sum[t] > 0 and t in theme_target:
-            s["theme_target_ratio"] = theme_target[t]
-            suggested = round(theme_target[t] * s["allocation_score"] / theme_alloc_sum[t], 2)
+        if s["allocation_score"] > 0:
+            suggested        = round(s["allocation_score"] / total_alloc * 100, 2)
             s["suggested_ratio"] = suggested
             s["diff"]            = round(suggested - s["existing_target"], 2)
-            # 예상 거래량
             price = s["current_price"]
             if total_eval > 0 and price > 0:
                 target_val  = total_eval * suggested / 100
@@ -3180,11 +3276,10 @@ def api_market_power_suggestions():
                 s["trade_qty"]   = None
                 s["trade_value"] = None
         else:
-            s["theme_target_ratio"] = theme_target.get(t)
-            s["suggested_ratio"]    = None
-            s["diff"]               = None
-            s["trade_qty"]          = None
-            s["trade_value"]        = None
+            s["suggested_ratio"] = None
+            s["diff"]            = None
+            s["trade_qty"]       = None
+            s["trade_value"]     = None
 
     stocks.sort(key=lambda x: (x["theme"] or "zzz", -(x["allocation_score"] or 0)))
     return jsonify(stocks)

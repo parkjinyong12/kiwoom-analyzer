@@ -11242,17 +11242,22 @@ async function mpLoadSuggestions() {
   const themes = {};
   _mpSuggestions.forEach(s => {
     if (!s.theme) return;
-    if (!themes[s.theme]) themes[s.theme] = { target: s.theme_target_ratio, suggested: 0 };
+    if (!themes[s.theme]) themes[s.theme] = { target: s.theme_target_ratio, suggested: 0, fit: s.theme_fit_score, signal: s.theme_signal };
     if (s.suggested_ratio != null) themes[s.theme].suggested += s.suggested_ratio;
   });
   const summaryEl = document.getElementById('mp-theme-summary');
-  summaryEl.innerHTML = Object.entries(themes).map(([t, v]) => `
-    <div style="background:#0f1117;border:1px solid #1e2535;border-radius:6px;padding:7px 12px;font-size:12px">
+  summaryEl.innerHTML = Object.entries(themes).map(([t, v]) => {
+    const diff = v.target != null ? (v.suggested - v.target).toFixed(1) : null;
+    const diffStr = diff == null ? '' : (diff >= 0 ? `<span style="color:#4ade80;margin-left:6px">+${diff}pp</span>` : `<span style="color:#f87171;margin-left:6px">${diff}pp</span>`);
+    const fitStr  = v.fit   != null ? `<span style="color:#a78bfa;margin-left:8px">적합도 ${v.fit}</span>` : '';
+    const sigStr  = v.signal && v.signal !== '20일평균 없음' ? `<span style="color:#64748b;margin-left:6px">${v.signal}</span>` : '';
+    return `<div style="background:#0f1117;border:1px solid #1e2535;border-radius:6px;padding:7px 12px;font-size:12px">
       <span style="color:#94a3b8;font-weight:600">${t}</span>
-      <span style="color:#475569;margin-left:8px">목표 ${v.target?.toFixed(1)||'-'}%</span>
-      <span style="color:#4ade80;margin-left:8px">→ 제안합계 ${v.suggested.toFixed(1)}%</span>
-    </div>
-  `).join('');
+      <span style="color:#475569;margin-left:8px">현목표 ${v.target?.toFixed(1)||'-'}%</span>
+      <span style="color:#4ade80;margin-left:8px;font-weight:700">→ 도출 ${v.suggested.toFixed(1)}%</span>
+      ${diffStr}${fitStr}${sigStr}
+    </div>`;
+  }).join('');
 
   // 제안 테이블
   const tbody = document.getElementById('mp-suggest-body');
@@ -11300,7 +11305,7 @@ async function mpLoadSuggestions() {
       <td style="padding:7px 6px;text-align:right;color:#4ade80;font-size:11px">${s.role_weight!=null?'×'+parseFloat(s.role_weight).toFixed(2):'-'}</td>
       <td style="padding:7px 6px;text-align:right;color:#60a5fa;font-weight:600">${s.buy_score?.toFixed(1)??'-'}</td>
       <td style="padding:7px 6px;text-align:right;color:#fb923c;font-weight:600">${s.sell_score?.toFixed(1)??'-'}</td>
-      <td style="padding:7px 6px;text-align:right;color:#64748b">${s.theme_target_ratio!=null?s.theme_target_ratio.toFixed(1)+'%':'-'}</td>
+      <td style="padding:7px 6px;text-align:right;color:#64748b">${s.theme_target_ratio!=null?s.theme_target_ratio.toFixed(1)+'%':'-'}<br><span style="font-size:10px;color:#a78bfa">${s.theme_fit_score!=null?'적합'+s.theme_fit_score:'미입력'}</span></td>
       <td style="padding:7px 6px;text-align:right;color:#4ade80;font-weight:700">${s.suggested_ratio!=null?s.suggested_ratio.toFixed(2)+'%':'-'}</td>
       <td style="padding:7px 6px;text-align:right;color:#64748b">${s.existing_target!=null?s.existing_target.toFixed(2)+'%':'-'}</td>
       <td style="padding:7px 6px;text-align:right;color:${diffColor};font-weight:600">${diffStr}</td>
