@@ -3083,19 +3083,11 @@ def api_market_power_suggestions():
         t = s["theme"]
         if t and theme_alloc_sum[t] > 0 and t in theme_target:
             s["theme_target_ratio"] = theme_target[t]
-            raw_ratio = theme_target[t] * s["allocation_score"] / theme_alloc_sum[t]
-            # 기존 목표 앵커링: 급격한 변화 억제
-            existing  = s["existing_target"]
-            if existing > 0:
-                final_ratio = round(existing * 0.70 + raw_ratio * 0.30, 2)
-            else:
-                final_ratio = round(raw_ratio, 2)
-            s["raw_ratio"]       = round(raw_ratio, 2)
-            s["suggested_ratio"] = final_ratio
-            s["diff"]            = round(final_ratio - s["existing_target"], 2)
+            suggested = round(theme_target[t] * s["allocation_score"] / theme_alloc_sum[t], 2)
+            s["suggested_ratio"] = suggested
+            s["diff"]            = round(suggested - s["existing_target"], 2)
         else:
             s["theme_target_ratio"] = theme_target.get(t)
-            s["raw_ratio"]          = None
             s["suggested_ratio"]    = None
             s["diff"]               = None
 
