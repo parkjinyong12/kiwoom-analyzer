@@ -3605,18 +3605,16 @@ def api_theme_fit_scores_put(theme):
                 updated_at                = NOW()
         """, (uid, theme, bs, dc, ev, ers, lcd))
 
-        # 이력 기록: MP 평균으로 fit_score 계산
+        # 이력 기록: MP 평균으로 fit_score 계산 (stock_themes 참조)
         if all(v is not None and v > 0 for v in [bs, dc, ev, ers, lcd]):
             mp_rows = query("""
-                SELECT mps.total_score
-                FROM stocks s
-                JOIN LATERAL (
-                    SELECT total_score FROM market_power_scores
-                    WHERE user_id = %s AND stock_code = s.stock_code AND total_score IS NOT NULL
-                    ORDER BY scored_at DESC LIMIT 1
-                ) mps ON TRUE
-                WHERE s.user_id = %s AND s.themes ILIKE %s
-            """, [uid, uid, f"%{theme}%"])
+                SELECT DISTINCT ON (st.stock_code) mps.total_score
+                FROM stock_themes st
+                JOIN market_power_scores mps
+                  ON mps.stock_code = st.stock_code AND mps.user_id = %s
+                WHERE st.themes = %s AND mps.total_score IS NOT NULL
+                ORDER BY st.stock_code, mps.scored_at DESC
+            """, [uid, theme])
             if mp_rows:
                 mp_avg = sum(float(r["total_score"]) for r in mp_rows) / len(mp_rows)
                 raw = ((mp_avg/100)**2.0 * (bs/100)**1.2 * (dc/100)**0.8
