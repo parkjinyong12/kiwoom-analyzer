@@ -3509,11 +3509,8 @@ def api_theme_fit_scores_get():
     """테마별 포트 적합도 점수 조회 (6차원 곱셈 공식)."""
     uid = _current_uid()
 
-    # 종목→테마 매핑
-    stock_rows = query(
-        "SELECT stock_code, themes FROM stocks WHERE user_id = %s AND themes IS NOT NULL AND themes != ''",
-        [uid]
-    )
+    # 종목→테마 매핑 (stock_themes 공유 테이블)
+    stock_rows = query("SELECT stock_code, themes FROM stock_themes WHERE themes IS NOT NULL AND themes != ''")
     stock_theme_map: dict[str, str] = {}
     for r in stock_rows:
         t = (r["themes"] or "").split(",")[0].strip()
