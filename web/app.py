@@ -2940,9 +2940,9 @@ def api_market_power_suggestions():
     tt_rows = query("SELECT theme, target_ratio FROM theme_targets WHERE user_id = %s", [uid])
     theme_target = {r["theme"]: float(r["target_ratio"] or 0) for r in tt_rows}
 
-    # 현재 개별 목표비율 (0~100)
+    # 기존 설정 목표비율 (0~100)
     rb_rows = query("SELECT stock_code, target_ratio FROM rebalance_targets WHERE user_id = %s", [uid])
-    current_map = {r["stock_code"]: float(r["target_ratio"] or 0) for r in rb_rows}
+    existing_target_map = {r["stock_code"]: float(r["target_ratio"] or 0) for r in rb_rows}
 
     # 종목별 배분 점수 계산
     stocks = []
@@ -2961,7 +2961,7 @@ def api_market_power_suggestions():
             "earnings_momentum":    r["earnings_momentum"],
             "composite_score":      composite,
             "alloc_score":          alloc,
-            "current_ratio":        current_map.get(code, 0),
+            "existing_target":      existing_target_map.get(code, 0),
         })
 
     # 테마별 배분 점수 합산
@@ -2977,7 +2977,7 @@ def api_market_power_suggestions():
         if t and theme_alloc_sum[t] > 0 and t in theme_target:
             s["theme_target_ratio"] = theme_target[t]
             s["suggested_ratio"]    = round(theme_target[t] * s["alloc_score"] / theme_alloc_sum[t], 2)
-            s["diff"]               = round(s["suggested_ratio"] - s["current_ratio"], 2)
+            s["diff"]               = round(s["suggested_ratio"] - s["existing_target"], 2)
         else:
             s["theme_target_ratio"] = theme_target.get(t)
             s["suggested_ratio"]    = None

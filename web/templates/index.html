@@ -3220,8 +3220,8 @@ canvas { max-height: 220px; }
               <th style="padding:7px 6px;text-align:right;color:#a78bfa;font-size:11px;white-space:nowrap">종합점수</th>
               <th style="padding:7px 6px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap">테마비율</th>
               <th style="padding:7px 6px;text-align:right;color:#4ade80;font-size:11px;white-space:nowrap">제안비율</th>
-              <th style="padding:7px 6px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap">현재비율</th>
-              <th style="padding:7px 6px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap">차이(pp)</th>
+              <th style="padding:7px 6px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap">기존목표</th>
+              <th style="padding:7px 6px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap">변화(pp)</th>
               <th style="padding:7px 6px;text-align:center;color:#64748b;font-size:11px;white-space:nowrap">신호</th>
               <th style="padding:7px 4px;text-align:center;color:#64748b;font-size:11px;white-space:nowrap">적용</th>
             </tr>
@@ -10740,7 +10740,7 @@ async function mpLoadSuggestions() {
       <td style="padding:7px 6px;text-align:right;color:#a78bfa;font-weight:600">${s.composite_score!=null?parseFloat(s.composite_score).toFixed(1):s.mp_score??'-'}</td>
       <td style="padding:7px 6px;text-align:right;color:#64748b">${s.theme_target_ratio!=null?s.theme_target_ratio.toFixed(1)+'%':'-'}</td>
       <td style="padding:7px 6px;text-align:right;color:#4ade80;font-weight:700">${s.suggested_ratio!=null?s.suggested_ratio.toFixed(2)+'%':'-'}</td>
-      <td style="padding:7px 6px;text-align:right;color:#64748b">${s.current_ratio!=null?s.current_ratio.toFixed(2)+'%':'-'}</td>
+      <td style="padding:7px 6px;text-align:right;color:#64748b">${s.existing_target!=null?s.existing_target.toFixed(2)+'%':'-'}</td>
       <td style="padding:7px 6px;text-align:right;color:${diffColor};font-weight:600">${diffStr}</td>
       <td style="padding:7px 6px;text-align:center">${signal}</td>
       <td style="padding:7px 4px;text-align:center">${applyBtn}</td>
