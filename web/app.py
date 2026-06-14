@@ -3020,8 +3020,9 @@ def api_market_power_suggestions():
         WHERE mh.user_id = %s AND mh.quantity > 0
         GROUP BY mh.stock_code, lc.close_price
     """, [uid])
-    stock_eval = {r["stock_code"]: int(r["qty"] or 0) * int(r["price"] or 0) for r in hold_rows}
-    total_eval = sum(stock_eval.values())
+    stock_detail = {r["stock_code"]: {"qty": int(r["qty"] or 0), "price": int(r["price"] or 0)} for r in hold_rows}
+    stock_eval   = {c: d["qty"] * d["price"] for c, d in stock_detail.items()}
+    total_eval   = sum(stock_eval.values())
 
     # 종목별 3-점수 계산
     stocks = []
@@ -3049,7 +3050,10 @@ def api_market_power_suggestions():
         else:
             allocation_score = round((target_score / 100) ** 1.5, 6)  # 역할점수 미입력: 전략점수만
 
-        # 현재비율 (주식총액 기준)
+        # 현재 보유 정보
+        cur_detail = stock_detail.get(code, {"qty": 0, "price": 0})
+        cur_qty    = cur_detail["qty"]
+        cur_price  = cur_detail["price"]
         cur_eval   = stock_eval.get(code, 0)
         cur_ratio  = round(cur_eval / total_eval * 100, 2) if total_eval > 0 else 0.0
 
@@ -3075,8 +3079,8 @@ def api_market_power_suggestions():
             "sell_score":           sell_score,
             "existing_target":      existing,
             "current_ratio":        cur_ratio,
-            "position_tier":        rb.get("position_tier") or "MID",
-            "max_change_pp":        float(rb.get("max_change_pp") or 1.5),
+            "current_qty":          cur_qty,
+            "current_price":        cur_price,
         })
 
     # 테마별 allocation_score 합산
@@ -3085,7 +3089,7 @@ def api_market_power_suggestions():
         if s["theme"]:
             theme_alloc_sum[s["theme"]] += s["allocation_score"]
 
-    # 제안비율 + 앵커링
+    # 제안비율 + 예상 거래량
     for s in stocks:
         t = s["theme"]
         if t and theme_alloc_sum[t] > 0 and t in theme_target:
@@ -3093,10 +3097,23 @@ def api_market_power_suggestions():
             suggested = round(theme_target[t] * s["allocation_score"] / theme_alloc_sum[t], 2)
             s["suggested_ratio"] = suggested
             s["diff"]            = round(suggested - s["existing_target"], 2)
+            # 예상 거래량
+            price = s["current_price"]
+            if total_eval > 0 and price > 0:
+                target_val  = total_eval * suggested / 100
+                current_val = s["current_qty"] * price
+                trade_qty   = round((target_val - current_val) / price)
+                s["trade_qty"]   = trade_qty
+                s["trade_value"] = round(target_val - current_val)
+            else:
+                s["trade_qty"]   = None
+                s["trade_value"] = None
         else:
             s["theme_target_ratio"] = theme_target.get(t)
             s["suggested_ratio"]    = None
             s["diff"]               = None
+            s["trade_qty"]          = None
+            s["trade_value"]        = None
 
     stocks.sort(key=lambda x: (x["theme"] or "zzz", -(x["allocation_score"] or 0)))
     return jsonify(stocks)

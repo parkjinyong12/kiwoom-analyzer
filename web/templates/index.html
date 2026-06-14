@@ -3222,12 +3222,13 @@ canvas { max-height: 220px; }
               <th style="padding:7px 6px;text-align:right;color:#4ade80;font-size:11px;white-space:nowrap">제안비율</th>
               <th style="padding:7px 6px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap">기존목표</th>
               <th style="padding:7px 6px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap">변화(pp)</th>
+              <th style="padding:7px 6px;text-align:right;color:#fbbf24;font-size:11px;white-space:nowrap">예상거래</th>
               <th style="padding:7px 6px;text-align:center;color:#64748b;font-size:11px;white-space:nowrap">신호</th>
               <th style="padding:7px 4px;text-align:center;color:#64748b;font-size:11px;white-space:nowrap">적용</th>
             </tr>
           </thead>
           <tbody id="mp-suggest-body">
-            <tr><td colspan="15" style="padding:30px;text-align:center;color:#475569;font-size:13px">로딩 중...</td></tr>
+            <tr><td colspan="16" style="padding:30px;text-align:center;color:#475569;font-size:13px">로딩 중...</td></tr>
           </tbody>
         </table>
       </div>
@@ -10968,7 +10969,7 @@ async function mpLoadSuggestions() {
   // 제안 테이블
   const tbody = document.getElementById('mp-suggest-body');
   if (!_mpSuggestions.length) {
-    tbody.innerHTML = '<tr><td colspan="15" style="padding:20px;text-align:center;color:#475569">마켓파워 점수를 먼저 입력하고, 테마/목표비율이 설정되어 있어야 합니다</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="16" style="padding:20px;text-align:center;color:#475569">마켓파워 점수를 먼저 입력하고, 테마/목표비율이 설정되어 있어야 합니다</td></tr>';
     document.getElementById('mp-apply-all-btn').disabled = true;
     return;
   }
@@ -11015,6 +11016,14 @@ async function mpLoadSuggestions() {
       <td style="padding:7px 6px;text-align:right;color:#4ade80;font-weight:700">${s.suggested_ratio!=null?s.suggested_ratio.toFixed(2)+'%':'-'}</td>
       <td style="padding:7px 6px;text-align:right;color:#64748b">${s.existing_target!=null?s.existing_target.toFixed(2)+'%':'-'}</td>
       <td style="padding:7px 6px;text-align:right;color:${diffColor};font-weight:600">${diffStr}</td>
+      <td style="padding:7px 6px;text-align:right;white-space:nowrap">${(() => {
+        const qty = s.trade_qty;
+        if (qty == null) return '<span style="color:#334155">-</span>';
+        const color = qty > 0 ? '#4ade80' : qty < 0 ? '#f87171' : '#64748b';
+        const sign  = qty > 0 ? '▲' : qty < 0 ? '▼' : '—';
+        const val   = s.trade_value != null ? ' (' + (s.trade_value >= 0 ? '+' : '') + Math.round(s.trade_value/10000) + '만)' : '';
+        return `<span style="color:${color};font-weight:600">${sign}${Math.abs(qty).toLocaleString()}주${val}</span>`;
+      })()}</td>
       <td style="padding:7px 6px;text-align:center">${signal}</td>
       <td style="padding:7px 4px;text-align:center">${applyBtn}</td>
     </tr>`;
