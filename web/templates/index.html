@@ -3193,7 +3193,7 @@ canvas { max-height: 220px; }
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
         <div>
           <span style="font-size:13px;font-weight:600;color:#94a3b8">목표비율 제안</span>
-          <span style="font-size:11px;color:#475569;margin-left:10px">allocation = target_score × role_weight → 테마 내 비례 배분 (앵커링 30%)</span>
+          <span style="font-size:11px;color:#475569;margin-left:10px">allocation = (전략점수/100)^1.5 × (역할점수/20)^1.8 → 테마 내 비례 배분</span>
         </div>
         <div style="display:flex;gap:8px">
           <button class="btn btn-ghost" style="font-size:12px" onclick="mpLoadSuggestions()">계산</button>
@@ -3267,20 +3267,20 @@ canvas { max-height: 220px; }
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
         <div>
           <span style="font-size:13px;font-weight:600;color:#94a3b8">역할점수 관리</span>
-          <span style="font-size:11px;color:#475569;margin-left:10px">테마 내 배분 가중치 — allocation_score = target_score × role_weight</span>
+          <span style="font-size:11px;color:#475569;margin-left:10px">테마 내 배분 가중치 — allocation = (전략점수/100)^1.5 × (역할점수/20)^1.8</span>
         </div>
         <button class="btn btn-ghost" style="font-size:12px" onclick="rsLoad()">새로고침</button>
       </div>
 
       <!-- 역할점수 기준 -->
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;font-size:11px">
-        <span style="color:#64748b">role_weight 기준:</span>
-        <span style="background:#1a2a1a;color:#4ade80;padding:2px 8px;border-radius:4px;font-weight:600">23~25 → 1.25</span>
-        <span style="background:#1a2535;color:#60a5fa;padding:2px 8px;border-radius:4px;font-weight:600">20~22 → 1.15</span>
-        <span style="background:#1e2535;color:#94a3b8;padding:2px 8px;border-radius:4px;font-weight:600">17~19 → 1.05</span>
-        <span style="background:#1e2535;color:#64748b;padding:2px 8px;border-radius:4px;font-weight:600">14~16 → 1.00</span>
-        <span style="background:#2a2215;color:#fb923c;padding:2px 8px;border-radius:4px;font-weight:600">11~13 → 0.90</span>
-        <span style="background:#2a1a1a;color:#f87171;padding:2px 8px;border-radius:4px;font-weight:600">≤10 → 0.85/0.80</span>
+        <span style="color:#64748b">역할점수 해석:</span>
+        <span style="background:#1a2a1a;color:#4ade80;padding:2px 8px;border-radius:4px;font-weight:600">23~25 테마 지배 핵심주</span>
+        <span style="background:#1a2535;color:#60a5fa;padding:2px 8px;border-radius:4px;font-weight:600">20~22 테마 주도 핵심주</span>
+        <span style="background:#1e2535;color:#a78bfa;padding:2px 8px;border-radius:4px;font-weight:600">17~19 보조 핵심주</span>
+        <span style="background:#1e2535;color:#94a3b8;padding:2px 8px;border-radius:4px;font-weight:600">14~16 일반 편입주</span>
+        <span style="background:#2a2215;color:#fb923c;padding:2px 8px;border-radius:4px;font-weight:600">11~13 약한 위성주</span>
+        <span style="background:#2a1a1a;color:#f87171;padding:2px 8px;border-radius:4px;font-weight:600">≤10 후보 제외</span>
       </div>
 
       <div style="overflow-x:auto">
@@ -11096,14 +11096,13 @@ async function mpApplyConfirmOk() {
 
 // ─── 역할점수 관리 ──────────────────────────────────────────────────────────
 
-function _rsWeightLabel(w) {
-  if (w >= 1.20) return '테마 핵심 주도주';
-  if (w >= 1.10) return '핵심 보유주';
-  if (w >= 1.00) return '주력 보유주';
-  if (w >= 0.95) return '중립 보유주';
-  if (w >= 0.88) return '보조주';
-  if (w >= 0.83) return '위성주';
-  return '옵션주';
+function _rsRoleLabel(score) {
+  if (score >= 23) return '테마 지배 핵심주';
+  if (score >= 20) return '테마 주도 핵심주';
+  if (score >= 17) return '보조 핵심주';
+  if (score >= 14) return '일반 편입주';
+  if (score >= 11) return '약한 위성주';
+  return '후보 제외 (≤10)';
 }
 
 function _rsWeightFromScore(s) {
@@ -11122,7 +11121,7 @@ function _rsScoreColor(score) {
   if (score >= 17) return '#a78bfa';
   if (score >= 14) return '#94a3b8';
   if (score >= 11) return '#fb923c';
-  return '#f87171';
+  return '#f87171';  // ≤10: 후보 제외
 }
 
 function _rsWeightColor(w) {
@@ -11201,7 +11200,7 @@ function rsRefreshTotal() {
   const weight = _rsWeightFromScore(total);
   document.getElementById('rs-total-score').textContent  = total;
   document.getElementById('rs-total-weight').textContent = weight.toFixed(2);
-  document.getElementById('rs-weight-label').textContent = _rsWeightLabel(weight);
+  document.getElementById('rs-weight-label').textContent = _rsRoleLabel(total);
   document.getElementById('rs-weight-inline').textContent = weight.toFixed(2);
   document.getElementById('rs-total-score').style.color  = _rsScoreColor(total);
   document.getElementById('rs-total-weight').style.color = _rsWeightColor(weight);

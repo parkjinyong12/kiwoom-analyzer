@@ -2961,11 +2961,12 @@ def api_market_power_save():
 def api_market_power_suggestions():
     """마켓파워 기반 종목별 목표비율 제안 (3-점수 체계).
 
-    전략점수(alloc) = MP×75% + 실적모멘텀×20% + 가격매력×5%   ← 목표비율 배분
-    매수우선점수    = MP×30% + 가격매력×45% + 실적모멘텀×25%   ← 매수 순서
-    감액우선점수    = 초과비중×50% + 가격부담×30% + 모멘텀둔화×20%
+    전략점수       = MP×75% + 실적모멘텀×20% + 가격매력×5%
+    allocation     = (전략점수/100)^1.5 × (역할점수/20)^1.8
+    매수우선점수   = MP×30% + 가격매력×45% + 실적모멘텀×25%
+    감액우선점수   = 초과비중×50% + 가격부담×30% + 모멘텀둔화×20%
 
-    제안비율 = 테마 목표비율 × (전략점수 / 테마 내 전략점수 합)
+    제안비율 = 테마 목표비율 × (allocation / 테마 내 allocation 합)
     """
     from collections import defaultdict
     uid = _current_uid()
@@ -3039,8 +3040,14 @@ def api_market_power_suggestions():
         role_weight = float(rb.get("role_weight") or 1.00)
         role_score  = int(rb.get("role_score") or 0)
 
-        # allocation_score: 테마 내 배분 가중치 반영
-        allocation_score = round(target_score * role_weight, 2)
+        # allocation_score: 비선형 배분 점수
+        # (전략점수/100)^1.5 × (역할점수/20)^1.8  — 역할점수 10 이하는 제안 제외
+        if role_score > 10:
+            allocation_score = round((target_score / 100) ** 1.5 * (role_score / 20) ** 1.8, 6)
+        elif role_score > 0:
+            allocation_score = 0.0  # 후보 제외
+        else:
+            allocation_score = round((target_score / 100) ** 1.5, 6)  # 역할점수 미입력: 전략점수만
 
         # 현재비율 (주식총액 기준)
         cur_eval   = stock_eval.get(code, 0)
