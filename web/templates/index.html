@@ -3143,7 +3143,55 @@ canvas { max-height: 220px; }
       </div>
     </div>
 
-    <!-- 목표비율 제안 섹션 -->
+    <!-- 테마 리밸런싱 제안 섹션 -->
+    <div style="background:#111827;border:1px solid #1e2535;border-radius:10px;padding:16px 20px;margin-bottom:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px">
+        <div>
+          <span style="font-size:13px;font-weight:600;color:#94a3b8">테마 목표비율 제안</span>
+          <span style="font-size:11px;color:#475569;margin-left:10px">변곡점 신호 기준: ±7% → ±1%p 조정 / ±12% → ±2%p 조정 → 정규화</span>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <label style="font-size:12px;color:#64748b">기본조정
+            <input id="mp-adj-basic" type="number" value="1" min="0" max="5" step="0.5"
+                   style="width:50px;margin-left:4px;padding:3px 6px;border-radius:4px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:12px;outline:none">%p
+          </label>
+          <label style="font-size:12px;color:#64748b">강한조정
+            <input id="mp-adj-strong" type="number" value="2" min="0" max="5" step="0.5"
+                   style="width:50px;margin-left:4px;padding:3px 6px;border-radius:4px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:12px;outline:none">%p
+          </label>
+          <button class="btn btn-ghost" style="font-size:12px" onclick="mpLoadThemeSuggestions()">계산</button>
+          <button class="btn btn-primary" style="font-size:12px" onclick="mpApplyThemeAll()" id="mp-theme-apply-btn" disabled>정규화 적용</button>
+        </div>
+      </div>
+
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead>
+            <tr style="border-bottom:1px solid #1e2535">
+              <th style="padding:7px 10px;text-align:left;color:#64748b;font-size:11px;white-space:nowrap">테마</th>
+              <th style="padding:7px 6px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap">종목수</th>
+              <th style="padding:7px 6px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap">MP평균</th>
+              <th style="padding:7px 6px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap">가격매력</th>
+              <th style="padding:7px 6px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap">실적모멘텀</th>
+              <th style="padding:7px 6px;text-align:right;color:#a78bfa;font-size:11px;white-space:nowrap">종합점수</th>
+              <th style="padding:7px 6px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap">20일평균</th>
+              <th style="padding:7px 6px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap">이탈률</th>
+              <th style="padding:7px 6px;text-align:center;color:#64748b;font-size:11px;white-space:nowrap">변곡점신호</th>
+              <th style="padding:7px 6px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap">기존목표</th>
+              <th style="padding:7px 6px;text-align:right;color:#fbbf24;font-size:11px;white-space:nowrap">권장목표</th>
+              <th style="padding:7px 6px;text-align:right;color:#4ade80;font-size:11px;white-space:nowrap">정규화목표</th>
+              <th style="padding:7px 6px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap">변화</th>
+              <th style="padding:7px 6px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap">현재비율</th>
+            </tr>
+          </thead>
+          <tbody id="mp-theme-suggest-body">
+            <tr><td colspan="14" style="padding:30px;text-align:center;color:#475569;font-size:13px">[계산] 버튼을 눌러 테마 목표비율 제안을 확인하세요</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 목표비율 제안 섹션 (종목별) -->
     <div style="background:#111827;border:1px solid #1e2535;border-radius:10px;padding:16px 20px;margin-bottom:16px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
         <div>
@@ -10561,7 +10609,75 @@ async function mpSave() {
   }
 }
 
-// ─── 목표비율 제안 ────────────────────────────────────────────────────────
+// ─── 테마 목표비율 제안 ──────────────────────────────────────────────────
+
+let _mpThemeSuggestions = [];
+
+async function mpLoadThemeSuggestions() {
+  const adjBasic  = parseFloat(document.getElementById('mp-adj-basic').value  || 1);
+  const adjStrong = parseFloat(document.getElementById('mp-adj-strong').value || 2);
+  const res = await fetch(`/api/market_power/theme_suggestions?adj_basic=${adjBasic}&adj_strong=${adjStrong}`);
+  if (!res.ok) return;
+  const data = await res.json();
+  _mpThemeSuggestions = data.themes || [];
+
+  const tbody = document.getElementById('mp-theme-suggest-body');
+  if (!_mpThemeSuggestions.length) {
+    tbody.innerHTML = '<tr><td colspan="14" style="padding:20px;text-align:center;color:#475569">마켓파워 점수와 테마 매핑이 필요합니다</td></tr>';
+    document.getElementById('mp-theme-apply-btn').disabled = true;
+    return;
+  }
+
+  const signalStyle = s => {
+    if (s.includes('강한 상향'))  return 'color:#4ade80;font-weight:700';
+    if (s.includes('상향 후보'))  return 'color:#86efac';
+    if (s.includes('강한 하향'))  return 'color:#f87171;font-weight:700';
+    if (s.includes('하향 후보'))  return 'color:#fca5a5';
+    if (s.includes('없음'))       return 'color:#475569;font-style:italic';
+    return 'color:#64748b';
+  };
+
+  tbody.innerHTML = _mpThemeSuggestions.map(r => {
+    const devStr   = r.deviation != null ? (r.deviation >= 0 ? '+' : '') + r.deviation.toFixed(1) + '%' : '-';
+    const devColor = r.deviation == null ? '#64748b' : r.deviation > 7 ? '#4ade80' : r.deviation < -7 ? '#f87171' : '#94a3b8';
+    const chgStr   = (r.normalized_change >= 0 ? '+' : '') + r.normalized_change.toFixed(2) + 'pp';
+    const chgColor = r.normalized_change > 0 ? '#4ade80' : r.normalized_change < 0 ? '#f87171' : '#64748b';
+    return `<tr style="border-bottom:1px solid #0d1117" onmouseover="this.style.background='#1a2235'" onmouseout="this.style.background=''">
+      <td style="padding:7px 10px;color:#e2e8f0;font-weight:500;white-space:nowrap">${r.theme}</td>
+      <td style="padding:7px 6px;text-align:right;color:#64748b">${r.stock_count}</td>
+      <td style="padding:7px 6px;text-align:right;color:#e2e8f0">${r.mp_avg != null ? r.mp_avg.toFixed(1) : '-'}</td>
+      <td style="padding:7px 6px;text-align:right;color:#94a3b8">${r.pa_avg != null ? r.pa_avg.toFixed(1) : '-'}</td>
+      <td style="padding:7px 6px;text-align:right;color:#94a3b8">${r.em_avg != null ? r.em_avg.toFixed(1) : '-'}</td>
+      <td style="padding:7px 6px;text-align:right;color:#a78bfa;font-weight:600">${r.composite != null ? r.composite.toFixed(1) : '-'}</td>
+      <td style="padding:7px 6px;text-align:right;color:#64748b">${r.avg_20d != null ? r.avg_20d.toFixed(1) : '-'}</td>
+      <td style="padding:7px 6px;text-align:right;color:${devColor};font-weight:600">${devStr}</td>
+      <td style="padding:7px 6px;text-align:center;${signalStyle(r.signal)}">${r.signal}</td>
+      <td style="padding:7px 6px;text-align:right;color:#64748b">${r.existing_target.toFixed(1)}%</td>
+      <td style="padding:7px 6px;text-align:right;color:#fbbf24;font-weight:600">${r.recommended.toFixed(2)}%</td>
+      <td style="padding:7px 6px;text-align:right;color:#4ade80;font-weight:700">${r.normalized.toFixed(2)}%</td>
+      <td style="padding:7px 6px;text-align:right;color:${chgColor};font-weight:600">${chgStr}</td>
+      <td style="padding:7px 6px;text-align:right;color:#64748b">${r.current_ratio.toFixed(1)}%</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('mp-theme-apply-btn').disabled = false;
+}
+
+async function mpApplyThemeAll() {
+  if (!_mpThemeSuggestions.length) return;
+  const items = _mpThemeSuggestions.map(r => ({ theme: r.theme, target_ratio: r.normalized }));
+  if (!confirm(`${items.length}개 테마 목표비율을 정규화 값으로 일괄 적용할까요?\n\n` +
+    items.map(i => `${i.theme}: ${i.target_ratio.toFixed(2)}%`).join('\n'))) return;
+  const res = await fetch('/api/market_power/theme_suggestions/apply', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(items),
+  });
+  if (res.ok) {
+    alert('테마 목표비율 적용 완료. 종목별 제안도 다시 계산하세요.');
+    mpLoadThemeSuggestions();
+  }
+}
 
 let _mpSuggestions = [];
 

@@ -2988,6 +2988,192 @@ def api_market_power_suggestions():
     return jsonify(stocks)
 
 
+@app.route("/api/market_power/theme_suggestions")
+def api_market_power_theme_suggestions():
+    """마켓파워 기반 테마 목표비율 제안.
+
+    테마 종합점수 = MP평균×60% + 가격매력평균×25% + 실적모멘텀평균×15%
+    변곡점 신호  = 20일 이탈률 기준 (±7% / ±12%)
+    권장 목표비율 = 기존 ± 기본조정폭(1%p) / 강한조정폭(2%p)
+    정규화 목표  = 권장 합계 → 100% 재조정
+    """
+    from collections import defaultdict
+    uid        = _current_uid()
+    adj_basic  = max(0.0, float(request.args.get("adj_basic",  1.0)))
+    adj_strong = max(0.0, float(request.args.get("adj_strong", 2.0)))
+
+    # 최신 마켓파워 점수 (종목별 1건)
+    mp_rows = query("""
+        SELECT DISTINCT ON (stock_code)
+            stock_code, total_score, price_attractiveness, earnings_momentum
+        FROM market_power_scores
+        WHERE user_id = %s
+        ORDER BY stock_code, scored_at DESC
+    """, [uid])
+
+    # 테마 매핑 (첫 번째 테마만)
+    theme_rows = query("SELECT stock_code, themes FROM stock_themes")
+    theme_map  = {}
+    for r in theme_rows:
+        t = (r["themes"] or "").split(",")[0].strip()
+        if t:
+            theme_map[r["stock_code"]] = t
+
+    # 현재 테마 목표비율
+    tt_rows      = query("SELECT theme, target_ratio FROM theme_targets WHERE user_id = %s", [uid])
+    theme_target = {r["theme"]: float(r["target_ratio"] or 0) for r in tt_rows}
+
+    # 보유종목 평가금액 (테마 현재비율 계산용)
+    hold_rows = query("""
+        WITH lc AS (
+            SELECT DISTINCT ON (stock_code) stock_code, close_price
+            FROM supply_demand WHERE close_price IS NOT NULL AND close_price > 0
+            ORDER BY stock_code, date DESC
+        )
+        SELECT mh.stock_code, SUM(mh.quantity) AS qty,
+               COALESCE(lc.close_price, 0) AS price
+        FROM manual_holdings mh
+        LEFT JOIN lc ON lc.stock_code = mh.stock_code
+        WHERE mh.user_id = %s AND mh.quantity > 0
+        GROUP BY mh.stock_code, lc.close_price
+    """, [uid])
+    stock_eval  = {r["stock_code"]: int(r["qty"] or 0) * int(r["price"] or 0) for r in hold_rows}
+    total_eval  = sum(stock_eval.values())
+    theme_eval: dict[str, float] = defaultdict(float)
+    for code, val in stock_eval.items():
+        t = theme_map.get(code, "")
+        if t:
+            theme_eval[t] += val
+
+    # 테마별 점수 집계
+    tm_mp: dict[str, list] = defaultdict(list)
+    tm_pa: dict[str, list] = defaultdict(list)
+    tm_em: dict[str, list] = defaultdict(list)
+    for r in mp_rows:
+        t = theme_map.get(r["stock_code"], "")
+        if not t:
+            continue
+        tm_mp[t].append(float(r["total_score"] or 0))
+        if r["price_attractiveness"] is not None:
+            tm_pa[t].append(float(r["price_attractiveness"]))
+        if r["earnings_momentum"] is not None:
+            tm_em[t].append(float(r["earnings_momentum"]))
+
+    # 20일 평균 마켓파워 (이력 기반, 없으면 None)
+    hist_rows = query("""
+        SELECT stock_code, AVG(total_score) AS avg_mp
+        FROM market_power_scores
+        WHERE user_id = %s AND scored_at >= CURRENT_DATE - INTERVAL '20 days'
+        GROUP BY stock_code
+    """, [uid])
+    tm_hist_mp: dict[str, list] = defaultdict(list)
+    for r in hist_rows:
+        t = theme_map.get(r["stock_code"], "")
+        if t and r["avg_mp"] is not None:
+            tm_hist_mp[t].append(float(r["avg_mp"]))
+
+    # 테마 목록 = 기존 목표 + 마켓파워 있는 테마 합집합
+    all_themes = sorted(set(list(theme_target.keys()) + list(tm_mp.keys())))
+
+    result = []
+    for theme in all_themes:
+        mp_list = tm_mp.get(theme, [])
+        pa_list = tm_pa.get(theme, [])
+        em_list = tm_em.get(theme, [])
+
+        mp_avg = round(sum(mp_list) / len(mp_list), 2) if mp_list else None
+        pa_avg = round(sum(pa_list) / len(pa_list), 2) if pa_list else None
+        em_avg = round(sum(em_list) / len(em_list), 2) if em_list else None
+
+        if mp_avg is not None and pa_avg is not None and em_avg is not None:
+            composite = round(mp_avg * 0.6 + pa_avg * 0.25 + em_avg * 0.15, 2)
+        elif mp_avg is not None:
+            composite = mp_avg
+        else:
+            composite = None
+
+        hist_list = tm_hist_mp.get(theme, [])
+        avg_20d   = round(sum(hist_list) / len(hist_list), 2) if hist_list else None
+
+        if composite is not None and avg_20d is not None and avg_20d > 0:
+            deviation = round((composite - avg_20d) / avg_20d * 100, 2)
+        else:
+            deviation = None
+
+        if deviation is None:
+            signal = "20일평균 없음"
+        elif deviation >= 12:
+            signal = "강한 상향"
+        elif deviation >= 7:
+            signal = "상향 후보"
+        elif deviation >= -7:
+            signal = "유지"
+        elif deviation >= -12:
+            signal = "하향 후보"
+        else:
+            signal = "강한 하향"
+
+        existing = theme_target.get(theme, 0.0)
+        if signal == "강한 상향":
+            recommended = existing + adj_strong
+        elif signal == "상향 후보":
+            recommended = existing + adj_basic
+        elif signal == "하향 후보":
+            recommended = existing - adj_basic
+        elif signal == "강한 하향":
+            recommended = existing - adj_strong
+        else:
+            recommended = existing
+        recommended = round(max(0.0, recommended), 2)
+
+        cur_ratio = round(theme_eval.get(theme, 0) / total_eval * 100, 2) if total_eval > 0 else 0
+
+        result.append({
+            "theme":         theme,
+            "stock_count":   len(mp_list),
+            "current_ratio": cur_ratio,
+            "existing_target": existing,
+            "mp_avg":        mp_avg,
+            "pa_avg":        pa_avg,
+            "em_avg":        em_avg,
+            "composite":     composite,
+            "avg_20d":       avg_20d,
+            "deviation":     deviation,
+            "signal":        signal,
+            "recommended":   recommended,
+        })
+
+    # 정규화 (권장 합계 → 100% 재조정)
+    total_rec = sum(r["recommended"] for r in result)
+    for r in result:
+        r["normalized"]        = round(r["recommended"] / total_rec * 100, 2) if total_rec > 0 else r["recommended"]
+        r["normalized_change"] = round(r["normalized"] - r["existing_target"], 2)
+
+    result.sort(key=lambda x: -(x["composite"] or 0))
+    return jsonify({"themes": result, "total_eval": total_eval})
+
+
+@app.route("/api/market_power/theme_suggestions/apply", methods=["POST"])
+def api_market_power_theme_suggestions_apply():
+    """정규화 테마 목표비율 일괄 적용 → theme_targets."""
+    uid   = _current_uid()
+    items = request.json or []   # [{theme, target_ratio}, ...]
+    with get_conn() as conn:
+        cur = conn.cursor()
+        for item in items:
+            theme = (item.get("theme") or "").strip()
+            if not theme:
+                continue
+            ratio = round(float(item.get("target_ratio") or 0), 2)
+            cur.execute("""
+                INSERT INTO theme_targets (user_id, theme, target_ratio, updated_at)
+                VALUES (%s, %s, %s, NOW())
+                ON CONFLICT (user_id, theme) DO UPDATE
+                SET target_ratio = EXCLUDED.target_ratio, updated_at = NOW()
+            """, (uid, theme, ratio))
+    return jsonify({"ok": True})
+
+
 @app.route("/api/market_power/<int:sid>", methods=["DELETE"])
 def api_market_power_delete(sid: int):
     """점수 레코드 삭제."""
