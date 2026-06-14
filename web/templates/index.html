@@ -3358,7 +3358,8 @@ canvas { max-height: 220px; }
           <tbody id="mp-acm-body"></tbody>
         </table>
       </div>
-      <div style="display:flex;justify-content:flex-end;gap:10px">
+      <div id="mp-acm-extra"></div>
+      <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px">
         <button class="btn btn-ghost" onclick="mpApplyConfirmClose()">취소</button>
         <button class="btn btn-primary" id="mp-acm-ok-btn" onclick="mpApplyConfirmOk()">적용</button>
       </div>
@@ -10639,6 +10640,7 @@ async function mpSave() {
 // ─── 테마 목표비율 제안 ──────────────────────────────────────────────────
 
 let _mpThemeSuggestions = [];
+let _mpTotalEval = 0;
 
 async function mpLoadThemeSuggestions() {
   const adjBasic  = parseFloat(document.getElementById('mp-adj-basic').value  || 1);
@@ -10647,6 +10649,7 @@ async function mpLoadThemeSuggestions() {
   if (!res.ok) return;
   const data = await res.json();
   _mpThemeSuggestions = data.themes || [];
+  _mpTotalEval = data.total_eval || 0;
 
   const tbody = document.getElementById('mp-theme-suggest-body');
   if (!_mpThemeSuggestions.length) {
@@ -10697,17 +10700,64 @@ async function mpApplyThemeAll() {
     before: r.existing_target,
     after:  r.recommended,
   }));
-  mpApplyConfirmOpen('테마 목표비율 변경 확인', '아래 내용으로 테마 목표비율을 업데이트합니다. 나머지 비율은 현금으로 처리됩니다.', rows, async () => {
+
+  // 예상 매매 규모 계산
+  const fmt = v => Math.round(Math.abs(v)).toLocaleString() + '원';
+  let totalBuy = 0, totalSell = 0;
+  const tradeRows = _mpThemeSuggestions.map(r => {
+    const curEval    = _mpTotalEval * r.current_ratio / 100;
+    const targetEval = _mpTotalEval * r.recommended   / 100;
+    const diff       = targetEval - curEval;
+    if (diff > 0) totalBuy  += diff;
+    else          totalSell += Math.abs(diff);
+    return { theme: r.theme, curEval, targetEval, diff };
+  });
+
+  const extraHtml = `
+    <div style="border-top:1px solid #1e2535;padding-top:16px">
+      <div style="font-size:12px;font-weight:600;color:#94a3b8;margin-bottom:10px">
+        예상 매매 규모
+        <span style="font-size:11px;color:#475569;font-weight:400;margin-left:6px">현재 평가금액 기준 추정 · 실제 거래는 발생하지 않음</span>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead>
+          <tr style="border-bottom:1px solid #1e2535">
+            <th style="padding:6px 10px;text-align:left;color:#64748b;font-size:11px">테마</th>
+            <th style="padding:6px 8px;text-align:right;color:#64748b;font-size:11px">현재 평가</th>
+            <th style="padding:6px 8px;text-align:right;color:#64748b;font-size:11px">목표 평가</th>
+            <th style="padding:6px 8px;text-align:right;color:#64748b;font-size:11px">조정 금액</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${tradeRows.map(t => {
+            const color  = t.diff > 0 ? '#4ade80' : t.diff < 0 ? '#f87171' : '#64748b';
+            const label  = t.diff > 1000 ? '▲ 매수' : t.diff < -1000 ? '▼ 매도' : '— 유지';
+            const sign   = t.diff > 0 ? '+' : '';
+            return `<tr style="border-bottom:1px solid #0d1117">
+              <td style="padding:7px 10px;color:#e2e8f0">${t.theme}</td>
+              <td style="padding:7px 8px;text-align:right;color:#64748b">${fmt(t.curEval)}</td>
+              <td style="padding:7px 8px;text-align:right;color:#94a3b8">${fmt(t.targetEval)}</td>
+              <td style="padding:7px 8px;text-align:right;color:${color};font-weight:600">${label} ${sign}${fmt(t.diff)}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+      <div style="display:flex;gap:20px;margin-top:10px;padding:10px 12px;background:#0f1117;border-radius:6px;font-size:12px">
+        <span style="color:#4ade80;font-weight:600">▲ 총 매수 추정 ${fmt(totalBuy)}</span>
+        <span style="color:#f87171;font-weight:600">▼ 총 매도 추정 ${fmt(totalSell)}</span>
+        <span style="color:#475569;margin-left:auto">주식 총액 ${Math.round(_mpTotalEval).toLocaleString()}원 기준</span>
+      </div>
+    </div>`;
+
+  mpApplyConfirmOpen('테마 목표비율 변경 확인', '아래 내용으로 테마 목표비율을 업데이트합니다.', rows, async () => {
     const items = _mpThemeSuggestions.map(r => ({ theme: r.theme, target_ratio: r.recommended }));
     const res = await fetch('/api/market_power/theme_suggestions/apply', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(items),
     });
-    if (res.ok) {
-      mpLoadThemeSuggestions();
-    }
-  });
+    if (res.ok) mpLoadThemeSuggestions();
+  }, extraHtml);
 }
 
 let _mpSuggestions = [];
@@ -10820,7 +10870,7 @@ async function mpApplyAll() {
 // 적용 확인 모달 공통 함수
 let _mpApplyConfirmCallback = null;
 
-function mpApplyConfirmOpen(title, desc, rows, callback) {
+function mpApplyConfirmOpen(title, desc, rows, callback, extraHtml = '') {
   _mpApplyConfirmCallback = callback;
   document.getElementById('mp-acm-title').textContent = title;
   document.getElementById('mp-acm-desc').textContent  = desc;
@@ -10837,6 +10887,7 @@ function mpApplyConfirmOpen(title, desc, rows, callback) {
       <td style="padding:8px 8px;text-align:right;color:${diffColor};font-weight:600">${diffStr}</td>
     </tr>`;
   }).join('');
+  document.getElementById('mp-acm-extra').innerHTML = extraHtml;
   document.getElementById('mp-apply-confirm-modal').style.display = 'flex';
 }
 
