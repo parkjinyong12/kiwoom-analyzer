@@ -500,6 +500,25 @@ def _ensure_rebalance_targets_table():
         cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS max_change_pp     DECIMAL(4,2) DEFAULT 1.5")
         cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS overweight_band_pp DECIMAL(4,2) DEFAULT 3.0")
         cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS review_band_pp    DECIMAL(4,2) DEFAULT 1.5")
+        # 역할점수 컬럼 (테마 내 배분 가중치)
+        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS theme_purity_score          SMALLINT     DEFAULT 0")
+        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS theme_leader_score          SMALLINT     DEFAULT 0")
+        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS bottleneck_centrality_score SMALLINT     DEFAULT 0")
+        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS earnings_sensitivity_score  SMALLINT     DEFAULT 0")
+        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS portfolio_role_score        SMALLINT     DEFAULT 0")
+        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS role_score                 SMALLINT     DEFAULT 0")
+        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS role_weight                DECIMAL(4,2) DEFAULT 1.00")
+
+
+def _role_weight_from_score(score: int) -> float:
+    """역할점수(0~25) → role_weight 변환."""
+    if score >= 23: return 1.25
+    if score >= 20: return 1.15
+    if score >= 17: return 1.05
+    if score >= 14: return 1.00
+    if score >= 11: return 0.90
+    if score >= 8:  return 0.85
+    return 0.80
 
 
 def _ensure_common_codes_table():
@@ -2973,13 +2992,15 @@ def api_market_power_suggestions():
     tt_rows = query("SELECT theme, target_ratio FROM theme_targets WHERE user_id = %s", [uid])
     theme_target = {r["theme"]: float(r["target_ratio"] or 0) for r in tt_rows}
 
-    # 기존 목표비율 + 티어 정보
+    # 기존 목표비율 + 티어 정보 + 역할점수
     rb_rows = query("""
         SELECT stock_code, target_ratio,
                COALESCE(position_tier, 'MID')       AS position_tier,
                COALESCE(max_change_pp, 1.5)         AS max_change_pp,
                COALESCE(overweight_band_pp, 3.0)    AS overweight_band_pp,
-               COALESCE(review_band_pp, 1.5)        AS review_band_pp
+               COALESCE(review_band_pp, 1.5)        AS review_band_pp,
+               COALESCE(role_score, 0)              AS role_score,
+               COALESCE(role_weight, 1.00)          AS role_weight
         FROM rebalance_targets WHERE user_id = %s
     """, [uid])
     rb_map = {r["stock_code"]: r for r in rb_rows}
@@ -3012,9 +3033,14 @@ def api_market_power_suggestions():
         target_score = round(mp * 0.75 + em * 0.20 + pa * 0.05, 2)
         buy_score    = round(mp * 0.30 + pa * 0.45 + em * 0.25, 2)
 
-        rb         = rb_map.get(code, {})
-        existing   = float(rb.get("target_ratio") or 0)
-        ob_pp      = float(rb.get("overweight_band_pp") or 3.0)
+        rb          = rb_map.get(code, {})
+        existing    = float(rb.get("target_ratio") or 0)
+        ob_pp       = float(rb.get("overweight_band_pp") or 3.0)
+        role_weight = float(rb.get("role_weight") or 1.00)
+        role_score  = int(rb.get("role_score") or 0)
+
+        # allocation_score: 테마 내 배분 가중치 반영
+        allocation_score = round(target_score * role_weight, 2)
 
         # 현재비율 (주식총액 기준)
         cur_eval   = stock_eval.get(code, 0)
@@ -3035,6 +3061,9 @@ def api_market_power_suggestions():
             "earnings_momentum":    r["earnings_momentum"],
             "composite_score":      r["composite_score"],
             "target_score":         target_score,
+            "allocation_score":     allocation_score,
+            "role_score":           role_score,
+            "role_weight":          role_weight,
             "buy_score":            buy_score,
             "sell_score":           sell_score,
             "existing_target":      existing,
@@ -3043,28 +3072,98 @@ def api_market_power_suggestions():
             "max_change_pp":        float(rb.get("max_change_pp") or 1.5),
         })
 
-    # 테마별 전략점수 합산
+    # 테마별 allocation_score 합산
     theme_alloc_sum: dict[str, float] = defaultdict(float)
     for s in stocks:
         if s["theme"]:
-            theme_alloc_sum[s["theme"]] += s["target_score"]
+            theme_alloc_sum[s["theme"]] += s["allocation_score"]
 
-    # 제안비율 + 수동검토 플래그
+    # 제안비율 + 앵커링 + 수동검토 플래그
     for s in stocks:
         t = s["theme"]
         if t and theme_alloc_sum[t] > 0 and t in theme_target:
             s["theme_target_ratio"] = theme_target[t]
-            s["suggested_ratio"]    = round(theme_target[t] * s["target_score"] / theme_alloc_sum[t], 2)
-            s["diff"]               = round(s["suggested_ratio"] - s["existing_target"], 2)
-            s["review_flag"]        = abs(s["diff"]) > s["max_change_pp"]
+            raw_ratio = theme_target[t] * s["allocation_score"] / theme_alloc_sum[t]
+            # 기존 목표 앵커링: 급격한 변화 억제
+            existing  = s["existing_target"]
+            if existing > 0:
+                final_ratio = round(existing * 0.70 + raw_ratio * 0.30, 2)
+            else:
+                final_ratio = round(raw_ratio, 2)
+            s["raw_ratio"]       = round(raw_ratio, 2)
+            s["suggested_ratio"] = final_ratio
+            s["diff"]            = round(final_ratio - s["existing_target"], 2)
+            s["review_flag"]     = abs(s["diff"]) > s["max_change_pp"]
         else:
             s["theme_target_ratio"] = theme_target.get(t)
+            s["raw_ratio"]          = None
             s["suggested_ratio"]    = None
             s["diff"]               = None
             s["review_flag"]        = False
 
-    stocks.sort(key=lambda x: (x["theme"] or "zzz", -(x["target_score"] or 0)))
+    stocks.sort(key=lambda x: (x["theme"] or "zzz", -(x["allocation_score"] or 0)))
     return jsonify(stocks)
+
+
+# ─── 역할점수 관리 API ──────────────────────────────────────────────────────
+
+@app.route("/api/role_scores")
+def api_role_scores_get():
+    """종목별 역할점수 조회."""
+    uid = _current_uid()
+    rows = query("""
+        SELECT rt.stock_code,
+               COALESCE(mps.stock_name, rt.stock_code)  AS stock_name,
+               COALESCE(st.themes, '')                   AS theme,
+               COALESCE(rt.theme_purity_score, 0)          AS theme_purity_score,
+               COALESCE(rt.theme_leader_score, 0)          AS theme_leader_score,
+               COALESCE(rt.bottleneck_centrality_score, 0) AS bottleneck_centrality_score,
+               COALESCE(rt.earnings_sensitivity_score, 0)  AS earnings_sensitivity_score,
+               COALESCE(rt.portfolio_role_score, 0)        AS portfolio_role_score,
+               COALESCE(rt.role_score, 0)                  AS role_score,
+               COALESCE(rt.role_weight, 1.00)              AS role_weight
+        FROM rebalance_targets rt
+        LEFT JOIN (
+            SELECT DISTINCT ON (stock_code) stock_code, stock_name
+            FROM market_power_scores WHERE user_id = %s
+            ORDER BY stock_code, scored_at DESC
+        ) mps ON mps.stock_code = rt.stock_code
+        LEFT JOIN stock_themes st ON st.stock_code = rt.stock_code
+        WHERE rt.user_id = %s
+        ORDER BY st.themes NULLS LAST, rt.stock_code
+    """, [uid, uid])
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/role_scores/<stock_code>", methods=["PUT"])
+def api_role_scores_put(stock_code):
+    """종목 역할점수 저장 (자동으로 role_score/role_weight 계산)."""
+    uid = _current_uid()
+    data = request.get_json() or {}
+
+    tp = max(0, min(5, int(data.get("theme_purity_score")          or 0)))
+    tl = max(0, min(5, int(data.get("theme_leader_score")          or 0)))
+    bc = max(0, min(5, int(data.get("bottleneck_centrality_score") or 0)))
+    es = max(0, min(5, int(data.get("earnings_sensitivity_score")  or 0)))
+    pr = max(0, min(5, int(data.get("portfolio_role_score")        or 0)))
+
+    role_score  = tp + tl + bc + es + pr
+    role_weight = _role_weight_from_score(role_score)
+
+    with get_conn() as conn:
+        conn.cursor().execute("""
+            UPDATE rebalance_targets
+            SET theme_purity_score          = %s,
+                theme_leader_score          = %s,
+                bottleneck_centrality_score = %s,
+                earnings_sensitivity_score  = %s,
+                portfolio_role_score        = %s,
+                role_score                  = %s,
+                role_weight                 = %s,
+                updated_at                  = NOW()
+            WHERE user_id = %s AND stock_code = %s
+        """, (tp, tl, bc, es, pr, role_score, role_weight, uid, stock_code))
+    return jsonify({"ok": True, "role_score": role_score, "role_weight": role_weight})
 
 
 @app.route("/api/market_power/theme_suggestions")
