@@ -1588,7 +1588,7 @@ def api_trade_history():
             ORDER BY date DESC
             LIMIT 1
         ) lc ON true
-        ORDER BY f.executed_at DESC
+        ORDER BY f.executed_at ASC
         LIMIT %s OFFSET %s
         """,
         params + [limit, offset],
