@@ -3042,7 +3042,10 @@ def api_market_power_suggestions():
     매수우선점수   = MP×50% + 실적모멘텀×30% + 가격매력×20%
     감액우선점수   = 초과비중×70% + 모멘텀둔화×20% + 가격부담×10%
 
-    제안비율 = 배분점수 / 전체합계 × 100  (전종목 전역 정규화, 테마 목표비율 미사용)
+    제안비율 = 2단계 정규화:
+      1단계: 테마 목표비중(theme_targets.target_ratio) 기준으로 테마 예산 확정
+      2단계: 테마 안에서 allocation_score 비율로 종목별 비중 배분
+      → 종목 수가 많은 테마가 비중을 독식하는 전역 정규화 왜곡 방지
     테마 제안비율 = 해당 테마 종목 제안비율 합산 (자동 도출)
     """
     from collections import defaultdict
@@ -3277,22 +3280,48 @@ def api_market_power_suggestions():
             "theme_target_ratio":   theme_target.get(theme),  # 참고용
         })
 
-    # ── 전역 정규화 → 종목별 제안비율 ──────────────────────────────────────
-    total_alloc = sum(s["allocation_score"] for s in stocks) or 1
+    # ── 2단계 정규화: 테마 목표 → 테마 내 종목 배분 ──────────────────────────
+    # Stage 1: 테마별 분류 (theme_target > 0 인 테마만 독립 예산 사용)
+    theme_buckets: dict[str, list] = defaultdict(list)
+    fallback_list = []
     for s in stocks:
-        code     = s["stock_code"]
-        rb       = rb_map.get(code, {})
-        max_chg  = float(rb.get("max_change_pp") or 1.5)
-        existing = s["existing_target"]
+        t = s["theme"]
+        if t and theme_target.get(t, 0) > 0:
+            theme_buckets[t].append(s)
+        else:
+            fallback_list.append(s)
 
-        if s["allocation_score"] > 0:
-            suggested = round(s["allocation_score"] / total_alloc * 100, 2)
-            diff      = round(suggested - existing, 2)
+    # Stage 2: 테마 목표비중 안에서 종목 배분 (allocation_score 비례)
+    for t, tstocks in theme_buckets.items():
+        tgt     = theme_target[t]
+        t_alloc = sum(s["allocation_score"] for s in tstocks) or 1
+        for s in tstocks:
+            s["_suggested"] = (round(tgt * s["allocation_score"] / t_alloc, 2)
+                               if s["allocation_score"] > 0 else None)
+
+    # 잔여: 테마 목표 없는 종목 → 남은 예산으로 전역 배분
+    themed_total  = sum(theme_target.get(t, 0) for t in theme_buckets)
+    remaining_bud = max(0.0, 100.0 - themed_total)
+    fb_alloc      = sum(s["allocation_score"] for s in fallback_list) or 1
+    for s in fallback_list:
+        s["_suggested"] = (round(remaining_bud * s["allocation_score"] / fb_alloc, 2)
+                           if s["allocation_score"] > 0 and remaining_bud > 0 else None)
+
+    # ── step_ratio 및 거래량 계산 ──────────────────────────────────────────
+    for s in stocks:
+        code      = s["stock_code"]
+        rb        = rb_map.get(code, {})
+        max_chg   = float(rb.get("max_change_pp") or 1.5)
+        existing  = s["existing_target"]
+        suggested = s.pop("_suggested", None)
+
+        if suggested is not None:
+            diff = round(suggested - existing, 2)
 
             # step_ratio: 이번 주기에 적용할 비중 (max_change_pp 범위 내로 클램핑)
             if existing > 0:
-                clamped   = max(-max_chg, min(max_chg, diff))
-                step      = round(existing + clamped, 2)
+                clamped      = max(-max_chg, min(max_chg, diff))
+                step         = round(existing + clamped, 2)
                 steps_needed = max(1, math.ceil(abs(diff) / max_chg)) if max_chg > 0 else 1
             else:
                 step         = suggested   # 신규 종목은 제한 없이 바로 적용
