@@ -631,6 +631,9 @@ canvas { max-height: 220px; }
         <div class="nav-item" data-page="market-power" onclick="showPage('market-power')">
           <span class="icon">⚡</span> 전략 스코어링
         </div>
+        <div class="nav-item" data-page="strategy-history" onclick="showPage('strategy-history')">
+          <span class="icon">📈</span> 전략 히스토리
+        </div>
       </div>
     </div>
 
@@ -3604,6 +3607,49 @@ canvas { max-height: 220px; }
     </div>
   </div>
 
+  <!-- ─── 전략 히스토리 ─── -->
+  <section id="page-strategy-history" class="page">
+    <div class="page-header" style="display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap">
+      <div>
+        <div class="page-title">전략 히스토리</div>
+        <div style="font-size:13px;color:#64748b;margin-top:4px">전략 스코어링 변화 추이</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-left:auto">
+        <select id="sh-days" onchange="shLoad()" style="background:#1e2535;border:1px solid #2d3748;border-radius:6px;color:#e2e8f0;padding:6px 10px;font-size:12px">
+          <option value="30">30일</option>
+          <option value="60" selected>60일</option>
+          <option value="90">90일</option>
+          <option value="180">180일</option>
+        </select>
+        <button class="btn btn-ghost" style="font-size:12px" onclick="shLoad()">새로고침</button>
+      </div>
+    </div>
+
+    <!-- 테마 목표비율 추이 -->
+    <div style="background:#111827;border:1px solid #1e2535;border-radius:10px;padding:16px 20px;margin-top:16px">
+      <div style="font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:14px">테마 목표비율 추이 (%)</div>
+      <div style="position:relative;height:260px"><canvas id="sh-chart-target"></canvas></div>
+    </div>
+
+    <!-- 테마 포트 적합도 추이 -->
+    <div style="background:#111827;border:1px solid #1e2535;border-radius:10px;padding:16px 20px;margin-top:16px">
+      <div style="font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:14px">테마 포트 적합도 추이</div>
+      <div style="position:relative;height:260px"><canvas id="sh-chart-fit"></canvas></div>
+    </div>
+
+    <!-- 마켓파워 composite 추이 -->
+    <div style="background:#111827;border:1px solid #1e2535;border-radius:10px;padding:16px 20px;margin-top:16px">
+      <div style="font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:14px">테마 마켓파워 composite 추이</div>
+      <div style="position:relative;height:260px"><canvas id="sh-chart-mp"></canvas></div>
+    </div>
+
+    <!-- 종목 역할점수 추이 -->
+    <div style="background:#111827;border:1px solid #1e2535;border-radius:10px;padding:16px 20px;margin-top:16px">
+      <div style="font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:14px">종목 역할점수 추이 (0~25)</div>
+      <div style="position:relative;height:260px"><canvas id="sh-chart-role"></canvas></div>
+    </div>
+  </section>
+
   <!-- ─── 기획서 ─── -->
   <section id="page-spec" class="page">
     <div class="page-header" style="display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap">
@@ -3789,6 +3835,7 @@ function showPage(name, fromHash) {
   if (name === 'trade-history')    loadTradeHistory();
   if (name === 'qualitative')      loadQualitative();
   if (name === 'market-power')     mpLoad().then(() => { mpLoadThemeSuggestions().then(mpLoadSuggestions); rsLoad(); tfLoad(); });
+  if (name === 'strategy-history') shLoad();
   if (name === 'common-codes')     loadCommonCodes();
 }
 
@@ -11491,6 +11538,105 @@ async function tfSave() {
   await tfLoad();
   // 제안 테이블도 갱신
   mpLoadThemeSuggestions();
+}
+
+// ─── 전략 히스토리 ───────────────────────────────────────────────────────────
+
+const _shCharts = {};
+const _shColors = [
+  '#60a5fa','#4ade80','#f59e0b','#f87171','#a78bfa',
+  '#34d399','#fb923c','#e879f9','#38bdf8','#facc15',
+];
+
+function _shDestroyAll() {
+  Object.values(_shCharts).forEach(c => { if (c) c.destroy(); });
+  Object.keys(_shCharts).forEach(k => delete _shCharts[k]);
+}
+
+function _shBuildChart(canvasId, labels, datasets, yLabel) {
+  const ctx = document.getElementById(canvasId);
+  if (!ctx) return;
+  if (_shCharts[canvasId]) _shCharts[canvasId].destroy();
+  _shCharts[canvasId] = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 12 } },
+        tooltip: { backgroundColor: '#1e2535', titleColor: '#e2e8f0', bodyColor: '#94a3b8' },
+      },
+      scales: {
+        x: { ticks: { color: '#64748b', font: { size: 10 }, maxRotation: 45 }, grid: { color: '#1e2535' } },
+        y: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: '#1e2535' },
+             title: { display: !!yLabel, text: yLabel, color: '#64748b', font: { size: 10 } } },
+      },
+    },
+  });
+}
+
+async function shLoad() {
+  const days = document.getElementById('sh-days').value;
+
+  const [rTarget, rMp, rRole] = await Promise.all([
+    fetch(`/api/history/theme_targets?days=${days}`).then(r => r.json()),
+    fetch(`/api/history/market_power?days=${days}`).then(r => r.json()),
+    fetch(`/api/history/role_scores?days=${days}`).then(r => r.json()),
+  ]);
+
+  // ① 테마 목표비율
+  {
+    const labels = rTarget.dates;
+    const datasets = rTarget.themes.map((t, i) => ({
+      label: t,
+      data: labels.map(d => rTarget.by_date[d]?.[t]?.target_ratio ?? null),
+      borderColor: _shColors[i % _shColors.length],
+      backgroundColor: 'transparent',
+      tension: 0.3, pointRadius: 3, spanGaps: true,
+    }));
+    _shBuildChart('sh-chart-target', labels, datasets, '%');
+  }
+
+  // ② 테마 포트 적합도
+  {
+    const labels = rTarget.dates;
+    const datasets = rTarget.themes.map((t, i) => ({
+      label: t,
+      data: labels.map(d => rTarget.by_date[d]?.[t]?.fit_score ?? null),
+      borderColor: _shColors[i % _shColors.length],
+      backgroundColor: 'transparent',
+      tension: 0.3, pointRadius: 3, spanGaps: true,
+    }));
+    _shBuildChart('sh-chart-fit', labels, datasets, '점');
+  }
+
+  // ③ 마켓파워 composite
+  {
+    const labels = rMp.dates;
+    const datasets = rMp.themes.map((t, i) => ({
+      label: t,
+      data: labels.map(d => rMp.by_date[d]?.[t] ?? null),
+      borderColor: _shColors[i % _shColors.length],
+      backgroundColor: 'transparent',
+      tension: 0.3, pointRadius: 3, spanGaps: true,
+    }));
+    _shBuildChart('sh-chart-mp', labels, datasets, '점');
+  }
+
+  // ④ 종목 역할점수
+  {
+    const labels = rRole.dates;
+    const stocks = Object.entries(rRole.stocks);
+    const datasets = stocks.map(([code, name], i) => ({
+      label: name,
+      data: labels.map(d => rRole.by_date[d]?.[code]?.score ?? null),
+      borderColor: _shColors[i % _shColors.length],
+      backgroundColor: 'transparent',
+      tension: 0.3, pointRadius: 3, spanGaps: true,
+    }));
+    _shBuildChart('sh-chart-role', labels, datasets, '점');
+  }
 }
 </script>
 

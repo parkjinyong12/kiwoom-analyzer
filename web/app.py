@@ -489,6 +489,29 @@ def _ensure_user_id_migration():
         cur.execute("ALTER TABLE theme_targets ADD COLUMN IF NOT EXISTS uncorrelated_effect   SMALLINT DEFAULT NULL")
     _run_migration_step(_step_theme_fit_cols)
 
+    def _step_strategy_history(cur):
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS theme_targets_history (
+                id          SERIAL PRIMARY KEY,
+                user_id     INTEGER,
+                theme       VARCHAR(50)   NOT NULL,
+                target_ratio DECIMAL(6,2),
+                fit_score    DECIMAL(6,2),
+                recorded_at  DATE         NOT NULL DEFAULT CURRENT_DATE
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS role_scores_history (
+                id          SERIAL PRIMARY KEY,
+                user_id     INTEGER,
+                stock_code  VARCHAR(10)  NOT NULL,
+                stock_name  VARCHAR(100),
+                role_score  SMALLINT,
+                recorded_at DATE         NOT NULL DEFAULT CURRENT_DATE
+            )
+        """)
+    _run_migration_step(_step_strategy_history)
+
 
 def _ensure_rebalance_targets_table():
     with get_conn() as conn:
@@ -2277,6 +2300,11 @@ def api_theme_rebalance_targets_batch():
                 ON CONFLICT (user_id, theme) DO UPDATE
                 SET target_ratio = EXCLUDED.target_ratio, updated_at = NOW()
             """, (uid, theme, target_ratio))
+            cur.execute("""
+                INSERT INTO theme_targets_history (user_id, theme, target_ratio, recorded_at)
+                VALUES (%s, %s, %s, CURRENT_DATE)
+                ON CONFLICT DO NOTHING
+            """, (uid, theme, target_ratio))
     return jsonify({"ok": True})
 
 
@@ -3173,7 +3201,8 @@ def api_role_scores_put(stock_code):
     role_weight = _role_weight_from_score(role_score)
 
     with get_conn() as conn:
-        conn.cursor().execute("""
+        cur = conn.cursor()
+        cur.execute("""
             UPDATE rebalance_targets
             SET theme_purity_score          = %s,
                 theme_leader_score          = %s,
@@ -3185,6 +3214,17 @@ def api_role_scores_put(stock_code):
                 updated_at                  = NOW()
             WHERE user_id = %s AND stock_code = %s
         """, (tp, tl, bc, es, pr, role_score, role_weight, uid, stock_code))
+        # 종목명 조회 후 히스토리 기록
+        name_row = cur.execute("""
+            SELECT stock_name FROM rebalance_targets WHERE user_id = %s AND stock_code = %s
+        """, (uid, stock_code))
+        name_rows = cur.fetchall()
+        stock_name = name_rows[0]["stock_name"] if name_rows else stock_code
+        cur.execute("""
+            INSERT INTO role_scores_history (user_id, stock_code, stock_name, role_score, recorded_at)
+            VALUES (%s, %s, %s, %s, CURRENT_DATE)
+            ON CONFLICT DO NOTHING
+        """, (uid, stock_code, stock_name, role_score))
     return jsonify({"ok": True, "role_score": role_score, "role_weight": role_weight})
 
 
@@ -3408,6 +3448,11 @@ def api_market_power_theme_suggestions_apply():
                 ON CONFLICT (user_id, theme) DO UPDATE
                 SET target_ratio = EXCLUDED.target_ratio, updated_at = NOW()
             """, (uid, theme, ratio))
+            cur.execute("""
+                INSERT INTO theme_targets_history (user_id, theme, target_ratio, recorded_at)
+                VALUES (%s, %s, %s, CURRENT_DATE)
+                ON CONFLICT DO NOTHING
+            """, (uid, theme, ratio))
     return jsonify({"ok": True})
 
 
@@ -3464,6 +3509,12 @@ def api_theme_fit_scores_put(theme):
     acs  = _clamp(data.get("ai_capex_sensitivity"))
     tc   = _clamp(data.get("theme_cohesion"))
     ue   = _clamp(data.get("uncorrelated_effect"))
+    fit_score = None
+    if any(v is not None for v in [clf, bd, acs, tc, ue]):
+        fit_score = round(
+            (clf or 0) * 0.35 + (bd or 0) * 0.25 +
+            (acs or 0) * 0.20 + (tc or 0) * 0.10 + (ue or 0) * 0.10, 2
+        )
     with get_conn() as conn:
         cur = conn.cursor()
         cur.execute("""
@@ -3478,7 +3529,99 @@ def api_theme_fit_scores_put(theme):
                 uncorrelated_effect   = EXCLUDED.uncorrelated_effect,
                 updated_at            = NOW()
         """, (uid, theme, clf, bd, acs, tc, ue))
+        if fit_score is not None:
+            cur.execute("""
+                INSERT INTO theme_targets_history (user_id, theme, fit_score, recorded_at)
+                VALUES (%s, %s, %s, CURRENT_DATE)
+                ON CONFLICT DO NOTHING
+            """, (uid, theme, fit_score))
     return jsonify({"ok": True})
+
+
+@app.route("/api/history/theme_targets")
+def api_history_theme_targets():
+    """테마 목표비율 일별 히스토리."""
+    uid  = _current_uid()
+    days = int(request.args.get("days", 60))
+    rows = query("""
+        SELECT theme, target_ratio, fit_score, recorded_at
+        FROM theme_targets_history
+        WHERE user_id = %s AND recorded_at >= CURRENT_DATE - INTERVAL '%s days'
+        ORDER BY recorded_at, theme
+    """, (uid, days))
+    # 날짜별, 테마별 최신값 (같은 날 여러 번 업데이트 시 마지막)
+    by_date: dict = {}
+    for r in rows:
+        d = r["recorded_at"].strftime("%Y-%m-%d")
+        if d not in by_date:
+            by_date[d] = {}
+        by_date[d][r["theme"]] = {
+            "target_ratio": float(r["target_ratio"] or 0) if r["target_ratio"] is not None else None,
+            "fit_score":    float(r["fit_score"])    if r["fit_score"]    is not None else None,
+        }
+    themes = sorted({r["theme"] for r in rows})
+    return jsonify({"dates": sorted(by_date), "by_date": by_date, "themes": themes})
+
+
+@app.route("/api/history/market_power")
+def api_history_market_power():
+    """테마별 마켓파워 composite 일별 히스토리."""
+    uid   = _current_uid()
+    days  = int(request.args.get("days", 60))
+    rows  = query("""
+        SELECT mps.scored_at,
+               (sth.themes || ',')::text AS themes_str,
+               mps.total_score, mps.price_attractiveness, mps.earnings_momentum
+        FROM market_power_scores mps
+        LEFT JOIN stock_themes sth ON sth.stock_code = mps.stock_code
+        WHERE mps.user_id = %s AND mps.scored_at >= CURRENT_DATE - INTERVAL '%s days'
+        ORDER BY mps.scored_at
+    """, (uid, days))
+    from collections import defaultdict
+    by_date_theme: dict = defaultdict(lambda: defaultdict(list))
+    for r in rows:
+        d = r["scored_at"].strftime("%Y-%m-%d")
+        themes_str = (r["themes_str"] or "").strip(",").strip()
+        theme = themes_str.split(",")[0].strip() if themes_str else ""
+        if not theme:
+            continue
+        mp  = float(r["total_score"] or 0)
+        pa  = float(r["price_attractiveness"] or 0) if r["price_attractiveness"] is not None else None
+        em  = float(r["earnings_momentum"]    or 0) if r["earnings_momentum"]    is not None else None
+        composite = round(mp * 0.6 + (pa or 0) * 0.25 + (em or 0) * 0.15, 2) if pa is not None and em is not None else mp
+        by_date_theme[d][theme].append(composite)
+    by_date = {}
+    all_themes = set()
+    for d, td in sorted(by_date_theme.items()):
+        by_date[d] = {}
+        for t, vals in td.items():
+            by_date[d][t] = round(sum(vals) / len(vals), 2)
+            all_themes.add(t)
+    return jsonify({"dates": sorted(by_date), "by_date": by_date, "themes": sorted(all_themes)})
+
+
+@app.route("/api/history/role_scores")
+def api_history_role_scores():
+    """종목별 역할점수 일별 히스토리."""
+    uid  = _current_uid()
+    days = int(request.args.get("days", 60))
+    rows = query("""
+        SELECT stock_code, stock_name, role_score, recorded_at
+        FROM role_scores_history
+        WHERE user_id = %s AND recorded_at >= CURRENT_DATE - INTERVAL '%s days'
+        ORDER BY recorded_at, stock_code
+    """, (uid, days))
+    by_date: dict = {}
+    for r in rows:
+        d = r["recorded_at"].strftime("%Y-%m-%d")
+        if d not in by_date:
+            by_date[d] = {}
+        by_date[d][r["stock_code"]] = {
+            "score": int(r["role_score"] or 0),
+            "name":  r["stock_name"] or r["stock_code"],
+        }
+    stocks = {r["stock_code"]: r["stock_name"] or r["stock_code"] for r in rows}
+    return jsonify({"dates": sorted(by_date), "by_date": by_date, "stocks": stocks})
 
 
 @app.route("/api/market_power/theme_suggestions/stock_preview", methods=["POST"])
