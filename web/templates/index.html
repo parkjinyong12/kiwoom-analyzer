@@ -10843,7 +10843,7 @@ async function mpOpenModal(prefillCode) {
   // 날짜: 편집이면 기존 날짜, 신규면 오늘
   document.getElementById('mp-scored-at').value = existing
     ? (existing.scored_at || '').slice(0, 10)
-    : new Date().toISOString().slice(0, 10);
+    : kstDateStr();
 
   // 슬라이더 생성 + 편집 시 기존 raw값 복원 (저장값 ÷ multiplier)
   const wrap = document.getElementById('mp-sliders');
