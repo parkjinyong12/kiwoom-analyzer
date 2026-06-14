@@ -10436,10 +10436,13 @@ function mpGradeBadge(grade) {
   return `<span style="background:${b};color:${c};padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700">${grade}</span>`;
 }
 
+let _mpLatestData = {};   // stock_code → 최신 점수 row
+
 async function mpLoad() {
   const res = await fetch('/api/market_power');
   if (!res.ok) return;
   const rows = await res.json();
+  _mpLatestData = Object.fromEntries(rows.map(r => [r.stock_code, r]));
   const tbody = document.getElementById('mp-list-body');
   if (!rows.length) {
     tbody.innerHTML = '<tr><td colspan="12" style="padding:30px;text-align:center;color:#475569;font-size:13px">데이터 없음 — 점수 입력 버튼으로 추가하세요</td></tr>';
@@ -10529,37 +10532,45 @@ async function mpOpenModal(prefillCode) {
     .map(h => `<option value="${h.stock_code}" data-name="${h.stock_name}">${h.stock_name} (${h.stock_code})</option>`)
     .join('');
   document.getElementById('mp-stock-select').innerHTML = '<option value="">-- 선택 --</option>' + opts;
+
+  // 편집 모드: 기존 데이터 로드
+  const existing = prefillCode ? (_mpLatestData[prefillCode] || null) : null;
+
   if (prefillCode) {
     document.getElementById('mp-stock-select').value = prefillCode;
   }
 
-  // 날짜 기본값: 오늘
-  document.getElementById('mp-scored-at').value = new Date().toISOString().slice(0,10);
+  // 날짜: 편집이면 기존 날짜, 신규면 오늘
+  document.getElementById('mp-scored-at').value = existing
+    ? (existing.scored_at || '').slice(0, 10)
+    : new Date().toISOString().slice(0, 10);
 
-  // 슬라이더 생성
+  // 슬라이더 생성 + 편집 시 기존 raw값 복원 (저장값 ÷ multiplier)
   const wrap = document.getElementById('mp-sliders');
-  wrap.innerHTML = MP_DIMS.map(d => `
+  wrap.innerHTML = MP_DIMS.map(d => {
+    const rawVal = existing ? Math.round((existing[d.key] || 0) / d.mult) : 0;
+    return `
     <div>
       <div style="display:flex;justify-content:space-between;margin-bottom:5px">
         <span style="font-size:12px;color:#94a3b8">${d.label}</span>
         <span style="font-size:12px;font-weight:600;color:#e2e8f0">
-          <span id="mp-raw-${d.key}">0</span>점
+          <span id="mp-raw-${d.key}">${rawVal}</span>점
           <span style="color:#334155;font-size:11px"> → </span>
-          <span id="mp-val-${d.key}" style="color:#60a5fa">0</span>/<span style="color:#334155">${d.max}</span>
+          <span id="mp-val-${d.key}" style="color:#60a5fa">${rawVal * d.mult}</span>/<span style="color:#334155">${d.max}</span>
         </span>
       </div>
-      <input type="range" id="mp-slider-${d.key}" min="0" max="5" value="0" step="1"
+      <input type="range" id="mp-slider-${d.key}" min="0" max="5" value="${rawVal}" step="1"
              style="width:100%;accent-color:#3b82f6;cursor:pointer"
              oninput="mpUpdateSlider('${d.key}',${d.mult})"/>
       <div style="display:flex;justify-content:space-between;font-size:10px;color:#334155;margin-top:2px">
         <span>0</span><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span>
       </div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 
-  document.getElementById('mp-memo').value = '';
-  document.getElementById('mp-price-attractiveness').value = '';
-  document.getElementById('mp-earnings-momentum').value = '';
+  document.getElementById('mp-memo').value                = existing?.memo                || '';
+  document.getElementById('mp-price-attractiveness').value = existing?.price_attractiveness != null ? existing.price_attractiveness : '';
+  document.getElementById('mp-earnings-momentum').value   = existing?.earnings_momentum   != null ? existing.earnings_momentum   : '';
   mpRecalc();
 
   const modal = document.getElementById('mp-modal');
