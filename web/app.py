@@ -3305,42 +3305,42 @@ def api_market_power_theme_suggestions():
         else:
             signal = "강한 하향"
 
-        existing = theme_target.get(theme, 0.0)
-        if signal == "강한 상향":
-            recommended = existing + adj_strong
-        elif signal == "상향 후보":
-            recommended = existing + adj_basic
-        elif signal == "하향 후보":
-            recommended = existing - adj_basic
-        elif signal == "강한 하향":
-            recommended = existing - adj_strong
-        else:
-            recommended = existing
-        recommended = round(max(0.0, recommended), 2)
-
+        existing  = theme_target.get(theme, 0.0)
         cur_ratio = round(theme_eval.get(theme, 0) / total_eval * 100, 2) if total_eval > 0 else 0
 
+        # recommended는 나중에 composite 비례로 일괄 계산 (신호는 참고용)
         result.append({
-            "theme":         theme,
-            "stock_count":   len(mp_list),
-            "current_ratio": cur_ratio,
+            "theme":           theme,
+            "stock_count":     len(mp_list),
+            "current_ratio":   cur_ratio,
             "existing_target": existing,
-            "mp_avg":        mp_avg,
-            "pa_avg":        pa_avg,
-            "em_avg":        em_avg,
-            "composite":     composite,
-            "avg_20d":       avg_20d,
-            "deviation":     deviation,
-            "signal":        signal,
-            "recommended":   recommended,
+            "mp_avg":          mp_avg,
+            "pa_avg":          pa_avg,
+            "em_avg":          em_avg,
+            "composite":       composite,
+            "avg_20d":         avg_20d,
+            "deviation":       deviation,
+            "signal":          signal,
+            "recommended":     0.0,  # 아래에서 채움
         })
 
-    # 마켓파워 점수 있는 테마만 (현금 등 비주식 테마 제외), recommended 합계 100%로 정규화
+    # 마켓파워 점수 있는 테마만 필터
     result = [r for r in result if r["stock_count"] > 0]
-    total_rec = sum(r["recommended"] for r in result)
-    if total_rec > 0:
-        for r in result:
-            r["recommended"] = round(r["recommended"] / total_rec * 100, 2)
+
+    # recommended = composite 점수 비례 절댓값 → 합계 100% 정규화
+    # 신호 강도로 composite에 가중치 적용 (강한 상향 ×1.15, 상향 ×1.07, 하향 ×0.93, 강한 하향 ×0.85)
+    _signal_weight = {
+        "강한 상향": 1.15, "상향 후보": 1.07, "유지": 1.00,
+        "하향 후보": 0.93, "강한 하향": 0.85, "20일평균 없음": 1.00,
+    }
+    for r in result:
+        w = _signal_weight.get(r["signal"], 1.00)
+        r["_weighted"] = max(0.0, (r["composite"] or 0) * w)
+    total_weighted = sum(r["_weighted"] for r in result)
+    for r in result:
+        r["recommended"] = round(r["_weighted"] / total_weighted * 100, 2) if total_weighted > 0 else 0.0
+        del r["_weighted"]
+
     result.sort(key=lambda x: -(x["composite"] or 0))
     return jsonify({"themes": result, "total_eval": total_eval})
 
