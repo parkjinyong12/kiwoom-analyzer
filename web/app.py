@@ -2996,7 +2996,8 @@ def api_market_power_save():
     em_raw = body.get("earnings_momentum")
     pa = min(max(int(pa_raw), 0), 100) if pa_raw not in (None, "") else None
     em = min(max(int(em_raw), 0), 100) if em_raw not in (None, "") else None
-    composite = round(total * 0.6 + pa * 0.25 + em * 0.15, 2) if (pa is not None and em is not None) else None
+    # 품질점수(composite) = MP×60% + EM×40% — PA는 매수/감액 타이밍 보정에만 사용
+    composite = round(total * 0.60 + em * 0.40, 2) if em is not None else None
 
     with get_conn() as conn:
         conn.cursor().execute("""
@@ -3032,12 +3033,13 @@ def api_market_power_save():
 def api_market_power_suggestions():
     """마켓파워 기반 종목별 목표비율 제안 (종목 먼저 → 테마 비율 도출, A안).
 
-    전략점수       = MP×75% + 실적모멘텀×20% + 가격매력×5%
-    배분점수       = (전략점수/100)^1.5 × (역할점수/20)^1.8 × 테마적합도 보정 × 변곡점신호 배율
+    품질점수       = MP×60% + 실적모멘텀×40%   (목표비중 결정의 핵심)
+    가격보정계수   = 1 + clamp((가격매력 - 55) / 30, -1, 1) × 0.10  (±10% 범위)
+    배분점수       = (품질점수/100)^1.5 × (역할점수/20)^1.8 × 테마적합도 보정 × 변곡점신호 배율 × 가격보정계수
     테마적합도보정 = fit_score / 100  (미입력 시 1.0)
     변곡점신호배율 = 테마 20일 이탈률 기준 0.85~1.15
-    매수우선점수   = MP×30% + 가격매력×45% + 실적모멘텀×25%
-    감액우선점수   = 초과비중×50% + 가격부담×30% + 모멘텀둔화×20%
+    매수우선점수   = MP×50% + 실적모멘텀×30% + 가격매력×20%
+    감액우선점수   = 초과비중×70% + 모멘텀둔화×20% + 가격부담×10%
 
     제안비율 = 배분점수 / 전체합계 × 100  (전종목 전역 정규화, 테마 목표비율 미사용)
     테마 제안비율 = 해당 테마 종목 제안비율 합산 (자동 도출)
@@ -3197,12 +3199,24 @@ def api_market_power_suggestions():
     stocks = []
     for r in mp_rows:
         code = r["stock_code"]
-        mp   = float(r["total_score"]          or 0)
-        pa   = float(r["price_attractiveness"] or 0) if r["price_attractiveness"] is not None else 0.0
-        em   = float(r["earnings_momentum"]    or 0) if r["earnings_momentum"]    is not None else 0.0
+        mp          = float(r["total_score"]          or 0)
+        pa_raw_val  = r["price_attractiveness"]
+        pa_entered  = pa_raw_val is not None
+        pa          = float(pa_raw_val or 0) if pa_entered else 0.0
+        em          = float(r["earnings_momentum"]    or 0) if r["earnings_momentum"]    is not None else 0.0
 
-        target_score = round(mp * 0.75 + em * 0.20 + pa * 0.05, 2)
-        buy_score    = round(mp * 0.30 + pa * 0.45 + em * 0.25, 2)
+        # 품질점수: 목표비중 결정의 핵심 (가격매력은 보정계수로만)
+        quality_score = round(mp * 0.60 + em * 0.40, 2)
+        target_score  = quality_score  # 하위 호환 유지
+
+        # 가격보정계수: 가격매력이 입력된 경우에만 ±10% 보정, 미입력 시 1.0
+        if pa_entered:
+            price_corr = 1.0 + max(-1.0, min(1.0, (pa - 55.0) / 30.0)) * 0.10
+        else:
+            price_corr = 1.0
+
+        # 매수우선점수: MP 50% + EM 30% + PA 20% (PA 역할 축소)
+        buy_score = round(mp * 0.50 + em * 0.30 + pa * 0.20, 2)
 
         rb          = rb_map.get(code, {})
         existing    = float(rb.get("target_ratio") or 0)
@@ -3216,13 +3230,13 @@ def api_market_power_suggestions():
         sig     = theme_signal.get(theme, "20일평균 없음")
         sig_mod = _SIGNAL_MULT.get(sig, 1.00)
 
-        # 배분점수: 종목 품질 × 테마 적합도 보정 × 변곡점 신호
+        # 배분점수: 품질점수 × 테마 적합도 보정 × 변곡점 신호 × 가격보정계수(±10%)
         if role_score > 10:
-            allocation_score = round((target_score / 100) ** 1.5 * (role_score / 20) ** 1.8 * fit_mod * sig_mod, 6)
+            allocation_score = round((quality_score / 100) ** 1.5 * (role_score / 20) ** 1.8 * fit_mod * sig_mod * price_corr, 6)
         elif role_score > 0:
             allocation_score = 0.0
         else:
-            allocation_score = round((target_score / 100) ** 1.5 * fit_mod * sig_mod, 6)
+            allocation_score = round((quality_score / 100) ** 1.5 * fit_mod * sig_mod * price_corr, 6)
 
         cur_detail = stock_detail.get(code, {"qty": 0, "price": 0})
         cur_qty    = cur_detail["qty"]
@@ -3232,7 +3246,9 @@ def api_market_power_suggestions():
 
         overweight_raw   = cur_ratio - existing
         overweight_score = min(100.0, max(0.0, overweight_raw / ob_pp * 100)) if ob_pp > 0 else 0.0
-        sell_score       = round(overweight_score * 0.50 + (100 - pa) * 0.30 + (100 - em) * 0.20, 2)
+        # 감액우선점수: 초과비중 70% + 모멘텀둔화 20% + 가격부담 10%
+        # 가격매력 단독으로 매도 유발 방지 — 초과비중이 주도해야 함
+        sell_score       = round(overweight_score * 0.70 + (100 - em) * 0.20 + (100 - pa) * 0.10, 2)
 
         stocks.append({
             "stock_code":           code,
@@ -3244,6 +3260,8 @@ def api_market_power_suggestions():
             "earnings_momentum":    r["earnings_momentum"],
             "composite_score":      r["composite_score"],
             "target_score":         target_score,
+            "quality_score":        quality_score,
+            "price_correction":     round(price_corr, 4),
             "allocation_score":     allocation_score,
             "role_score":           role_score,
             "role_weight":          role_weight,
@@ -3362,7 +3380,7 @@ def api_role_scores_put(stock_code):
 def api_market_power_theme_suggestions():
     """마켓파워 기반 테마 목표비율 제안.
 
-    테마 종합점수 = MP평균×60% + 가격매력평균×25% + 실적모멘텀평균×15%
+    테마 품질점수 = MP평균×60% + 실적모멘텀평균×40%  (PA는 종목 배분 보정계수에만 사용)
     변곡점 신호  = 20일 이탈률 기준 (±7% / ±12%)
     권장 목표비율 = 기존 ± 기본조정폭(1%p) / 강한조정폭(2%p)
     정규화 목표  = 권장 합계 → 100% 재조정
@@ -3479,8 +3497,9 @@ def api_market_power_theme_suggestions():
         pa_avg = round(sum(pa_list) / len(pa_list), 2) if pa_list else None
         em_avg = round(sum(em_list) / len(em_list), 2) if em_list else None
 
-        if mp_avg is not None and pa_avg is not None and em_avg is not None:
-            composite = round(mp_avg * 0.6 + pa_avg * 0.25 + em_avg * 0.15, 2)
+        # 테마 품질점수: MP×60% + EM×40% (PA는 종목 배분 보정계수에만 사용)
+        if mp_avg is not None and em_avg is not None:
+            composite = round(mp_avg * 0.60 + em_avg * 0.40, 2)
         elif mp_avg is not None:
             composite = mp_avg
         else:
