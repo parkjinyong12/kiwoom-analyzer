@@ -3320,17 +3320,25 @@ def api_market_power_theme_suggestions():
         if r["earnings_momentum"] is not None:
             tm_em[t].append(float(r["earnings_momentum"]))
 
-    # 20일 평균 마켓파워 (이력 기반, 없으면 None)
+    # 20일 평균 — composite_score 기준 (composite 없으면 total_score fallback)
+    # 반드시 같은 종류끼리 비교: composite vs 20일평균composite
     hist_rows = query("""
-        SELECT stock_code, AVG(total_score) AS avg_mp
+        SELECT stock_code,
+               AVG(total_score)     AS avg_mp,
+               AVG(composite_score) AS avg_composite
         FROM market_power_scores
         WHERE user_id = %s AND scored_at >= CURRENT_DATE - INTERVAL '20 days'
         GROUP BY stock_code
     """, [uid])
-    tm_hist_mp: dict[str, list] = defaultdict(list)
+    tm_hist_comp: dict[str, list] = defaultdict(list)
+    tm_hist_mp:   dict[str, list] = defaultdict(list)
     for r in hist_rows:
         t = theme_map.get(r["stock_code"], "")
-        if t and r["avg_mp"] is not None:
+        if not t:
+            continue
+        if r["avg_composite"] is not None:
+            tm_hist_comp[t].append(float(r["avg_composite"]))
+        if r["avg_mp"] is not None:
             tm_hist_mp[t].append(float(r["avg_mp"]))
 
     # 테마 목록 = 기존 목표 + 마켓파워 있는 테마 합집합
@@ -3353,9 +3361,17 @@ def api_market_power_theme_suggestions():
         else:
             composite = None
 
-        hist_list = tm_hist_mp.get(theme, [])
-        avg_20d   = round(sum(hist_list) / len(hist_list), 2) if hist_list else None
+        # composite 기준 20일 평균이 있으면 우선 사용, 없으면 mp 기준 fallback
+        comp_hist = tm_hist_comp.get(theme, [])
+        mp_hist   = tm_hist_mp.get(theme, [])
+        if comp_hist:
+            avg_20d = round(sum(comp_hist) / len(comp_hist), 2)
+        elif mp_hist:
+            avg_20d = round(sum(mp_hist) / len(mp_hist), 2)
+        else:
+            avg_20d = None
 
+        # 이탈률: 비교 대상이 동종(composite↔composite, mp↔mp)으로 맞춰짐
         if composite is not None and avg_20d is not None and avg_20d > 0:
             deviation = round((composite - avg_20d) / avg_20d * 100, 2)
         else:
@@ -3401,43 +3417,35 @@ def api_market_power_theme_suggestions():
     if not result:
         return jsonify({"themes": [], "total_eval": total_eval})
 
-    # ── 권장 목표비율 계산 ────────────────────────────────────────────────────
-    # recommended는 existing에 의존하지 않아야 수렴 가능.
-    # alloc_score = fit_score × portfolio_role_weight (역할 가중치로 배분 차별화)
-    # fit_score 없음: composite 비례 정규화 (마켓파워 점수 기반)
-    fit_themes   = [r for r in result if r["fit_score"] is not None]
-    nofit_themes = [r for r in result if r["fit_score"] is None]
+    # ── 권장 목표비율: 기존목표 + 변곡점 조정폭 → 합계 100% 정규화 ────────────
+    # 테마 목표비율은 정책값 — 점수 비례 전체 재배분 금지.
+    # 변곡점 신호가 기존 목표에 ±1~2%p 조정을 가할지 결정하는 용도로만 사용.
+    _ADJ_PP = {
+        "강한 상향":     +2.0,
+        "상향 후보":     +1.0,
+        "유지":           0.0,
+        "하락 후보":     -1.0,
+        "강한 하향":     -2.0,
+        "20일평균 없음":  0.0,
+    }
+    for r in result:
+        existing = r["existing_target"]
+        adj      = _ADJ_PP.get(r["signal"], 0.0)
+        # 기존 목표가 없는 테마(신규)는 제안 보류
+        r["_temp"] = max(0.0, existing + adj) if existing > 0 else 0.0
 
-    if fit_themes and not nofit_themes:
-        # 전체 alloc_score(=fit × role_weight) 비례 → 역할 가중치 반영
-        for r in fit_themes:
-            r["_alloc"] = r["fit_score"] * r["portfolio_role_weight"]
-        total_alloc = sum(r["_alloc"] for r in fit_themes) or 1
-        for r in fit_themes:
-            r["recommended"] = r["_alloc"] / total_alloc * 100
-            del r["_alloc"]
-    elif fit_themes:
-        # 일부만 입력: fit 테마 80% 배분, 나머지 20%를 composite 비례
-        for r in fit_themes:
-            r["_alloc"] = r["fit_score"] * r["portfolio_role_weight"]
-        total_alloc = sum(r["_alloc"] for r in fit_themes) or 1
-        total_comp  = sum((r["composite"] or 0) for r in nofit_themes) or 1
-        for r in fit_themes:
-            r["recommended"] = r["_alloc"] / total_alloc * 80
-            del r["_alloc"]
-        for r in nofit_themes:
-            r["recommended"] = (r["composite"] or 0) / total_comp * 20
+    total_temp = sum(r["_temp"] for r in result)
+    if total_temp > 0:
+        for r in result:
+            r["recommended"] = round(r["_temp"] / total_temp * 100, 2)
     else:
-        # fit_score 전혀 없음: composite 비례
+        # 기존 목표가 전혀 없는 경우: composite 비례 fallback
         total_comp = sum((r["composite"] or 0) for r in result) or 1
         for r in result:
-            r["recommended"] = (r["composite"] or 0) / total_comp * 100
+            r["recommended"] = round((r["composite"] or 0) / total_comp * 100, 2)
 
-    # 합계 100% 정규화
-    total_rec = sum(r["recommended"] for r in result)
-    if total_rec > 0:
-        for r in result:
-            r["recommended"] = round(r["recommended"] / total_rec * 100, 2)
+    for r in result:
+        del r["_temp"]
 
     result.sort(key=lambda x: -(x["composite"] or 0))
     return jsonify({"themes": result, "total_eval": total_eval})
