@@ -11398,22 +11398,27 @@ async function rsSave() {
 
 // ─── 테마 포트 적합도 관리 ───────────────────────────────────────────────────
 
+const _tfRows = [];  // 인덱스 기반 캐시
+
 async function tfLoad() {
   const res  = await fetch('/api/theme_fit_scores');
   if (!res.ok) return;
   const rows = await res.json();
+  _tfRows.length = 0;
+  rows.forEach((r, i) => { _tfRows[i] = r; });
+
   const tbody = document.getElementById('tf-list-body');
   if (!rows.length) {
     tbody.innerHTML = '<tr><td colspan="9" style="padding:30px;text-align:center;color:#475569;font-size:13px">데이터 없음 — 테마 리밸런싱에서 목표비율을 먼저 설정하세요</td></tr>';
     return;
   }
-  tbody.innerHTML = rows.map(r => {
+  const cell = v => v !== null && v !== undefined
+    ? `<span style="color:#e2e8f0">${v}</span>`
+    : `<span style="color:#334155">—</span>`;
+  tbody.innerHTML = rows.map((r, idx) => {
     const fs = r.fit_score;
     const fsColor = fs === null ? '#475569' : fs >= 70 ? '#4ade80' : fs >= 50 ? '#60a5fa' : fs >= 30 ? '#f59e0b' : '#f87171';
     const fsText  = fs !== null ? fs.toFixed(1) : '미입력';
-    const cell = v => v !== null && v !== undefined
-      ? `<span style="color:#e2e8f0">${v}</span>`
-      : `<span style="color:#334155">—</span>`;
     return `<tr style="border-bottom:1px solid #0f1117">
       <td style="padding:7px 10px;color:#e2e8f0;font-weight:600">${r.theme}</td>
       <td style="padding:7px 8px;text-align:right">${cell(r.core_logic_fit)}</td>
@@ -11424,15 +11429,17 @@ async function tfLoad() {
       <td style="padding:7px 8px;text-align:right;font-weight:700;color:${fsColor}">${fsText}</td>
       <td style="padding:7px 8px;text-align:right;color:#fbbf24">${r.target_ratio.toFixed(1)}%</td>
       <td style="padding:7px 4px;text-align:center">
-        <button class="btn btn-ghost" style="font-size:11px;padding:3px 8px" onclick="tfOpenModal('${r.theme}',${JSON.stringify(r)})">편집</button>
+        <button class="btn btn-ghost" style="font-size:11px;padding:3px 8px" onclick="tfOpenModal(${idx})">편집</button>
       </td>
     </tr>`;
   }).join('');
 }
 
-function tfOpenModal(theme, r) {
-  document.getElementById('tf-modal-theme').value = theme;
-  document.getElementById('tf-modal-title').textContent = `포트 적합도 편집 — ${theme}`;
+function tfOpenModal(idx) {
+  const r = _tfRows[idx];
+  if (!r) return;
+  document.getElementById('tf-modal-theme').value = r.theme;
+  document.getElementById('tf-modal-title').textContent = `포트 적합도 편집 — ${r.theme}`;
   const fields = { clf: r.core_logic_fit, bd: r.bottleneck_directness, acs: r.ai_capex_sensitivity, tc: r.theme_cohesion, ue: r.uncorrelated_effect };
   Object.entries(fields).forEach(([k, v]) => {
     const val = v ?? 0;
