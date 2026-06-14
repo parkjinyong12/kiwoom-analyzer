@@ -481,6 +481,14 @@ def _ensure_user_id_migration():
         """)
     _run_migration_step(_step_theme_constraint)
 
+    def _step_theme_fit_cols(cur):
+        cur.execute("ALTER TABLE theme_targets ADD COLUMN IF NOT EXISTS core_logic_fit        SMALLINT DEFAULT NULL")
+        cur.execute("ALTER TABLE theme_targets ADD COLUMN IF NOT EXISTS bottleneck_directness SMALLINT DEFAULT NULL")
+        cur.execute("ALTER TABLE theme_targets ADD COLUMN IF NOT EXISTS ai_capex_sensitivity  SMALLINT DEFAULT NULL")
+        cur.execute("ALTER TABLE theme_targets ADD COLUMN IF NOT EXISTS theme_cohesion        SMALLINT DEFAULT NULL")
+        cur.execute("ALTER TABLE theme_targets ADD COLUMN IF NOT EXISTS uncorrelated_effect   SMALLINT DEFAULT NULL")
+    _run_migration_step(_step_theme_fit_cols)
+
 
 def _ensure_rebalance_targets_table():
     with get_conn() as conn:
@@ -3211,9 +3219,26 @@ def api_market_power_theme_suggestions():
         if t:
             theme_map[r["stock_code"]] = t
 
-    # 현재 테마 목표비율
-    tt_rows      = query("SELECT theme, target_ratio FROM theme_targets WHERE user_id = %s", [uid])
-    theme_target = {r["theme"]: float(r["target_ratio"] or 0) for r in tt_rows}
+    # 현재 테마 목표비율 + 포트 적합도 점수
+    tt_rows = query("""
+        SELECT theme, target_ratio,
+               core_logic_fit, bottleneck_directness,
+               ai_capex_sensitivity, theme_cohesion, uncorrelated_effect
+        FROM theme_targets WHERE user_id = %s
+    """, [uid])
+    theme_target  = {}
+    theme_fit_map = {}
+    for r in tt_rows:
+        theme_target[r["theme"]] = float(r["target_ratio"] or 0)
+        clf, bd, acs, tc, ue = (
+            r["core_logic_fit"], r["bottleneck_directness"],
+            r["ai_capex_sensitivity"], r["theme_cohesion"], r["uncorrelated_effect"],
+        )
+        if any(v is not None for v in [clf, bd, acs, tc, ue]):
+            theme_fit_map[r["theme"]] = round(
+                (clf or 0) * 0.35 + (bd or 0) * 0.25 +
+                (acs or 0) * 0.20 + (tc or 0) * 0.10 + (ue or 0) * 0.10, 2
+            )
 
     # 보유종목 평가금액 (테마 현재비율 계산용)
     hold_rows = query("""
@@ -3305,42 +3330,45 @@ def api_market_power_theme_suggestions():
         else:
             signal = "강한 하향"
 
-        existing = theme_target.get(theme, 0.0)
-        if signal == "강한 상향":
-            recommended = existing + adj_strong
-        elif signal == "상향 후보":
-            recommended = existing + adj_basic
-        elif signal == "하향 후보":
-            recommended = existing - adj_basic
-        elif signal == "강한 하향":
-            recommended = existing - adj_strong
-        else:
-            recommended = existing
-        recommended = round(max(0.0, recommended), 2)
-
+        existing  = theme_target.get(theme, 0.0)
+        fit_score = theme_fit_map.get(theme)   # None이면 미입력
         cur_ratio = round(theme_eval.get(theme, 0) / total_eval * 100, 2) if total_eval > 0 else 0
 
         result.append({
-            "theme":         theme,
-            "stock_count":   len(mp_list),
-            "current_ratio": cur_ratio,
+            "theme":           theme,
+            "stock_count":     len(mp_list),
+            "current_ratio":   cur_ratio,
             "existing_target": existing,
-            "mp_avg":        mp_avg,
-            "pa_avg":        pa_avg,
-            "em_avg":        em_avg,
-            "composite":     composite,
-            "avg_20d":       avg_20d,
-            "deviation":     deviation,
-            "signal":        signal,
-            "recommended":   recommended,
+            "mp_avg":          mp_avg,
+            "pa_avg":          pa_avg,
+            "em_avg":          em_avg,
+            "composite":       composite,
+            "avg_20d":         avg_20d,
+            "deviation":       deviation,
+            "signal":          signal,
+            "fit_score":       fit_score,
+            "recommended":     0.0,   # 아래에서 채움
         })
 
-    # 마켓파워 점수 있는 테마만 (현금 등 비주식 테마 제외), recommended 합계 100%로 정규화
+    # 마켓파워 점수 있는 테마만 필터
     result = [r for r in result if r["stock_count"] > 0]
-    total_rec = sum(r["recommended"] for r in result)
-    if total_rec > 0:
-        for r in result:
-            r["recommended"] = round(r["recommended"] / total_rec * 100, 2)
+
+    # 배분점수 = composite × 0.45 + fit_score × 0.55
+    # fit_score 미입력 테마는 composite만 사용 (fit_score 입력 테마와 동등하게 경쟁)
+    any_fit = any(r["fit_score"] is not None for r in result)
+    for r in result:
+        comp = r["composite"] or 0
+        fs   = r["fit_score"]
+        if any_fit and fs is not None:
+            r["_alloc"] = comp * 0.45 + fs * 0.55
+        else:
+            r["_alloc"] = comp   # fit_score 전혀 없으면 composite만
+
+    total_alloc = sum(r["_alloc"] for r in result)
+    for r in result:
+        r["recommended"] = round(r["_alloc"] / total_alloc * 100, 2) if total_alloc > 0 else 0.0
+        del r["_alloc"]
+
     result.sort(key=lambda x: -(x["composite"] or 0))
     return jsonify({"themes": result, "total_eval": total_eval})
 
@@ -3363,6 +3391,76 @@ def api_market_power_theme_suggestions_apply():
                 ON CONFLICT (user_id, theme) DO UPDATE
                 SET target_ratio = EXCLUDED.target_ratio, updated_at = NOW()
             """, (uid, theme, ratio))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/theme_fit_scores")
+def api_theme_fit_scores_get():
+    """테마별 포트 적합도 점수 조회."""
+    uid  = _current_uid()
+    rows = query("""
+        SELECT tt.theme, tt.target_ratio,
+               tt.core_logic_fit, tt.bottleneck_directness,
+               tt.ai_capex_sensitivity, tt.theme_cohesion, tt.uncorrelated_effect
+        FROM theme_targets tt
+        WHERE tt.user_id = %s
+        ORDER BY tt.theme
+    """, (uid,))
+    result = []
+    for r in rows:
+        clf  = r["core_logic_fit"]
+        bd   = r["bottleneck_directness"]
+        acs  = r["ai_capex_sensitivity"]
+        tc   = r["theme_cohesion"]
+        ue   = r["uncorrelated_effect"]
+        fit_entered = any(v is not None for v in [clf, bd, acs, tc, ue])
+        if fit_entered:
+            fit_score = round(
+                (clf or 0) * 0.35 + (bd or 0) * 0.25 +
+                (acs or 0) * 0.20 + (tc or 0) * 0.10 + (ue or 0) * 0.10, 2
+            )
+        else:
+            fit_score = None
+        result.append({
+            "theme":                  r["theme"],
+            "target_ratio":           float(r["target_ratio"] or 0),
+            "core_logic_fit":         int(clf) if clf is not None else None,
+            "bottleneck_directness":  int(bd)  if bd  is not None else None,
+            "ai_capex_sensitivity":   int(acs) if acs is not None else None,
+            "theme_cohesion":         int(tc)  if tc  is not None else None,
+            "uncorrelated_effect":    int(ue)  if ue  is not None else None,
+            "fit_score":              fit_score,
+        })
+    return jsonify(result)
+
+
+@app.route("/api/theme_fit_scores/<path:theme>", methods=["PUT"])
+def api_theme_fit_scores_put(theme):
+    """테마 포트 적합도 점수 저장."""
+    uid  = _current_uid()
+    data = request.json or {}
+    def _clamp(v):
+        if v is None: return None
+        return max(0, min(100, int(v)))
+    clf  = _clamp(data.get("core_logic_fit"))
+    bd   = _clamp(data.get("bottleneck_directness"))
+    acs  = _clamp(data.get("ai_capex_sensitivity"))
+    tc   = _clamp(data.get("theme_cohesion"))
+    ue   = _clamp(data.get("uncorrelated_effect"))
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO theme_targets (user_id, theme, target_ratio, core_logic_fit,
+                bottleneck_directness, ai_capex_sensitivity, theme_cohesion, uncorrelated_effect, updated_at)
+            VALUES (%s, %s, 0, %s, %s, %s, %s, %s, NOW())
+            ON CONFLICT (user_id, theme) DO UPDATE
+            SET core_logic_fit        = EXCLUDED.core_logic_fit,
+                bottleneck_directness = EXCLUDED.bottleneck_directness,
+                ai_capex_sensitivity  = EXCLUDED.ai_capex_sensitivity,
+                theme_cohesion        = EXCLUDED.theme_cohesion,
+                uncorrelated_effect   = EXCLUDED.uncorrelated_effect,
+                updated_at            = NOW()
+        """, (uid, theme, clf, bd, acs, tc, ue))
     return jsonify({"ok": True})
 
 

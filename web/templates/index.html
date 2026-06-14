@@ -3097,7 +3097,7 @@ canvas { max-height: 220px; }
         <div class="page-sub">종목별 공급자 우위 점수 관리 (100점 만점) — 병목성·대체불가·가격결정력·수요·증설·고객락인</div>
       </div>
       <div style="display:flex;gap:8px">
-        <button class="btn btn-ghost" style="font-size:12px" onclick="mpLoad().then(()=>mpLoadThemeSuggestions().then(mpLoadSuggestions)); rsLoad()">새로고침</button>
+        <button class="btn btn-ghost" style="font-size:12px" onclick="mpLoad().then(()=>mpLoadThemeSuggestions().then(mpLoadSuggestions)); rsLoad(); tfLoad()">새로고침</button>
         <button class="btn btn-primary" onclick="mpOpenModal()">+ 점수 입력</button>
       </div>
     </div>
@@ -3305,7 +3305,102 @@ canvas { max-height: 220px; }
         </table>
       </div>
     </div>
+
+    <!-- 테마 포트 적합도 섹션 -->
+    <div style="background:#111827;border:1px solid #1e2535;border-radius:10px;padding:16px 20px;margin-top:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+        <div>
+          <span style="font-size:13px;font-weight:600;color:#94a3b8">테마 포트 적합도</span>
+          <span style="font-size:11px;color:#475569;margin-left:10px">테마 목표비율 제안 = composite × 45% + 적합도 × 55%</span>
+        </div>
+        <button class="btn btn-ghost" style="font-size:12px" onclick="tfLoad()">새로고침</button>
+      </div>
+      <div style="font-size:11px;color:#475569;margin-bottom:12px">
+        입력하지 않은 테마는 마켓파워 점수만으로 비례 배분됩니다. 입력 시 포트 정체성이 비율에 반영됩니다.
+      </div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead>
+            <tr style="border-bottom:1px solid #1e2535">
+              <th style="padding:7px 10px;text-align:left;color:#64748b;font-size:11px;white-space:nowrap">테마</th>
+              <th style="padding:7px 8px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap" title="핵심 투자 논리와의 부합도">핵심논리<br>적합도</th>
+              <th style="padding:7px 8px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap" title="AI CAPEX 확대 시 직접 수혜 병목인가">병목<br>직접성</th>
+              <th style="padding:7px 8px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap" title="AI 투자 증가와의 직접 연결성">AI CAPEX<br>민감도</th>
+              <th style="padding:7px 8px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap" title="테마 내 종목들이 같은 논리로 움직이는가">테마<br>응집도</th>
+              <th style="padding:7px 8px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap" title="다른 테마와 비상관 분산 효과">비상관<br>분산</th>
+              <th style="padding:7px 8px;text-align:right;color:#60a5fa;font-size:11px;white-space:nowrap">적합도<br>점수</th>
+              <th style="padding:7px 8px;text-align:right;color:#fbbf24;font-size:11px;white-space:nowrap">현재<br>목표</th>
+              <th style="padding:7px 4px;text-align:center;color:#64748b;font-size:11px"></th>
+            </tr>
+          </thead>
+          <tbody id="tf-list-body">
+            <tr><td colspan="9" style="padding:30px;text-align:center;color:#475569;font-size:13px">데이터 없음</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
   </section>
+
+  <!-- ─── 테마 포트 적합도 편집 모달 ─── -->
+  <div id="tf-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:#161b27;border:1px solid #1e2535;border-radius:12px;padding:28px 32px;width:min(520px,95vw);max-height:90vh;overflow-y:auto">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+        <span id="tf-modal-title" style="font-size:16px;font-weight:700;color:#f1f5f9">포트 적합도 편집</span>
+        <button onclick="tfCloseModal()" style="background:none;border:none;color:#64748b;font-size:18px;cursor:pointer">✕</button>
+      </div>
+      <input type="hidden" id="tf-modal-theme">
+      <div style="font-size:11px;color:#475569;margin-bottom:18px">각 항목 0~100. 숫자를 직접 입력하거나 슬라이더를 조절하세요.</div>
+
+      <div style="display:flex;flex-direction:column;gap:16px;margin-bottom:24px">
+        <div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+            <span style="font-size:12px;color:#94a3b8">핵심논리 적합도 <span style="color:#475569;font-size:11px">— AI 병목 공급망 포트 정체성과의 부합도</span></span>
+            <input type="number" id="tf-v-clf" min="0" max="100" style="width:52px;background:#0d1117;border:1px solid #1e2535;border-radius:4px;color:#e2e8f0;text-align:right;font-size:13px;padding:2px 4px" oninput="tfUpdateVal('clf',this.value)">
+          </div>
+          <input type="range" id="tf-s-clf" min="0" max="100" value="0" oninput="tfUpdateVal('clf',this.value)" style="width:100%;accent-color:#60a5fa">
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+            <span style="font-size:12px;color:#94a3b8">병목 직접성 <span style="color:#475569;font-size:11px">— AI CAPEX 확대 시 직접 막히는 공급 병목인가</span></span>
+            <input type="number" id="tf-v-bd" min="0" max="100" style="width:52px;background:#0d1117;border:1px solid #1e2535;border-radius:4px;color:#e2e8f0;text-align:right;font-size:13px;padding:2px 4px" oninput="tfUpdateVal('bd',this.value)">
+          </div>
+          <input type="range" id="tf-s-bd" min="0" max="100" value="0" oninput="tfUpdateVal('bd',this.value)" style="width:100%;accent-color:#60a5fa">
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+            <span style="font-size:12px;color:#94a3b8">AI CAPEX 민감도 <span style="color:#475569;font-size:11px">— AI 투자 증가와의 직접 연결성</span></span>
+            <input type="number" id="tf-v-acs" min="0" max="100" style="width:52px;background:#0d1117;border:1px solid #1e2535;border-radius:4px;color:#e2e8f0;text-align:right;font-size:13px;padding:2px 4px" oninput="tfUpdateVal('acs',this.value)">
+          </div>
+          <input type="range" id="tf-s-acs" min="0" max="100" value="0" oninput="tfUpdateVal('acs',this.value)" style="width:100%;accent-color:#60a5fa">
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+            <span style="font-size:12px;color:#94a3b8">테마 응집도 <span style="color:#475569;font-size:11px">— 테마 내 종목이 같은 논리로 움직이는가</span></span>
+            <input type="number" id="tf-v-tc" min="0" max="100" style="width:52px;background:#0d1117;border:1px solid #1e2535;border-radius:4px;color:#e2e8f0;text-align:right;font-size:13px;padding:2px 4px" oninput="tfUpdateVal('tc',this.value)">
+          </div>
+          <input type="range" id="tf-s-tc" min="0" max="100" value="0" oninput="tfUpdateVal('tc',this.value)" style="width:100%;accent-color:#60a5fa">
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+            <span style="font-size:12px;color:#94a3b8">비상관 분산 효과 <span style="color:#475569;font-size:11px">— 다른 테마와 비상관으로 분산 기여</span></span>
+            <input type="number" id="tf-v-ue" min="0" max="100" style="width:52px;background:#0d1117;border:1px solid #1e2535;border-radius:4px;color:#e2e8f0;text-align:right;font-size:13px;padding:2px 4px" oninput="tfUpdateVal('ue',this.value)">
+          </div>
+          <input type="range" id="tf-s-ue" min="0" max="100" value="0" oninput="tfUpdateVal('ue',this.value)" style="width:100%;accent-color:#60a5fa">
+        </div>
+      </div>
+
+      <!-- 적합도 합산 미리보기 -->
+      <div style="background:#0d1117;border-radius:8px;padding:12px 16px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:12px;color:#64748b">적합도 점수 (가중합)</span>
+        <span id="tf-total-display" style="font-size:22px;font-weight:800;color:#60a5fa">—</span>
+      </div>
+
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button class="btn btn-ghost" onclick="tfCloseModal()">취소</button>
+        <button class="btn btn-primary" onclick="tfSave()">저장</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ─── 역할점수 편집 모달 ─── -->
   <div id="rs-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;align-items:center;justify-content:center">
@@ -3693,7 +3788,7 @@ function showPage(name, fromHash) {
   if (name === 'theme-rebalance')  loadThemeRebalance();
   if (name === 'trade-history')    loadTradeHistory();
   if (name === 'qualitative')      loadQualitative();
-  if (name === 'market-power')     mpLoad().then(() => { mpLoadThemeSuggestions().then(mpLoadSuggestions); rsLoad(); });
+  if (name === 'market-power')     mpLoad().then(() => { mpLoadThemeSuggestions().then(mpLoadSuggestions); rsLoad(); tfLoad(); });
   if (name === 'common-codes')     loadCommonCodes();
 }
 
@@ -11298,8 +11393,97 @@ async function rsSave() {
   if (!res.ok) { alert('저장 실패'); return; }
   rsCloseModal();
   await rsLoad();
-  // 제안 테이블도 갱신
   mpLoadSuggestions();
+}
+
+// ─── 테마 포트 적합도 관리 ───────────────────────────────────────────────────
+
+async function tfLoad() {
+  const res  = await fetch('/api/theme_fit_scores');
+  if (!res.ok) return;
+  const rows = await res.json();
+  const tbody = document.getElementById('tf-list-body');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="9" style="padding:30px;text-align:center;color:#475569;font-size:13px">데이터 없음 — 테마 리밸런싱에서 목표비율을 먼저 설정하세요</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    const fs = r.fit_score;
+    const fsColor = fs === null ? '#475569' : fs >= 70 ? '#4ade80' : fs >= 50 ? '#60a5fa' : fs >= 30 ? '#f59e0b' : '#f87171';
+    const fsText  = fs !== null ? fs.toFixed(1) : '미입력';
+    const cell = v => v !== null && v !== undefined
+      ? `<span style="color:#e2e8f0">${v}</span>`
+      : `<span style="color:#334155">—</span>`;
+    return `<tr style="border-bottom:1px solid #0f1117">
+      <td style="padding:7px 10px;color:#e2e8f0;font-weight:600">${r.theme}</td>
+      <td style="padding:7px 8px;text-align:right">${cell(r.core_logic_fit)}</td>
+      <td style="padding:7px 8px;text-align:right">${cell(r.bottleneck_directness)}</td>
+      <td style="padding:7px 8px;text-align:right">${cell(r.ai_capex_sensitivity)}</td>
+      <td style="padding:7px 8px;text-align:right">${cell(r.theme_cohesion)}</td>
+      <td style="padding:7px 8px;text-align:right">${cell(r.uncorrelated_effect)}</td>
+      <td style="padding:7px 8px;text-align:right;font-weight:700;color:${fsColor}">${fsText}</td>
+      <td style="padding:7px 8px;text-align:right;color:#fbbf24">${r.target_ratio.toFixed(1)}%</td>
+      <td style="padding:7px 4px;text-align:center">
+        <button class="btn btn-ghost" style="font-size:11px;padding:3px 8px" onclick="tfOpenModal('${r.theme}',${JSON.stringify(r)})">편집</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function tfOpenModal(theme, r) {
+  document.getElementById('tf-modal-theme').value = theme;
+  document.getElementById('tf-modal-title').textContent = `포트 적합도 편집 — ${theme}`;
+  const fields = { clf: r.core_logic_fit, bd: r.bottleneck_directness, acs: r.ai_capex_sensitivity, tc: r.theme_cohesion, ue: r.uncorrelated_effect };
+  Object.entries(fields).forEach(([k, v]) => {
+    const val = v ?? 0;
+    document.getElementById(`tf-v-${k}`).value = val;
+    document.getElementById(`tf-s-${k}`).value = val;
+  });
+  tfRefreshTotal();
+  document.getElementById('tf-modal').style.display = 'flex';
+}
+
+function tfCloseModal() {
+  document.getElementById('tf-modal').style.display = 'none';
+}
+
+function tfUpdateVal(key, val) {
+  const v = Math.max(0, Math.min(100, +val || 0));
+  document.getElementById(`tf-v-${key}`).value = v;
+  document.getElementById(`tf-s-${key}`).value = v;
+  tfRefreshTotal();
+}
+
+function tfRefreshTotal() {
+  const clf = +document.getElementById('tf-v-clf').value || 0;
+  const bd  = +document.getElementById('tf-v-bd').value  || 0;
+  const acs = +document.getElementById('tf-v-acs').value || 0;
+  const tc  = +document.getElementById('tf-v-tc').value  || 0;
+  const ue  = +document.getElementById('tf-v-ue').value  || 0;
+  const total = clf * 0.35 + bd * 0.25 + acs * 0.20 + tc * 0.10 + ue * 0.10;
+  const el = document.getElementById('tf-total-display');
+  el.textContent = total.toFixed(1);
+  el.style.color = total >= 70 ? '#4ade80' : total >= 50 ? '#60a5fa' : total >= 30 ? '#f59e0b' : '#f87171';
+}
+
+async function tfSave() {
+  const theme = document.getElementById('tf-modal-theme').value;
+  if (!theme) return;
+  const body = {
+    core_logic_fit:       +document.getElementById('tf-v-clf').value,
+    bottleneck_directness: +document.getElementById('tf-v-bd').value,
+    ai_capex_sensitivity:  +document.getElementById('tf-v-acs').value,
+    theme_cohesion:        +document.getElementById('tf-v-tc').value,
+    uncorrelated_effect:   +document.getElementById('tf-v-ue').value,
+  };
+  const res = await fetch(`/api/theme_fit_scores/${encodeURIComponent(theme)}`, {
+    method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body),
+  });
+  if (!res.ok) { alert('저장 실패'); return; }
+  tfCloseModal();
+  await tfLoad();
+  // 제안 테이블도 갱신
+  mpLoadThemeSuggestions();
 }
 </script>
 
