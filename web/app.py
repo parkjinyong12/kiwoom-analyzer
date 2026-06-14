@@ -3458,14 +3458,20 @@ def api_market_power_theme_suggestions():
     if not result:
         return jsonify({"themes": [], "total_eval": total_eval})
 
-    # ── 권장 목표비율: 곱셈 품질점수 비례 배분 ─────────────────────────────────
-    # fit_score(품질점수×100) 있으면 사용, 없으면 composite 기반 fallback
+    # ── 권장 목표비율: 품질점수 × 변곡점 신호 배율 → 합계 100% 정규화 ──────────
+    _SIGNAL_MULT = {
+        "강한 상향":    1.15,
+        "상향 후보":    1.07,
+        "유지":         1.00,
+        "하향 후보":    0.93,
+        "강한 하향":    0.85,
+        "20일평균 없음": 1.00,
+    }
     for r in result:
-        fs = r["fit_score"]
-        if fs is not None:
-            r["_alloc"] = fs / 100   # 원래 raw multiplicative 값
-        else:
-            r["_alloc"] = (r["composite"] or 0) / 100
+        fs   = r["fit_score"]
+        base = (fs / 100) if fs is not None else ((r["composite"] or 0) / 100)
+        mult = _SIGNAL_MULT.get(r["signal"], 1.00)
+        r["_alloc"] = base * mult
 
     total_alloc = sum(r["_alloc"] for r in result) or 1
     for r in result:
