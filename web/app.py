@@ -3279,10 +3279,31 @@ def api_market_power_suggestions():
     # ── 전역 정규화 → 종목별 제안비율 ──────────────────────────────────────
     total_alloc = sum(s["allocation_score"] for s in stocks) or 1
     for s in stocks:
+        code     = s["stock_code"]
+        rb       = rb_map.get(code, {})
+        max_chg  = float(rb.get("max_change_pp") or 1.5)
+        existing = s["existing_target"]
+
         if s["allocation_score"] > 0:
-            suggested        = round(s["allocation_score"] / total_alloc * 100, 2)
+            suggested = round(s["allocation_score"] / total_alloc * 100, 2)
+            diff      = round(suggested - existing, 2)
+
+            # step_ratio: 이번 주기에 적용할 비중 (max_change_pp 범위 내로 클램핑)
+            if existing > 0:
+                clamped   = max(-max_chg, min(max_chg, diff))
+                step      = round(existing + clamped, 2)
+                steps_needed = max(1, math.ceil(abs(diff) / max_chg)) if max_chg > 0 else 1
+            else:
+                step         = suggested   # 신규 종목은 제한 없이 바로 적용
+                steps_needed = 1
+
             s["suggested_ratio"] = suggested
-            s["diff"]            = round(suggested - s["existing_target"], 2)
+            s["step_ratio"]      = step
+            s["diff"]            = diff
+            s["step_diff"]       = round(step - existing, 2)
+            s["max_change_pp"]   = max_chg
+            s["steps_needed"]    = steps_needed
+
             price = s["current_price"]
             if total_eval > 0 and price > 0:
                 target_val  = total_eval * suggested / 100
@@ -3295,12 +3316,70 @@ def api_market_power_suggestions():
                 s["trade_value"] = None
         else:
             s["suggested_ratio"] = None
+            s["step_ratio"]      = None
             s["diff"]            = None
+            s["step_diff"]       = None
+            s["max_change_pp"]   = max_chg
+            s["steps_needed"]    = None
             s["trade_qty"]       = None
             s["trade_value"]     = None
 
     stocks.sort(key=lambda x: (x["theme"] or "zzz", -(x["allocation_score"] or 0)))
     return jsonify(stocks)
+
+
+@app.route("/api/market_power/suggestions/apply", methods=["POST"])
+def api_market_power_suggestions_apply():
+    """종목 제안비율 일괄 적용 → rebalance_targets.
+
+    body: [{stock_code, target_ratio}]
+    mode 쿼리파라미터: "step" (기본, max_change_pp 제한) | "full" (제안비율 전체 적용)
+    """
+    uid   = _current_uid()
+    mode  = request.args.get("mode", "step")
+    items = request.json or []
+
+    if not items:
+        return jsonify({"error": "적용할 항목이 없습니다"}), 400
+
+    # "step" 모드: 현재 target_ratio 기준으로 max_change_pp 이내만 허용
+    if mode == "step":
+        rb_rows = query(
+            "SELECT stock_code, target_ratio, COALESCE(max_change_pp, 1.5) AS max_change_pp "
+            "FROM rebalance_targets WHERE user_id = %s",
+            (uid,),
+        )
+        rb_map_local = {r["stock_code"]: r for r in rb_rows}
+
+        clamped_items = []
+        for item in items:
+            code    = (item.get("stock_code") or "").strip()
+            ratio   = float(item.get("target_ratio") or 0)
+            rb      = rb_map_local.get(code, {})
+            existing = float(rb.get("target_ratio") or 0)
+            max_chg  = float(rb.get("max_change_pp") or 1.5)
+
+            if existing > 0:
+                diff    = ratio - existing
+                clamped = existing + max(-max_chg, min(max_chg, diff))
+                ratio   = round(clamped, 2)
+            clamped_items.append({"stock_code": code, "target_ratio": ratio})
+        items = clamped_items
+
+    with get_conn() as conn:
+        cur = conn.cursor()
+        for item in items:
+            code  = (item.get("stock_code") or "").strip()
+            ratio = round(float(item.get("target_ratio") or 0), 2)
+            if not code or not (0 <= ratio <= 100):
+                continue
+            cur.execute("""
+                INSERT INTO rebalance_targets (user_id, stock_code, target_ratio, updated_at)
+                VALUES (%s, %s, %s, NOW())
+                ON CONFLICT (user_id, stock_code) DO UPDATE
+                SET target_ratio = EXCLUDED.target_ratio, updated_at = NOW()
+            """, (uid, code, ratio))
+    return jsonify({"ok": True, "applied": len(items), "mode": mode})
 
 
 # ─── 역할점수 관리 API ──────────────────────────────────────────────────────
