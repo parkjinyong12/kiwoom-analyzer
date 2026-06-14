@@ -217,7 +217,8 @@ _DEFAULT_ASSET_TYPES: list = []  # 자산종류 코드는 사용자가 직접 �
 
 def _ensure_market_power_table():
     with get_conn() as conn:
-        conn.cursor().execute("""
+        cur = conn.cursor()
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS market_power_scores (
                 id                   SERIAL       PRIMARY KEY,
                 user_id              INTEGER      REFERENCES users(id),
@@ -232,11 +233,24 @@ def _ensure_market_power_table():
                 customer_lockin      SMALLINT     NOT NULL DEFAULT 0,
                 total_score          SMALLINT     NOT NULL DEFAULT 0,
                 grade                VARCHAR(2)   NOT NULL DEFAULT '',
+                price_attractiveness SMALLINT     DEFAULT NULL,
+                earnings_momentum    SMALLINT     DEFAULT NULL,
+                composite_score      DECIMAL(6,2) DEFAULT NULL,
                 memo                 TEXT         DEFAULT '',
                 created_at           TIMESTAMP    NOT NULL DEFAULT NOW(),
                 UNIQUE (user_id, stock_code, scored_at)
             )
         """)
+        # 기존 테이블 마이그레이션
+        for col, typedef in [
+            ("price_attractiveness", "SMALLINT DEFAULT NULL"),
+            ("earnings_momentum",    "SMALLINT DEFAULT NULL"),
+            ("composite_score",      "DECIMAL(6,2) DEFAULT NULL"),
+        ]:
+            try:
+                cur.execute(f"ALTER TABLE market_power_scores ADD COLUMN IF NOT EXISTS {col} {typedef}")
+            except Exception:
+                pass
 
 
 def _ensure_qualitative_tables():
@@ -2814,7 +2828,8 @@ def api_market_power_list():
             id, stock_code, stock_name, scored_at,
             supply_bottleneck, irreplaceability, pricing_power,
             demand_visibility, expansion_difficulty, customer_lockin,
-            total_score, grade, memo
+            total_score, grade,
+            price_attractiveness, earnings_momentum, composite_score, memo
         FROM market_power_scores
         WHERE user_id = %s
         ORDER BY stock_code, scored_at DESC
@@ -2858,14 +2873,21 @@ def api_market_power_save():
     grade = _mp_grade(total)
     memo  = body.get("memo", "")
 
+    pa_raw = body.get("price_attractiveness")
+    em_raw = body.get("earnings_momentum")
+    pa = min(max(int(pa_raw), 0), 100) if pa_raw not in (None, "") else None
+    em = min(max(int(em_raw), 0), 100) if em_raw not in (None, "") else None
+    composite = round(total * 0.6 + pa * 0.25 + em * 0.15, 2) if (pa is not None and em is not None) else None
+
     with get_conn() as conn:
         conn.cursor().execute("""
             INSERT INTO market_power_scores
                 (user_id, stock_code, stock_name, scored_at,
                  supply_bottleneck, irreplaceability, pricing_power,
                  demand_visibility, expansion_difficulty, customer_lockin,
-                 total_score, grade, memo)
-            VALUES (%s,%s,%s,COALESCE(%s::date, CURRENT_DATE),%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                 total_score, grade,
+                 price_attractiveness, earnings_momentum, composite_score, memo)
+            VALUES (%s,%s,%s,COALESCE(%s::date, CURRENT_DATE),%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             ON CONFLICT (user_id, stock_code, scored_at) DO UPDATE SET
                 stock_name=EXCLUDED.stock_name,
                 supply_bottleneck=EXCLUDED.supply_bottleneck,
@@ -2876,12 +2898,94 @@ def api_market_power_save():
                 customer_lockin=EXCLUDED.customer_lockin,
                 total_score=EXCLUDED.total_score,
                 grade=EXCLUDED.grade,
+                price_attractiveness=EXCLUDED.price_attractiveness,
+                earnings_momentum=EXCLUDED.earnings_momentum,
+                composite_score=EXCLUDED.composite_score,
                 memo=EXCLUDED.memo
         """, [uid, stock_code, stock_name, scored_at,
               dims["supply_bottleneck"], dims["irreplaceability"], dims["pricing_power"],
               dims["demand_visibility"], dims["expansion_difficulty"], dims["customer_lockin"],
-              total, grade, memo])
-    return jsonify({"ok": True, "total_score": total, "grade": grade})
+              total, grade, pa, em, composite, memo])
+    return jsonify({"ok": True, "total_score": total, "grade": grade, "composite_score": composite})
+
+
+@app.route("/api/market_power/suggestions")
+def api_market_power_suggestions():
+    """마켓파워 기반 종목별 목표비율 제안.
+
+    제안 비율 = 테마 목표비율 × (배분 점수 / 테마 내 배분 점수 합)
+    배분 점수  = composite_score if available, else total_score (마켓파워만)
+    """
+    uid = _current_uid()
+
+    # 최신 마켓파워 점수 (종목별 1건)
+    mp_rows = query("""
+        SELECT DISTINCT ON (stock_code)
+            stock_code, stock_name, total_score, grade,
+            price_attractiveness, earnings_momentum, composite_score
+        FROM market_power_scores
+        WHERE user_id = %s
+        ORDER BY stock_code, scored_at DESC
+    """, [uid])
+
+    # 테마 매핑 (첫 번째 테마만 사용)
+    theme_rows = query("SELECT stock_code, themes FROM stock_themes")
+    theme_map  = {}
+    for r in theme_rows:
+        t = (r["themes"] or "").split(",")[0].strip()
+        if t:
+            theme_map[r["stock_code"]] = t
+
+    # 테마 목표비율 (0~100)
+    tt_rows = query("SELECT theme, target_ratio FROM theme_targets WHERE user_id = %s", [uid])
+    theme_target = {r["theme"]: float(r["target_ratio"] or 0) for r in tt_rows}
+
+    # 현재 개별 목표비율 (0~100)
+    rb_rows = query("SELECT stock_code, target_ratio FROM rebalance_targets WHERE user_id = %s", [uid])
+    current_map = {r["stock_code"]: float(r["target_ratio"] or 0) for r in rb_rows}
+
+    # 종목별 배분 점수 계산
+    stocks = []
+    for r in mp_rows:
+        code      = r["stock_code"]
+        mp        = float(r["total_score"] or 0)
+        composite = float(r["composite_score"]) if r["composite_score"] is not None else None
+        alloc     = composite if composite is not None else mp  # 배분 기준 점수
+        stocks.append({
+            "stock_code":           code,
+            "stock_name":           r["stock_name"],
+            "theme":                theme_map.get(code, ""),
+            "mp_score":             mp,
+            "grade":                r["grade"],
+            "price_attractiveness": r["price_attractiveness"],
+            "earnings_momentum":    r["earnings_momentum"],
+            "composite_score":      composite,
+            "alloc_score":          alloc,
+            "current_ratio":        current_map.get(code, 0),
+        })
+
+    # 테마별 배분 점수 합산
+    from collections import defaultdict
+    theme_alloc_sum: dict[str, float] = defaultdict(float)
+    for s in stocks:
+        if s["theme"]:
+            theme_alloc_sum[s["theme"]] += s["alloc_score"]
+
+    # 제안 비율 계산
+    for s in stocks:
+        t = s["theme"]
+        if t and theme_alloc_sum[t] > 0 and t in theme_target:
+            s["theme_target_ratio"] = theme_target[t]
+            s["suggested_ratio"]    = round(theme_target[t] * s["alloc_score"] / theme_alloc_sum[t], 2)
+            s["diff"]               = round(s["suggested_ratio"] - s["current_ratio"], 2)
+        else:
+            s["theme_target_ratio"] = theme_target.get(t)
+            s["suggested_ratio"]    = None
+            s["diff"]               = None
+
+    # 테마 → 종합점수 내림차순 정렬
+    stocks.sort(key=lambda x: (x["theme"] or "zzz", -(x["alloc_score"] or 0)))
+    return jsonify(stocks)
 
 
 @app.route("/api/market_power/<int:sid>", methods=["DELETE"])

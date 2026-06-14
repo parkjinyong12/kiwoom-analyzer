@@ -3143,6 +3143,48 @@ canvas { max-height: 220px; }
       </div>
     </div>
 
+    <!-- 목표비율 제안 섹션 -->
+    <div style="background:#111827;border:1px solid #1e2535;border-radius:10px;padding:16px 20px;margin-bottom:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+        <div>
+          <span style="font-size:13px;font-weight:600;color:#94a3b8">목표비율 제안</span>
+          <span style="font-size:11px;color:#475569;margin-left:10px">테마 목표비율 × (배분점수 / 테마 합계) — 배분점수: 종합점수 우선, 없으면 마켓파워</span>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost" style="font-size:12px" onclick="mpLoadSuggestions()">계산</button>
+          <button class="btn btn-primary" style="font-size:12px" onclick="mpApplyAll()" id="mp-apply-all-btn" disabled>전체 적용</button>
+        </div>
+      </div>
+
+      <!-- 테마별 요약 -->
+      <div id="mp-theme-summary" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px"></div>
+
+      <!-- 제안 테이블 -->
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead>
+            <tr style="border-bottom:1px solid #1e2535">
+              <th style="padding:7px 10px;text-align:left;color:#64748b;font-size:11px;white-space:nowrap">종목</th>
+              <th style="padding:7px 6px;text-align:left;color:#64748b;font-size:11px;white-space:nowrap">테마</th>
+              <th style="padding:7px 6px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap">마켓파워</th>
+              <th style="padding:7px 6px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap">가격매력</th>
+              <th style="padding:7px 6px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap">실적모멘텀</th>
+              <th style="padding:7px 6px;text-align:right;color:#a78bfa;font-size:11px;white-space:nowrap">종합점수</th>
+              <th style="padding:7px 6px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap">테마비율</th>
+              <th style="padding:7px 6px;text-align:right;color:#4ade80;font-size:11px;white-space:nowrap">제안비율</th>
+              <th style="padding:7px 6px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap">현재비율</th>
+              <th style="padding:7px 6px;text-align:right;color:#64748b;font-size:11px;white-space:nowrap">차이(pp)</th>
+              <th style="padding:7px 6px;text-align:center;color:#64748b;font-size:11px;white-space:nowrap">신호</th>
+              <th style="padding:7px 4px;text-align:center;color:#64748b;font-size:11px;white-space:nowrap">적용</th>
+            </tr>
+          </thead>
+          <tbody id="mp-suggest-body">
+            <tr><td colspan="12" style="padding:30px;text-align:center;color:#475569;font-size:13px">[계산] 버튼을 눌러 제안 비율을 확인하세요</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- 이력 패널 (선택 종목) -->
     <div id="mp-history-panel" style="display:none;background:#111827;border:1px solid #1e2535;border-radius:10px;padding:16px 20px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
@@ -3213,6 +3255,26 @@ canvas { max-height: 220px; }
             <div id="mp-progress-bar" style="height:100%;background:#4ade80;transition:width .2s;width:0%"></div>
           </div>
         </div>
+      </div>
+
+      <!-- 가격 매력 / 실적 모멘텀 (선택) -->
+      <div style="background:#0f1117;border-radius:8px;padding:12px 16px;margin-bottom:16px">
+        <div style="font-size:11px;color:#64748b;margin-bottom:10px">종합 투자 점수 보정 (선택) — 입력 시: 마켓파워×60% + 가격매력×25% + 실적모멘텀×15%</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div>
+            <div style="font-size:11px;color:#94a3b8;margin-bottom:5px">가격 매력 점수 <span style="color:#334155">(0~100)</span></div>
+            <input id="mp-price-attractiveness" type="number" min="0" max="100" placeholder="미입력 시 마켓파워만 사용"
+                   oninput="mpRecalc()"
+                   style="width:100%;padding:7px 10px;border-radius:6px;border:1px solid #1e2535;background:#161b27;color:#e2e8f0;font-size:13px;outline:none;box-sizing:border-box"/>
+          </div>
+          <div>
+            <div style="font-size:11px;color:#94a3b8;margin-bottom:5px">실적 모멘텀 점수 <span style="color:#334155">(0~100)</span></div>
+            <input id="mp-earnings-momentum" type="number" min="0" max="100" placeholder="미입력 시 마켓파워만 사용"
+                   oninput="mpRecalc()"
+                   style="width:100%;padding:7px 10px;border-radius:6px;border:1px solid #1e2535;background:#161b27;color:#e2e8f0;font-size:13px;outline:none;box-sizing:border-box"/>
+          </div>
+        </div>
+        <div style="margin-top:8px;font-size:12px;color:#64748b">종합점수: <span id="mp-composite-display" style="color:#a78bfa;font-weight:600">-</span></div>
       </div>
 
       <!-- 메모 -->
@@ -10420,6 +10482,8 @@ async function mpOpenModal(prefillCode) {
   `).join('');
 
   document.getElementById('mp-memo').value = '';
+  document.getElementById('mp-price-attractiveness').value = '';
+  document.getElementById('mp-earnings-momentum').value = '';
   mpRecalc();
 
   const modal = document.getElementById('mp-modal');
@@ -10446,6 +10510,19 @@ function mpRecalc() {
   document.getElementById('mp-grade-display').style.color = g.color;
   document.getElementById('mp-progress-bar').style.width = total + '%';
   document.getElementById('mp-progress-bar').style.background = g.color;
+
+  // 종합점수 계산
+  const pa = document.getElementById('mp-price-attractiveness')?.value;
+  const em = document.getElementById('mp-earnings-momentum')?.value;
+  const compEl = document.getElementById('mp-composite-display');
+  if (compEl) {
+    if (pa !== '' && em !== '' && pa !== null && em !== null) {
+      const composite = (total * 0.6 + parseFloat(pa||0) * 0.25 + parseFloat(em||0) * 0.15).toFixed(2);
+      compEl.textContent = composite + '점 (마켓파워×60% + 가격매력×25% + 실적모멘텀×15%)';
+    } else {
+      compEl.textContent = '- (가격매력·실적모멘텀 미입력 시 마켓파워만 사용)';
+    }
+  }
 }
 
 function mpCloseModal() {
@@ -10459,8 +10536,13 @@ async function mpSave() {
   const stock_name = sel.options[sel.selectedIndex]?.getAttribute('data-name') || '';
   const scored_at  = document.getElementById('mp-scored-at').value || null;
   const memo       = document.getElementById('mp-memo').value.trim();
+  const pa = document.getElementById('mp-price-attractiveness').value;
+  const em = document.getElementById('mp-earnings-momentum').value;
 
-  const body = { stock_code, stock_name, scored_at, memo };
+  const body = { stock_code, stock_name, scored_at, memo,
+    price_attractiveness: pa !== '' ? parseInt(pa) : null,
+    earnings_momentum:    em !== '' ? parseInt(em) : null,
+  };
   MP_DIMS.forEach(d => {
     const raw = parseInt(document.getElementById(`mp-slider-${d.key}`).value);
     body[d.key] = raw * d.mult;
@@ -10476,6 +10558,108 @@ async function mpSave() {
     mpLoad();
   } else {
     alert('저장 실패');
+  }
+}
+
+// ─── 목표비율 제안 ────────────────────────────────────────────────────────
+
+let _mpSuggestions = [];
+
+async function mpLoadSuggestions() {
+  const res = await fetch('/api/market_power/suggestions');
+  if (!res.ok) return;
+  _mpSuggestions = await res.json();
+
+  // 테마별 요약
+  const themes = {};
+  _mpSuggestions.forEach(s => {
+    if (!s.theme) return;
+    if (!themes[s.theme]) themes[s.theme] = { target: s.theme_target_ratio, suggested: 0 };
+    if (s.suggested_ratio != null) themes[s.theme].suggested += s.suggested_ratio;
+  });
+  const summaryEl = document.getElementById('mp-theme-summary');
+  summaryEl.innerHTML = Object.entries(themes).map(([t, v]) => `
+    <div style="background:#0f1117;border:1px solid #1e2535;border-radius:6px;padding:7px 12px;font-size:12px">
+      <span style="color:#94a3b8;font-weight:600">${t}</span>
+      <span style="color:#475569;margin-left:8px">목표 ${v.target?.toFixed(1)||'-'}%</span>
+      <span style="color:#4ade80;margin-left:8px">→ 제안합계 ${v.suggested.toFixed(1)}%</span>
+    </div>
+  `).join('');
+
+  // 제안 테이블
+  const tbody = document.getElementById('mp-suggest-body');
+  if (!_mpSuggestions.length) {
+    tbody.innerHTML = '<tr><td colspan="12" style="padding:20px;text-align:center;color:#475569">마켓파워 점수를 먼저 입력하고, 테마/목표비율이 설정되어 있어야 합니다</td></tr>';
+    document.getElementById('mp-apply-all-btn').disabled = true;
+    return;
+  }
+
+  let prevTheme = null;
+  tbody.innerHTML = _mpSuggestions.map(s => {
+    const themeBreak = s.theme !== prevTheme;
+    prevTheme = s.theme;
+    const diff = s.diff;
+    const diffColor = diff == null ? '#64748b' : diff > 0.5 ? '#4ade80' : diff < -0.5 ? '#f87171' : '#94a3b8';
+    const diffStr = diff == null ? '-' : (diff >= 0 ? '+' : '') + diff.toFixed(2) + 'pp';
+    const signal = diff == null ? '-'
+      : diff > 2  ? '<span style="color:#4ade80;font-weight:600">▲ 증액</span>'
+      : diff > 0.5 ? '<span style="color:#86efac">△ 소폭증</span>'
+      : diff < -2  ? '<span style="color:#f87171;font-weight:600">▼ 감액</span>'
+      : diff < -0.5 ? '<span style="color:#fca5a5">▽ 소폭감</span>'
+      : '<span style="color:#64748b">— 유지</span>';
+    const applyBtn = s.suggested_ratio != null
+      ? `<button onclick="mpApplyOne('${s.stock_code}',${s.suggested_ratio})"
+              style="background:none;border:1px solid #1e2535;color:#60a5fa;cursor:pointer;font-size:11px;padding:2px 8px;border-radius:4px"
+              onmouseover="this.style.borderColor='#60a5fa'" onmouseout="this.style.borderColor='#1e2535'">적용</button>`
+      : '-';
+    const bg = themeBreak ? 'border-top:2px solid #2d3748;' : '';
+    return `<tr style="border-bottom:1px solid #0d1117;${bg}">
+      <td style="padding:7px 10px;color:#e2e8f0;font-weight:500;white-space:nowrap">
+        ${s.stock_name}<span style="font-size:10px;color:#475569;margin-left:4px">${s.stock_code}</span>
+      </td>
+      <td style="padding:7px 6px;font-size:11px;color:#64748b;white-space:nowrap">${s.theme||'-'}</td>
+      <td style="padding:7px 6px;text-align:right;color:#e2e8f0">${s.mp_score??'-'}<span style="color:#334155;font-size:10px">/100</span></td>
+      <td style="padding:7px 6px;text-align:right;color:#94a3b8">${s.price_attractiveness??'-'}</td>
+      <td style="padding:7px 6px;text-align:right;color:#94a3b8">${s.earnings_momentum??'-'}</td>
+      <td style="padding:7px 6px;text-align:right;color:#a78bfa;font-weight:600">${s.composite_score!=null?parseFloat(s.composite_score).toFixed(1):s.mp_score??'-'}</td>
+      <td style="padding:7px 6px;text-align:right;color:#64748b">${s.theme_target_ratio!=null?s.theme_target_ratio.toFixed(1)+'%':'-'}</td>
+      <td style="padding:7px 6px;text-align:right;color:#4ade80;font-weight:700">${s.suggested_ratio!=null?s.suggested_ratio.toFixed(2)+'%':'-'}</td>
+      <td style="padding:7px 6px;text-align:right;color:#64748b">${s.current_ratio!=null?s.current_ratio.toFixed(2)+'%':'-'}</td>
+      <td style="padding:7px 6px;text-align:right;color:${diffColor};font-weight:600">${diffStr}</td>
+      <td style="padding:7px 6px;text-align:center">${signal}</td>
+      <td style="padding:7px 4px;text-align:center">${applyBtn}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('mp-apply-all-btn').disabled = false;
+}
+
+async function mpApplyOne(stock_code, suggested_ratio) {
+  const res = await fetch('/api/rebalance/target', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ stock_code, target_ratio: suggested_ratio }),
+  });
+  if (res.ok) {
+    alert(`${stock_code} 목표비율 ${suggested_ratio.toFixed(2)}% 적용 완료`);
+    mpLoadSuggestions();
+  }
+}
+
+async function mpApplyAll() {
+  const items = _mpSuggestions
+    .filter(s => s.suggested_ratio != null)
+    .map(s => ({ stock_code: s.stock_code, target_ratio: s.suggested_ratio }));
+  if (!items.length) return;
+  if (!confirm(`${items.length}개 종목 목표비율을 일괄 적용할까요?`)) return;
+  const res = await fetch('/api/rebalance/targets', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(items),
+  });
+  if (res.ok) {
+    alert('일괄 적용 완료');
+    mpLoadSuggestions();
   }
 }
 </script>
