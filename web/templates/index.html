@@ -10828,7 +10828,9 @@ async function mpShowHistory(code, name) {
       </td>
     </tr>`).join('');
   }
-  document.getElementById('mp-history-panel').style.display = 'block';
+  const panel = document.getElementById('mp-history-panel');
+  panel.style.display = 'block';
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 async function mpDeleteHistory(id, code) {

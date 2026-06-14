@@ -9,8 +9,9 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date as date_cls
 from zoneinfo import ZoneInfo
+from decimal import Decimal
 
 KST = ZoneInfo("Asia/Seoul")
 
@@ -35,6 +36,23 @@ from config import config
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "kiwoom-analyzer-secret-change-in-prod")
+
+# Flask 3.x는 datetime.date를 RFC1123("Sun, 14 Jun 2026 ...") 포맷으로 직렬화함.
+# type="date" input과 .slice(0,10) 파싱이 깨지므로 ISO 8601 포맷으로 교체.
+from flask.json.provider import DefaultJSONProvider
+
+class _ISOJSONProvider(DefaultJSONProvider):
+    def default(self, o):
+        if isinstance(o, datetime):
+            return o.isoformat()
+        if isinstance(o, date_cls):
+            return o.isoformat()
+        if isinstance(o, Decimal):
+            return float(o)
+        return super().default(o)
+
+app.json_provider_class = _ISOJSONProvider
+app.json = _ISOJSONProvider(app)
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
