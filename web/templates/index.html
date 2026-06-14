@@ -3254,34 +3254,7 @@ canvas { max-height: 220px; }
       </div>
     </div>
 
-    <!-- 이력 패널 (선택 종목) -->
-    <div id="mp-history-panel" style="display:none;background:#111827;border:1px solid #1e2535;border-radius:10px;padding:16px 20px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-        <span id="mp-history-title" style="font-size:13px;font-weight:600;color:#94a3b8">이력</span>
-        <button onclick="document.getElementById('mp-history-panel').style.display='none'"
-                style="background:none;border:none;color:#64748b;cursor:pointer;font-size:16px">✕</button>
-      </div>
-      <div style="overflow-x:auto">
-        <table style="width:100%;border-collapse:collapse;font-size:12px">
-          <thead>
-            <tr style="border-bottom:1px solid #1e2535">
-              <th style="padding:6px 10px;text-align:left;color:#64748b;font-size:11px">평가일</th>
-              <th style="padding:6px 6px;text-align:center;color:#64748b;font-size:11px">등급</th>
-              <th style="padding:6px 6px;text-align:right;color:#64748b;font-size:11px">총점</th>
-              <th style="padding:6px 6px;text-align:right;color:#64748b;font-size:11px">병목</th>
-              <th style="padding:6px 6px;text-align:right;color:#64748b;font-size:11px">대체</th>
-              <th style="padding:6px 6px;text-align:right;color:#64748b;font-size:11px">가격력</th>
-              <th style="padding:6px 6px;text-align:right;color:#64748b;font-size:11px">수요</th>
-              <th style="padding:6px 6px;text-align:right;color:#64748b;font-size:11px">증설</th>
-              <th style="padding:6px 6px;text-align:right;color:#64748b;font-size:11px">락인</th>
-              <th style="padding:6px 6px;text-align:left;color:#64748b;font-size:11px">메모</th>
-              <th style="padding:6px 4px;text-align:center;color:#64748b;font-size:11px"></th>
-            </tr>
-          </thead>
-          <tbody id="mp-history-body"></tbody>
-        </table>
-      </div>
-    </div>
+    <!-- 이력 모달은 body 레벨에 별도 선언 -->
 
     <!-- 역할점수 관리 섹션 -->
     <div style="background:#111827;border:1px solid #1e2535;border-radius:10px;padding:16px 20px;margin-top:16px">
@@ -3363,6 +3336,55 @@ canvas { max-height: 220px; }
       </div>
     </div>
   </section>
+
+  <!-- ─── 마켓파워 점수 이력 모달 ─── -->
+  <div id="mp-hist-modal" onclick="if(event.target===this)mpHistClose()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:1000;align-items:flex-start;justify-content:center;overflow-y:auto;padding:40px 16px">
+    <div style="background:#161b27;border:1px solid #1e2535;border-radius:14px;padding:24px 28px;width:min(820px,100%);margin:auto">
+      <!-- 헤더 -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+        <span id="mp-hist-title" style="font-size:16px;font-weight:700;color:#f1f5f9">점수 이력</span>
+        <button onclick="mpHistClose()" style="background:none;border:none;color:#64748b;font-size:20px;cursor:pointer;line-height:1">✕</button>
+      </div>
+
+      <!-- 차트 영역 -->
+      <div style="background:#0d1117;border-radius:10px;padding:16px;margin-bottom:20px">
+        <div style="font-size:11px;color:#475569;margin-bottom:10px">
+          <span style="color:#60a5fa">■</span> MP 총점 &nbsp;
+          <span style="color:#4ade80">■</span> 종합점수 &nbsp;
+          <span style="color:#fb923c">■</span> 가격매력 &nbsp;
+          <span style="color:#a78bfa">■</span> 실적모멘텀
+        </div>
+        <canvas id="mp-hist-chart" style="width:100%;max-height:260px"></canvas>
+      </div>
+
+      <!-- 이력 목록 -->
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead>
+            <tr style="border-bottom:1px solid #1e2535">
+              <th style="padding:8px 10px;text-align:left;color:#64748b;font-size:11px;white-space:nowrap">평가일</th>
+              <th style="padding:8px 6px;text-align:center;color:#64748b;font-size:11px">등급</th>
+              <th style="padding:8px 6px;text-align:right;color:#60a5fa;font-size:11px">MP총점</th>
+              <th style="padding:8px 6px;text-align:right;color:#4ade80;font-size:11px">종합점수</th>
+              <th style="padding:8px 6px;text-align:right;color:#fb923c;font-size:11px">가격매력</th>
+              <th style="padding:8px 6px;text-align:right;color:#a78bfa;font-size:11px">실적모멘텀</th>
+              <th style="padding:8px 6px;text-align:right;color:#94a3b8;font-size:11px">병목</th>
+              <th style="padding:8px 6px;text-align:right;color:#94a3b8;font-size:11px">대체</th>
+              <th style="padding:8px 6px;text-align:right;color:#94a3b8;font-size:11px">가격력</th>
+              <th style="padding:8px 6px;text-align:right;color:#94a3b8;font-size:11px">수요</th>
+              <th style="padding:8px 6px;text-align:right;color:#94a3b8;font-size:11px">증설</th>
+              <th style="padding:8px 6px;text-align:right;color:#94a3b8;font-size:11px">락인</th>
+              <th style="padding:8px 6px;text-align:left;color:#64748b;font-size:11px">메모</th>
+              <th style="padding:8px 4px;text-align:center;color:#64748b;font-size:11px"></th>
+            </tr>
+          </thead>
+          <tbody id="mp-hist-body">
+            <tr><td colspan="14" style="padding:24px;text-align:center;color:#475569">로딩 중...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
 
   <!-- ─── 테마 포트 적합도 편집 모달 ─── -->
   <div id="tf-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;align-items:center;justify-content:center">
@@ -10801,45 +10823,102 @@ async function mpLoad() {
   }).join('');
 }
 
+let _mpHistChart = null;
+let _mpHistCode  = null;
+let _mpHistName  = null;
+
+function mpHistClose() {
+  document.getElementById('mp-hist-modal').style.display = 'none';
+  if (_mpHistChart) { _mpHistChart.destroy(); _mpHistChart = null; }
+}
+
 async function mpShowHistory(code, name) {
+  _mpHistCode = code;
+  _mpHistName = name;
+  document.getElementById('mp-hist-title').textContent = `${name} (${code}) — 점수 이력`;
+  document.getElementById('mp-hist-modal').style.display = 'flex';
+
   const res = await fetch(`/api/market_power/${code}/history`);
   if (!res.ok) return;
   const rows = await res.json();
-  document.getElementById('mp-history-title').textContent = `${name} (${code}) 점수 이력`;
-  const tbody = document.getElementById('mp-history-body');
+
+  // 차트용 데이터 (오래된 순)
+  const sorted = [...rows].reverse();
+  const labels  = sorted.map(r => (r.scored_at||'').slice(0,10));
+  const mkLine  = (label, data, color, dashed) => ({
+    label, data,
+    borderColor: color, backgroundColor: color + '22',
+    pointBackgroundColor: color, pointRadius: 4,
+    tension: 0.3, fill: false,
+    borderDash: dashed ? [4,3] : [],
+  });
+
+  if (_mpHistChart) _mpHistChart.destroy();
+  const ctx = document.getElementById('mp-hist-chart').getContext('2d');
+  _mpHistChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        mkLine('MP 총점',    sorted.map(r => r.total_score),         '#60a5fa'),
+        mkLine('종합점수',   sorted.map(r => r.composite_score),     '#4ade80', true),
+        mkLine('가격매력',   sorted.map(r => r.price_attractiveness),'#fb923c'),
+        mkLine('실적모멘텀', sorted.map(r => r.earnings_momentum),   '#a78bfa'),
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { mode: 'index', intersect: false,
+          callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y ?? '-'}` }
+        },
+      },
+      scales: {
+        x: { ticks: { color:'#64748b', font:{size:11} }, grid: { color:'#1e2535' } },
+        y: { ticks: { color:'#64748b', font:{size:11} }, grid: { color:'#1e2535' }, min: 0, max: 100 },
+      },
+    },
+  });
+  document.getElementById('mp-hist-chart').style.height = '240px';
+
+  // 이력 목록 렌더
+  const tbody = document.getElementById('mp-hist-body');
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="11" style="padding:16px;text-align:center;color:#475569">이력 없음</td></tr>';
-  } else {
-    tbody.innerHTML = rows.map(r => `<tr style="border-bottom:1px solid #0d1117">
-      <td style="padding:6px 10px;color:#94a3b8;white-space:nowrap">${(r.scored_at||'').slice(0,10)}</td>
-      <td style="padding:6px 6px;text-align:center">${mpGradeBadge(r.grade)}</td>
-      <td style="padding:6px 6px;text-align:right;font-weight:700;color:${mpGrade(r.total_score).color}">${r.total_score}</td>
-      <td style="padding:6px 6px;text-align:right;color:#e2e8f0">${r.supply_bottleneck}</td>
-      <td style="padding:6px 6px;text-align:right;color:#e2e8f0">${r.irreplaceability}</td>
-      <td style="padding:6px 6px;text-align:right;color:#e2e8f0">${r.pricing_power}</td>
-      <td style="padding:6px 6px;text-align:right;color:#e2e8f0">${r.demand_visibility}</td>
-      <td style="padding:6px 6px;text-align:right;color:#e2e8f0">${r.expansion_difficulty}</td>
-      <td style="padding:6px 6px;text-align:right;color:#e2e8f0">${r.customer_lockin}</td>
-      <td style="padding:6px 6px;color:#64748b;font-size:11px">${r.memo||''}</td>
-      <td style="padding:6px 4px;text-align:center">
-        <button onclick="mpDeleteHistory(${r.id},'${code}')"
-                style="background:none;border:none;color:#475569;cursor:pointer;font-size:13px;padding:1px 3px"
-                onmouseover="this.style.color='#f87171'" onmouseout="this.style.color='#475569'">✕</button>
-      </td>
-    </tr>`).join('');
+    tbody.innerHTML = '<tr><td colspan="14" style="padding:24px;text-align:center;color:#475569">이력 없음</td></tr>';
+    return;
   }
-  const panel = document.getElementById('mp-history-panel');
-  panel.style.display = 'block';
-  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const fmt = v => v != null ? v : '<span style="color:#334155">—</span>';
+  tbody.innerHTML = rows.map(r => `<tr style="border-bottom:1px solid #0d1117">
+    <td style="padding:7px 10px;color:#94a3b8;white-space:nowrap;font-size:12px">${(r.scored_at||'').slice(0,10)}</td>
+    <td style="padding:7px 6px;text-align:center">${mpGradeBadge(r.grade)}</td>
+    <td style="padding:7px 6px;text-align:right;font-weight:700;color:#60a5fa">${r.total_score}</td>
+    <td style="padding:7px 6px;text-align:right;font-weight:700;color:#4ade80">${fmt(r.composite_score != null ? parseFloat(r.composite_score).toFixed(1) : null)}</td>
+    <td style="padding:7px 6px;text-align:right;color:#fb923c">${fmt(r.price_attractiveness)}</td>
+    <td style="padding:7px 6px;text-align:right;color:#a78bfa">${fmt(r.earnings_momentum)}</td>
+    <td style="padding:7px 6px;text-align:right;color:#e2e8f0">${r.supply_bottleneck}</td>
+    <td style="padding:7px 6px;text-align:right;color:#e2e8f0">${r.irreplaceability}</td>
+    <td style="padding:7px 6px;text-align:right;color:#e2e8f0">${r.pricing_power}</td>
+    <td style="padding:7px 6px;text-align:right;color:#e2e8f0">${r.demand_visibility}</td>
+    <td style="padding:7px 6px;text-align:right;color:#e2e8f0">${r.expansion_difficulty}</td>
+    <td style="padding:7px 6px;text-align:right;color:#e2e8f0">${r.customer_lockin}</td>
+    <td style="padding:7px 6px;color:#64748b;font-size:11px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.memo||''}</td>
+    <td style="padding:7px 4px;text-align:center">
+      <button onclick="mpDeleteHistory(${r.id})"
+              style="background:none;border:none;color:#475569;cursor:pointer;font-size:14px;padding:2px 4px"
+              onmouseover="this.style.color='#f87171'" onmouseout="this.style.color='#475569'">✕</button>
+    </td>
+  </tr>`).join('');
 }
 
-async function mpDeleteHistory(id, code) {
+async function mpDeleteHistory(id) {
   if (!confirm('이 점수 기록을 삭제할까요?')) return;
-  await fetch(`/api/market_power/${id}`, { method: 'DELETE' });
-  const nameEl = document.getElementById('mp-history-title').textContent;
-  const name = nameEl.split('(')[0].trim();
-  mpShowHistory(code, name);
-  mpLoad();
+  const res = await fetch(`/api/market_power/${id}`, { method: 'DELETE' });
+  if (res.ok) {
+    mpShowHistory(_mpHistCode, _mpHistName);
+    mpLoad();
+  }
 }
 
 async function mpOpenModal(prefillCode) {

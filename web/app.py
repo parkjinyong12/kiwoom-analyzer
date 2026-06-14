@@ -2947,7 +2947,8 @@ def api_market_power_history(stock_code: str):
     rows = query("""
         SELECT id, scored_at, supply_bottleneck, irreplaceability, pricing_power,
                demand_visibility, expansion_difficulty, customer_lockin,
-               total_score, grade, memo
+               total_score, grade, price_attractiveness, earnings_momentum,
+               composite_score, memo
         FROM market_power_scores
         WHERE user_id = %s AND stock_code = %s
         ORDER BY scored_at DESC
