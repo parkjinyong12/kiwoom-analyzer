@@ -3143,19 +3143,12 @@ def api_market_power_theme_suggestions():
             "recommended":   recommended,
         })
 
-    # 마켓파워 점수 있는 테마만 정규화 대상 (현금 등 비주식 테마 제외)
-    stock_themes_only = [r for r in result if r["stock_count"] > 0]
-    total_rec = sum(r["recommended"] for r in stock_themes_only)
-    for r in result:
-        if r["stock_count"] > 0 and total_rec > 0:
-            r["normalized"]        = round(r["recommended"] / total_rec * 100, 2)
-            r["normalized_change"] = round(r["normalized"] - r["existing_target"], 2)
-        else:
-            r["normalized"]        = r["existing_target"]
-            r["normalized_change"] = 0.0
-
-    # 마켓파워 없는 테마(현금 등)는 결과에서 제외
-    result = stock_themes_only
+    # 마켓파워 점수 있는 테마만 (현금 등 비주식 테마 제외), recommended 합계 100%로 정규화
+    result = [r for r in result if r["stock_count"] > 0]
+    total_rec = sum(r["recommended"] for r in result)
+    if total_rec > 0:
+        for r in result:
+            r["recommended"] = round(r["recommended"] / total_rec * 100, 2)
     result.sort(key=lambda x: -(x["composite"] or 0))
     return jsonify({"themes": result, "total_eval": total_eval})
 
