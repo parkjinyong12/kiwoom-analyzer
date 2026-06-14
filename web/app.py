@@ -3352,22 +3352,39 @@ def api_market_power_theme_suggestions():
 
     # 마켓파워 점수 있는 테마만 필터
     result = [r for r in result if r["stock_count"] > 0]
+    if not result:
+        return jsonify({"themes": [], "total_eval": total_eval})
 
-    # 배분점수 = composite × 0.45 + fit_score × 0.55
-    # fit_score 미입력 테마는 composite만 사용 (fit_score 입력 테마와 동등하게 경쟁)
+    # ── 1단계: score_based 계산 (composite + fit_score 혼합) ──────────────────
+    # composite는 테마 간 차이가 작아 단독 사용 시 균등 수렴 발생.
+    # fit_score가 있는 테마는 그 가중치로 차별화하고, 없는 테마는 composite만 사용.
     any_fit = any(r["fit_score"] is not None for r in result)
     for r in result:
         comp = r["composite"] or 0
         fs   = r["fit_score"]
-        if any_fit and fs is not None:
-            r["_alloc"] = comp * 0.45 + fs * 0.55
-        else:
-            r["_alloc"] = comp   # fit_score 전혀 없으면 composite만
+        r["_alloc"] = comp * 0.45 + fs * 0.55 if (any_fit and fs is not None) else comp
 
     total_alloc = sum(r["_alloc"] for r in result)
     for r in result:
-        r["recommended"] = round(r["_alloc"] / total_alloc * 100, 2) if total_alloc > 0 else 0.0
-        del r["_alloc"]
+        r["_score_based"] = r["_alloc"] / total_alloc * 100 if total_alloc > 0 else 100 / len(result)
+
+    # ── 2단계: 기존 목표와 블렌딩 ─────────────────────────────────────────────
+    # fit_score 없으면 기존 목표 90% + score 10% → 작은 신호 조정만 반영
+    # fit_score 있으면 기존 목표 40% + score 60% → 포트 적합도 강하게 반영
+    # 기존 목표 합계가 0이면 score_based 그대로 사용
+    total_existing = sum(r["existing_target"] for r in result)
+    for r in result:
+        existing_norm = r["existing_target"] / total_existing * 100 if total_existing > 0 else r["_score_based"]
+        has_fit = any_fit and r["fit_score"] is not None
+        blend = 0.6 if has_fit else 0.1
+        r["recommended"] = existing_norm * (1 - blend) + r["_score_based"] * blend
+        del r["_alloc"], r["_score_based"]
+
+    # ── 3단계: 합계 100% 정규화 ───────────────────────────────────────────────
+    total_rec = sum(r["recommended"] for r in result)
+    if total_rec > 0:
+        for r in result:
+            r["recommended"] = round(r["recommended"] / total_rec * 100, 2)
 
     result.sort(key=lambda x: -(x["composite"] or 0))
     return jsonify({"themes": result, "total_eval": total_eval})
