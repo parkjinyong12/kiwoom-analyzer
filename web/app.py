@@ -215,6 +215,30 @@ _DEFAULT_BROKERAGES = [
 _DEFAULT_ASSET_TYPES: list = []  # 자산종류 코드는 사용자가 직접 공통코드 관리에서 추가
 
 
+def _ensure_market_power_table():
+    with get_conn() as conn:
+        conn.cursor().execute("""
+            CREATE TABLE IF NOT EXISTS market_power_scores (
+                id                   SERIAL       PRIMARY KEY,
+                user_id              INTEGER      REFERENCES users(id),
+                stock_code           VARCHAR(20)  NOT NULL,
+                stock_name           VARCHAR(100) NOT NULL DEFAULT '',
+                scored_at            DATE         NOT NULL DEFAULT CURRENT_DATE,
+                supply_bottleneck    SMALLINT     NOT NULL DEFAULT 0,
+                irreplaceability     SMALLINT     NOT NULL DEFAULT 0,
+                pricing_power        SMALLINT     NOT NULL DEFAULT 0,
+                demand_visibility    SMALLINT     NOT NULL DEFAULT 0,
+                expansion_difficulty SMALLINT     NOT NULL DEFAULT 0,
+                customer_lockin      SMALLINT     NOT NULL DEFAULT 0,
+                total_score          SMALLINT     NOT NULL DEFAULT 0,
+                grade                VARCHAR(2)   NOT NULL DEFAULT '',
+                memo                 TEXT         DEFAULT '',
+                created_at           TIMESTAMP    NOT NULL DEFAULT NOW(),
+                UNIQUE (user_id, stock_code, scored_at)
+            )
+        """)
+
+
 def _ensure_qualitative_tables():
     with get_conn() as conn:
         cur = conn.cursor()
@@ -2769,10 +2793,113 @@ def api_qualitative_scores_delete(score_id: int):
 
 
 # ---------------------------------------------------------------------------
+# API — 공급자 마켓파워 점수
+# ---------------------------------------------------------------------------
+
+def _mp_grade(total: int) -> str:
+    if total >= 85: return "S"
+    if total >= 75: return "A"
+    if total >= 65: return "B"
+    if total >= 55: return "C"
+    if total >= 45: return "D"
+    return "E"
+
+
+@app.route("/api/market_power")
+def api_market_power_list():
+    """종목별 최신 점수 목록."""
+    uid = _current_uid()
+    rows = query("""
+        SELECT DISTINCT ON (stock_code)
+            id, stock_code, stock_name, scored_at,
+            supply_bottleneck, irreplaceability, pricing_power,
+            demand_visibility, expansion_difficulty, customer_lockin,
+            total_score, grade, memo
+        FROM market_power_scores
+        WHERE user_id = %s
+        ORDER BY stock_code, scored_at DESC
+    """, [uid])
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/market_power/<stock_code>/history")
+def api_market_power_history(stock_code: str):
+    """특정 종목의 점수 이력."""
+    uid = _current_uid()
+    rows = query("""
+        SELECT id, scored_at, supply_bottleneck, irreplaceability, pricing_power,
+               demand_visibility, expansion_difficulty, customer_lockin,
+               total_score, grade, memo
+        FROM market_power_scores
+        WHERE user_id = %s AND stock_code = %s
+        ORDER BY scored_at DESC
+    """, [uid, stock_code])
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/market_power", methods=["POST"])
+def api_market_power_save():
+    """점수 저장 (같은 날짜·종목이면 UPDATE)."""
+    uid  = _current_uid()
+    body = request.json or {}
+    stock_code = body.get("stock_code", "").strip()
+    stock_name = body.get("stock_name", "").strip()
+    scored_at  = body.get("scored_at") or None
+
+    dims = {
+        "supply_bottleneck":    min(max(int(body.get("supply_bottleneck",    0)), 0), 25),
+        "irreplaceability":     min(max(int(body.get("irreplaceability",     0)), 0), 20),
+        "pricing_power":        min(max(int(body.get("pricing_power",        0)), 0), 20),
+        "demand_visibility":    min(max(int(body.get("demand_visibility",    0)), 0), 15),
+        "expansion_difficulty": min(max(int(body.get("expansion_difficulty", 0)), 0), 10),
+        "customer_lockin":      min(max(int(body.get("customer_lockin",      0)), 0), 10),
+    }
+    total = sum(dims.values())
+    grade = _mp_grade(total)
+    memo  = body.get("memo", "")
+
+    with get_conn() as conn:
+        conn.cursor().execute("""
+            INSERT INTO market_power_scores
+                (user_id, stock_code, stock_name, scored_at,
+                 supply_bottleneck, irreplaceability, pricing_power,
+                 demand_visibility, expansion_difficulty, customer_lockin,
+                 total_score, grade, memo)
+            VALUES (%s,%s,%s,COALESCE(%s::date, CURRENT_DATE),%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (user_id, stock_code, scored_at) DO UPDATE SET
+                stock_name=EXCLUDED.stock_name,
+                supply_bottleneck=EXCLUDED.supply_bottleneck,
+                irreplaceability=EXCLUDED.irreplaceability,
+                pricing_power=EXCLUDED.pricing_power,
+                demand_visibility=EXCLUDED.demand_visibility,
+                expansion_difficulty=EXCLUDED.expansion_difficulty,
+                customer_lockin=EXCLUDED.customer_lockin,
+                total_score=EXCLUDED.total_score,
+                grade=EXCLUDED.grade,
+                memo=EXCLUDED.memo
+        """, [uid, stock_code, stock_name, scored_at,
+              dims["supply_bottleneck"], dims["irreplaceability"], dims["pricing_power"],
+              dims["demand_visibility"], dims["expansion_difficulty"], dims["customer_lockin"],
+              total, grade, memo])
+    return jsonify({"ok": True, "total_score": total, "grade": grade})
+
+
+@app.route("/api/market_power/<int:sid>", methods=["DELETE"])
+def api_market_power_delete(sid: int):
+    """점수 레코드 삭제."""
+    uid = _current_uid()
+    with get_conn() as conn:
+        conn.cursor().execute(
+            "DELETE FROM market_power_scores WHERE id=%s AND user_id=%s", (sid, uid)
+        )
+    return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------------------
 # API — 사용자 관리
 # ---------------------------------------------------------------------------
 
-ALL_MENUS = ["dashboard", "supply", "divergence", "snapshot", "signals", "report", "ext-holdings", "price-mgmt", "cash-assets", "macro", "rebalance", "credit", "stock-rebalance", "theme-rebalance", "qualitative", "auditlog", "stocks", "batch", "spec", "common-codes", "usermgmt"]
+ALL_MENUS = ["dashboard", "supply", "divergence", "snapshot", "signals", "report", "ext-holdings", "price-mgmt", "cash-assets", "macro", "rebalance", "credit", "stock-rebalance", "theme-rebalance", "qualitative", "market-power", "auditlog", "stocks", "batch", "spec", "common-codes", "usermgmt"]
 
 @app.route("/api/users")
 def api_users():
@@ -3493,6 +3620,11 @@ except Exception:
 
 try:
     _ensure_qualitative_tables()
+except Exception:
+    pass
+
+try:
+    _ensure_market_power_table()
 except Exception:
     pass
 

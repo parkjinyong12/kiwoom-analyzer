@@ -628,7 +628,10 @@ canvas { max-height: 220px; }
           <span class="icon">📒</span> 거래 이력
         </div>
         <div class="nav-item" data-page="qualitative" onclick="showPage('qualitative')">
-          <span class="icon">📝</span> 정성 점수
+          정성 점수
+        </div>
+        <div class="nav-item" data-page="market-power" onclick="showPage('market-power')">
+          <span class="icon">⚡</span> 마켓파워
         </div>
       </div>
     </div>
@@ -3088,6 +3091,143 @@ canvas { max-height: 220px; }
     </div>
   </section>
 
+  <!-- ─── 공급자 마켓파워 ─── -->
+  <section id="page-market-power" class="page">
+    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
+      <div>
+        <div class="page-title">공급자 마켓파워 점수</div>
+        <div class="page-sub">종목별 공급자 우위 점수 관리 (100점 만점) — 병목성·대체불가·가격결정력·수요·증설·고객락인</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost" style="font-size:12px" onclick="mpLoad()">새로고침</button>
+        <button class="btn btn-primary" onclick="mpOpenModal()">+ 점수 입력</button>
+      </div>
+    </div>
+
+    <!-- 등급 범례 -->
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px">
+      <span style="font-size:11px;color:#64748b;line-height:28px">등급 기준:</span>
+      <span style="background:#1a2a1a;color:#4ade80;padding:3px 10px;border-radius:4px;font-size:11px;font-weight:700">S ≥85</span>
+      <span style="background:#1a2535;color:#60a5fa;padding:3px 10px;border-radius:4px;font-size:11px;font-weight:700">A 75~84</span>
+      <span style="background:#1e2535;color:#94a3b8;padding:3px 10px;border-radius:4px;font-size:11px;font-weight:700">B 65~74</span>
+      <span style="background:#1e2535;color:#94a3b8;padding:3px 10px;border-radius:4px;font-size:11px;font-weight:700">C 55~64</span>
+      <span style="background:#2a1a1a;color:#f87171;padding:3px 10px;border-radius:4px;font-size:11px;font-weight:700">D 45~54</span>
+      <span style="background:#2a1a1a;color:#f87171;padding:3px 10px;border-radius:4px;font-size:11px;font-weight:700">E &lt;45</span>
+    </div>
+
+    <!-- 현황 테이블 -->
+    <div style="background:#111827;border:1px solid #1e2535;border-radius:10px;padding:16px 20px;margin-bottom:16px">
+      <div style="font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:12px">종목별 최신 점수</div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead>
+            <tr style="border-bottom:1px solid #1e2535">
+              <th style="padding:8px 10px;text-align:left;color:#64748b;white-space:nowrap;font-size:11px">종목</th>
+              <th style="padding:8px 6px;text-align:center;color:#64748b;white-space:nowrap;font-size:11px">등급</th>
+              <th style="padding:8px 6px;text-align:right;color:#64748b;white-space:nowrap;font-size:11px">총점</th>
+              <th style="padding:8px 6px;text-align:right;color:#94a3b8;white-space:nowrap;font-size:11px">병목<br><span style="color:#334155">25</span></th>
+              <th style="padding:8px 6px;text-align:right;color:#94a3b8;white-space:nowrap;font-size:11px">대체<br><span style="color:#334155">20</span></th>
+              <th style="padding:8px 6px;text-align:right;color:#94a3b8;white-space:nowrap;font-size:11px">가격력<br><span style="color:#334155">20</span></th>
+              <th style="padding:8px 6px;text-align:right;color:#94a3b8;white-space:nowrap;font-size:11px">수요<br><span style="color:#334155">15</span></th>
+              <th style="padding:8px 6px;text-align:right;color:#94a3b8;white-space:nowrap;font-size:11px">증설<br><span style="color:#334155">10</span></th>
+              <th style="padding:8px 6px;text-align:right;color:#94a3b8;white-space:nowrap;font-size:11px">락인<br><span style="color:#334155">10</span></th>
+              <th style="padding:8px 6px;text-align:right;color:#64748b;white-space:nowrap;font-size:11px">평가일</th>
+              <th style="padding:8px 6px;text-align:center;color:#64748b;white-space:nowrap;font-size:11px">이력</th>
+              <th style="padding:8px 4px;text-align:center;color:#64748b;white-space:nowrap;font-size:11px"></th>
+            </tr>
+          </thead>
+          <tbody id="mp-list-body">
+            <tr><td colspan="12" style="padding:30px;text-align:center;color:#475569;font-size:13px">데이터 없음</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 이력 패널 (선택 종목) -->
+    <div id="mp-history-panel" style="display:none;background:#111827;border:1px solid #1e2535;border-radius:10px;padding:16px 20px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <span id="mp-history-title" style="font-size:13px;font-weight:600;color:#94a3b8">이력</span>
+        <button onclick="document.getElementById('mp-history-panel').style.display='none'"
+                style="background:none;border:none;color:#64748b;cursor:pointer;font-size:16px">✕</button>
+      </div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead>
+            <tr style="border-bottom:1px solid #1e2535">
+              <th style="padding:6px 10px;text-align:left;color:#64748b;font-size:11px">평가일</th>
+              <th style="padding:6px 6px;text-align:center;color:#64748b;font-size:11px">등급</th>
+              <th style="padding:6px 6px;text-align:right;color:#64748b;font-size:11px">총점</th>
+              <th style="padding:6px 6px;text-align:right;color:#64748b;font-size:11px">병목</th>
+              <th style="padding:6px 6px;text-align:right;color:#64748b;font-size:11px">대체</th>
+              <th style="padding:6px 6px;text-align:right;color:#64748b;font-size:11px">가격력</th>
+              <th style="padding:6px 6px;text-align:right;color:#64748b;font-size:11px">수요</th>
+              <th style="padding:6px 6px;text-align:right;color:#64748b;font-size:11px">증설</th>
+              <th style="padding:6px 6px;text-align:right;color:#64748b;font-size:11px">락인</th>
+              <th style="padding:6px 6px;text-align:left;color:#64748b;font-size:11px">메모</th>
+              <th style="padding:6px 4px;text-align:center;color:#64748b;font-size:11px"></th>
+            </tr>
+          </thead>
+          <tbody id="mp-history-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── 마켓파워 입력 모달 ─── -->
+  <div id="mp-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:#161b27;border:1px solid #1e2535;border-radius:12px;padding:28px 32px;width:min(560px,95vw);max-height:90vh;overflow-y:auto">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+        <span style="font-size:16px;font-weight:700;color:#f1f5f9">공급자 마켓파워 점수 입력</span>
+        <button onclick="mpCloseModal()" style="background:none;border:none;color:#64748b;font-size:18px;cursor:pointer">✕</button>
+      </div>
+
+      <!-- 종목 / 날짜 -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">
+        <div>
+          <div style="font-size:11px;color:#64748b;margin-bottom:6px">종목</div>
+          <select id="mp-stock-select" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none">
+            <option value="">-- 선택 --</option>
+          </select>
+        </div>
+        <div>
+          <div style="font-size:11px;color:#64748b;margin-bottom:6px">평가일</div>
+          <input id="mp-scored-at" type="date" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none;box-sizing:border-box"/>
+        </div>
+      </div>
+
+      <!-- 6개 항목 슬라이더 -->
+      <div id="mp-sliders" style="display:flex;flex-direction:column;gap:14px;margin-bottom:20px"></div>
+
+      <!-- 합산 결과 -->
+      <div style="background:#0f1117;border-radius:8px;padding:14px 18px;margin-bottom:16px;display:flex;align-items:center;gap:20px">
+        <div>
+          <div style="font-size:11px;color:#64748b;margin-bottom:4px">총점</div>
+          <div id="mp-total-display" style="font-size:28px;font-weight:700;color:#e2e8f0">0</div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:#64748b;margin-bottom:4px">등급</div>
+          <div id="mp-grade-display" style="font-size:22px;font-weight:700;color:#64748b">-</div>
+        </div>
+        <div style="flex:1">
+          <div style="background:#1e2535;border-radius:4px;height:8px;overflow:hidden">
+            <div id="mp-progress-bar" style="height:100%;background:#4ade80;transition:width .2s;width:0%"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 메모 -->
+      <div style="margin-bottom:20px">
+        <div style="font-size:11px;color:#64748b;margin-bottom:6px">메모</div>
+        <textarea id="mp-memo" rows="2" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none;resize:vertical;box-sizing:border-box"></textarea>
+      </div>
+
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button class="btn btn-ghost" onclick="mpCloseModal()">취소</button>
+        <button class="btn btn-primary" onclick="mpSave()">저장</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ─── 기획서 ─── -->
   <section id="page-spec" class="page">
     <div class="page-header" style="display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap">
@@ -3209,7 +3349,7 @@ const NAV_GROUP_MAP = {
   'ext-holdings':'navg-portfolio', report:'navg-portfolio',
   'cash-assets':'navg-portfolio',  credit:'navg-portfolio',
   rebalance:'navg-portfolio', 'stock-rebalance':'navg-portfolio',
-  'theme-rebalance':'navg-portfolio', 'trade-history':'navg-portfolio', qualitative:'navg-portfolio',
+  'theme-rebalance':'navg-portfolio', 'trade-history':'navg-portfolio', qualitative:'navg-portfolio', 'market-power':'navg-portfolio',
   auditlog:'navg-system',    stocks:'navg-system',
   batch:'navg-admin',        spec:'navg-admin', 'common-codes':'navg-admin', usermgmt:'navg-admin',
   'alert-emails':'navg-admin',
@@ -3272,6 +3412,7 @@ function showPage(name, fromHash) {
   if (name === 'theme-rebalance')  loadThemeRebalance();
   if (name === 'trade-history')    loadTradeHistory();
   if (name === 'qualitative')      loadQualitative();
+  if (name === 'market-power')     mpLoad();
   if (name === 'common-codes')     loadCommonCodes();
 }
 
@@ -4864,6 +5005,7 @@ const _API_GROUP_LABELS = {
   macro_rates:      '매크로 관리',
   cash_assets:      '현금성 자산',
   qualitative:      '정성 평가',
+  'market-power':   '마켓파워 점수',
   users:            '사용자 관리',
   me:               '인증',
   login:            '인증',
@@ -9922,7 +10064,7 @@ async function ccDelete(id, name) {
 }
 
 // ─── 초기 로드 (해시 기반 페이지 복원) ───────────────────
-const PAGES = ['dashboard','supply','divergence','snapshot','signals','market-structure','report','ext-holdings','price-mgmt','cash-assets','macro','rebalance','credit','stock-rebalance','theme-rebalance','trade-history','qualitative','auditlog','stocks','batch','spec','common-codes','usermgmt'];
+const PAGES = ['dashboard','supply','divergence','snapshot','signals','market-structure','report','ext-holdings','price-mgmt','cash-assets','macro','rebalance','credit','stock-rebalance','theme-rebalance','trade-history','qualitative','market-power','auditlog','stocks','batch','spec','common-codes','usermgmt'];
 // visible_menus 저장 시점 이전에 존재하던 페이지 목록
 const PAGES_V1 = ['dashboard','supply','signals','auditlog','stocks','batch','usermgmt'];
 
@@ -10125,6 +10267,218 @@ if ('serviceWorker' in navigator) {
     </div>
   </div>
 </div>
+
+
+<script>
+// ─── 공급자 마켓파워 점수 ──────────────────────────────────────────────────
+
+const MP_DIMS = [
+  { key: 'supply_bottleneck',    label: '공급 병목성',    max: 25, mult: 5 },
+  { key: 'irreplaceability',     label: '대체 불가능성',  max: 20, mult: 4 },
+  { key: 'pricing_power',        label: '가격 결정력',    max: 20, mult: 4 },
+  { key: 'demand_visibility',    label: '수요 가시성',    max: 15, mult: 3 },
+  { key: 'expansion_difficulty', label: '증설 난이도',    max: 10, mult: 2 },
+  { key: 'customer_lockin',      label: '고객 락인',      max: 10, mult: 2 },
+];
+
+function mpGrade(total) {
+  if (total >= 85) return { label: 'S', color: '#4ade80' };
+  if (total >= 75) return { label: 'A', color: '#60a5fa' };
+  if (total >= 65) return { label: 'B', color: '#94a3b8' };
+  if (total >= 55) return { label: 'C', color: '#94a3b8' };
+  if (total >= 45) return { label: 'D', color: '#f87171' };
+  return { label: 'E', color: '#f87171' };
+}
+
+function mpGradeBadge(grade) {
+  const colors = { S:'#4ade80', A:'#60a5fa', B:'#94a3b8', C:'#94a3b8', D:'#f87171', E:'#f87171' };
+  const bg     = { S:'#1a2a1a', A:'#1a2535', B:'#1e2535', C:'#1e2535', D:'#2a1a1a', E:'#2a1a1a' };
+  const c = colors[grade] || '#64748b';
+  const b = bg[grade]     || '#1e2535';
+  return `<span style="background:${b};color:${c};padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700">${grade}</span>`;
+}
+
+async function mpLoad() {
+  const res = await fetch('/api/market_power');
+  if (!res.ok) return;
+  const rows = await res.json();
+  const tbody = document.getElementById('mp-list-body');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="12" style="padding:30px;text-align:center;color:#475569;font-size:13px">데이터 없음 — 점수 입력 버튼으로 추가하세요</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    const g = mpGrade(r.total_score);
+    const bar = (val, max) => {
+      const pct = Math.round(val / max * 100);
+      return `<span style="color:#e2e8f0">${val}</span><span style="font-size:10px;color:#334155">/${max}</span>`;
+    };
+    return `<tr style="border-bottom:1px solid #0d1117;cursor:pointer"
+              onmouseover="this.style.background='#1a2235'" onmouseout="this.style.background=''">
+      <td style="padding:8px 10px;color:#e2e8f0;font-weight:500;white-space:nowrap">
+        ${r.stock_name}<span style="font-size:11px;color:#475569;margin-left:5px">${r.stock_code}</span>
+      </td>
+      <td style="padding:8px 6px;text-align:center">${mpGradeBadge(r.grade)}</td>
+      <td style="padding:8px 6px;text-align:right;font-size:15px;font-weight:700;color:${g.color}">${r.total_score}</td>
+      <td style="padding:8px 6px;text-align:right">${bar(r.supply_bottleneck, 25)}</td>
+      <td style="padding:8px 6px;text-align:right">${bar(r.irreplaceability, 20)}</td>
+      <td style="padding:8px 6px;text-align:right">${bar(r.pricing_power, 20)}</td>
+      <td style="padding:8px 6px;text-align:right">${bar(r.demand_visibility, 15)}</td>
+      <td style="padding:8px 6px;text-align:right">${bar(r.expansion_difficulty, 10)}</td>
+      <td style="padding:8px 6px;text-align:right">${bar(r.customer_lockin, 10)}</td>
+      <td style="padding:8px 6px;text-align:right;font-size:11px;color:#64748b;white-space:nowrap">${(r.scored_at||'').slice(0,10)}</td>
+      <td style="padding:8px 6px;text-align:center">
+        <button onclick="event.stopPropagation();mpShowHistory('${r.stock_code}','${r.stock_name}')"
+                style="background:none;border:1px solid #1e2535;color:#64748b;cursor:pointer;font-size:11px;padding:2px 8px;border-radius:4px"
+                onmouseover="this.style.color='#94a3b8'" onmouseout="this.style.color='#64748b'">이력</button>
+      </td>
+      <td style="padding:8px 4px;text-align:center">
+        <button onclick="event.stopPropagation();mpOpenModal('${r.stock_code}')"
+                style="background:none;border:1px solid #1e2535;color:#60a5fa;cursor:pointer;font-size:11px;padding:2px 8px;border-radius:4px"
+                onmouseover="this.style.color='#93c5fd'" onmouseout="this.style.color='#60a5fa'">편집</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function mpShowHistory(code, name) {
+  const res = await fetch(`/api/market_power/${code}/history`);
+  if (!res.ok) return;
+  const rows = await res.json();
+  document.getElementById('mp-history-title').textContent = `${name} (${code}) 점수 이력`;
+  const tbody = document.getElementById('mp-history-body');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="11" style="padding:16px;text-align:center;color:#475569">이력 없음</td></tr>';
+  } else {
+    tbody.innerHTML = rows.map(r => `<tr style="border-bottom:1px solid #0d1117">
+      <td style="padding:6px 10px;color:#94a3b8;white-space:nowrap">${(r.scored_at||'').slice(0,10)}</td>
+      <td style="padding:6px 6px;text-align:center">${mpGradeBadge(r.grade)}</td>
+      <td style="padding:6px 6px;text-align:right;font-weight:700;color:${mpGrade(r.total_score).color}">${r.total_score}</td>
+      <td style="padding:6px 6px;text-align:right;color:#e2e8f0">${r.supply_bottleneck}</td>
+      <td style="padding:6px 6px;text-align:right;color:#e2e8f0">${r.irreplaceability}</td>
+      <td style="padding:6px 6px;text-align:right;color:#e2e8f0">${r.pricing_power}</td>
+      <td style="padding:6px 6px;text-align:right;color:#e2e8f0">${r.demand_visibility}</td>
+      <td style="padding:6px 6px;text-align:right;color:#e2e8f0">${r.expansion_difficulty}</td>
+      <td style="padding:6px 6px;text-align:right;color:#e2e8f0">${r.customer_lockin}</td>
+      <td style="padding:6px 6px;color:#64748b;font-size:11px">${r.memo||''}</td>
+      <td style="padding:6px 4px;text-align:center">
+        <button onclick="mpDeleteHistory(${r.id},'${code}')"
+                style="background:none;border:none;color:#475569;cursor:pointer;font-size:13px;padding:1px 3px"
+                onmouseover="this.style.color='#f87171'" onmouseout="this.style.color='#475569'">✕</button>
+      </td>
+    </tr>`).join('');
+  }
+  document.getElementById('mp-history-panel').style.display = 'block';
+}
+
+async function mpDeleteHistory(id, code) {
+  if (!confirm('이 점수 기록을 삭제할까요?')) return;
+  await fetch(`/api/market_power/${id}`, { method: 'DELETE' });
+  const nameEl = document.getElementById('mp-history-title').textContent;
+  const name = nameEl.split('(')[0].trim();
+  mpShowHistory(code, name);
+  mpLoad();
+}
+
+async function mpOpenModal(prefillCode) {
+  // 보유종목 드롭다운 채우기
+  const res = await fetch('/api/manual_holdings');
+  const data = res.ok ? await res.json() : { items: [] };
+  const items = data.items || data || [];
+  const seen = {};
+  const opts = items
+    .filter(h => { if (seen[h.stock_code]) return false; seen[h.stock_code]=true; return true; })
+    .map(h => `<option value="${h.stock_code}" data-name="${h.stock_name}">${h.stock_name} (${h.stock_code})</option>`)
+    .join('');
+  document.getElementById('mp-stock-select').innerHTML = '<option value="">-- 선택 --</option>' + opts;
+  if (prefillCode) {
+    document.getElementById('mp-stock-select').value = prefillCode;
+  }
+
+  // 날짜 기본값: 오늘
+  document.getElementById('mp-scored-at').value = new Date().toISOString().slice(0,10);
+
+  // 슬라이더 생성
+  const wrap = document.getElementById('mp-sliders');
+  wrap.innerHTML = MP_DIMS.map(d => `
+    <div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:5px">
+        <span style="font-size:12px;color:#94a3b8">${d.label}</span>
+        <span style="font-size:12px;font-weight:600;color:#e2e8f0">
+          <span id="mp-raw-${d.key}">0</span>점
+          <span style="color:#334155;font-size:11px"> → </span>
+          <span id="mp-val-${d.key}" style="color:#60a5fa">0</span>/<span style="color:#334155">${d.max}</span>
+        </span>
+      </div>
+      <input type="range" id="mp-slider-${d.key}" min="0" max="5" value="0" step="1"
+             style="width:100%;accent-color:#3b82f6;cursor:pointer"
+             oninput="mpUpdateSlider('${d.key}',${d.mult})"/>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:#334155;margin-top:2px">
+        <span>0</span><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span>
+      </div>
+    </div>
+  `).join('');
+
+  document.getElementById('mp-memo').value = '';
+  mpRecalc();
+
+  const modal = document.getElementById('mp-modal');
+  modal.style.display = 'flex';
+}
+
+function mpUpdateSlider(key, mult) {
+  const raw = parseInt(document.getElementById(`mp-slider-${key}`).value);
+  document.getElementById(`mp-raw-${key}`).textContent = raw;
+  document.getElementById(`mp-val-${key}`).textContent = raw * mult;
+  mpRecalc();
+}
+
+function mpRecalc() {
+  let total = 0;
+  MP_DIMS.forEach(d => {
+    const raw = parseInt((document.getElementById(`mp-slider-${d.key}`)?.value) || 0);
+    total += raw * d.mult;
+  });
+  const g = mpGrade(total);
+  document.getElementById('mp-total-display').textContent = total;
+  document.getElementById('mp-total-display').style.color = g.color;
+  document.getElementById('mp-grade-display').textContent = g.label;
+  document.getElementById('mp-grade-display').style.color = g.color;
+  document.getElementById('mp-progress-bar').style.width = total + '%';
+  document.getElementById('mp-progress-bar').style.background = g.color;
+}
+
+function mpCloseModal() {
+  document.getElementById('mp-modal').style.display = 'none';
+}
+
+async function mpSave() {
+  const sel = document.getElementById('mp-stock-select');
+  const stock_code = sel.value;
+  if (!stock_code) { alert('종목을 선택하세요.'); return; }
+  const stock_name = sel.options[sel.selectedIndex]?.getAttribute('data-name') || '';
+  const scored_at  = document.getElementById('mp-scored-at').value || null;
+  const memo       = document.getElementById('mp-memo').value.trim();
+
+  const body = { stock_code, stock_name, scored_at, memo };
+  MP_DIMS.forEach(d => {
+    const raw = parseInt(document.getElementById(`mp-slider-${d.key}`).value);
+    body[d.key] = raw * d.mult;
+  });
+
+  const res = await fetch('/api/market_power', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (res.ok) {
+    mpCloseModal();
+    mpLoad();
+  } else {
+    alert('저장 실패');
+  }
+}
+</script>
 
 </body>
 </html>
