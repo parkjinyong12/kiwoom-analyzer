@@ -10854,37 +10854,70 @@ async function mpApplyThemeAll() {
     label: r.theme, before: r.existing_target, after: r.recommended,
   }));
 
-  // 테마 단위 평가금액 증감 (총평가 기준, 종목 재배분 없이 단순 추정)
-  const totalEval = _mpSuggestions.reduce((sum, s) => sum + (s.current_qty ?? 0) * (s.current_price ?? 0), 0);
+  // 종목별 예상 거래량 계산 (테마 내 현재 비중 유지, 테마 크기만 조정)
+  const newThemeMap = Object.fromEntries(
+    _mpThemeSuggestions.map(r => [r.theme, { before: r.existing_target, after: r.recommended }])
+  );
+  // 테마별 현재 평가 합산
+  const themeEvalMap = {};
+  let totalEval = 0;
+  _mpSuggestions.forEach(s => {
+    const ev = (s.current_qty ?? 0) * (s.current_price ?? 0);
+    if (s.theme) themeEvalMap[s.theme] = (themeEvalMap[s.theme] ?? 0) + ev;
+    totalEval += ev;
+  });
+
   let extraHtml = '';
   if (totalEval > 0) {
-    const fmt = v => (v >= 0 ? '+' : '') + Math.round(v / 10000).toLocaleString() + '만';
-    const rows = _mpThemeSuggestions
-      .filter(r => Math.abs(r.recommended - r.existing_target) >= 0.01)
-      .map(r => {
-        const diff  = r.recommended - r.existing_target;
-        const diffVal = totalEval * diff / 100;
-        const color = diff > 0 ? '#4ade80' : '#f87171';
-        return `<tr style="border-bottom:1px solid #0d1117">
-          <td style="padding:6px 10px;color:#e2e8f0">${r.theme}</td>
-          <td style="padding:6px 8px;text-align:right;color:${color};font-weight:600">${diff >= 0 ? '+' : ''}${diff.toFixed(2)}pp</td>
-          <td style="padding:6px 8px;text-align:right;color:${color};font-weight:700">${fmt(diffVal)}</td>
-        </tr>`;
-      }).join('');
-    if (rows) {
+    const changedThemes = Object.keys(newThemeMap).filter(t =>
+      Math.abs((newThemeMap[t].after ?? 0) - (newThemeMap[t].before ?? 0)) >= 0.01
+    );
+    if (changedThemes.length > 0) {
+      // 변화 있는 테마의 종목만 계산
+      const stockRows = _mpSuggestions
+        .filter(s => s.theme && changedThemes.includes(s.theme) && s.current_price > 0)
+        .map(s => {
+          const curEval      = (s.current_qty ?? 0) * (s.current_price ?? 0);
+          const themeEval    = themeEvalMap[s.theme] ?? 0;
+          const newThemeRatio = (newThemeMap[s.theme]?.after ?? 0);
+          const stockWeight   = themeEval > 0 ? curEval / themeEval : 0;
+          const newTargetEval = totalEval * (newThemeRatio / 100) * stockWeight;
+          const tradeVal      = newTargetEval - curEval;
+          const tradeQty      = Math.round(tradeVal / s.current_price);
+          const color = tradeQty > 0 ? '#4ade80' : tradeQty < 0 ? '#f87171' : '#64748b';
+          const sign  = tradeQty > 0 ? '▲매수 ' : tradeQty < 0 ? '▼매도 ' : '— ';
+          const valStr = (tradeVal >= 0 ? '+' : '') + Math.round(tradeVal / 10000).toLocaleString() + '만';
+          return { theme: s.theme, html: `<tr style="border-bottom:1px solid #0d1117">
+            <td style="padding:6px 10px;color:#e2e8f0;white-space:nowrap">${s.stock_name}</td>
+            <td style="padding:6px 6px;text-align:right;color:#64748b;font-size:11px">${s.theme}</td>
+            <td style="padding:6px 6px;text-align:right;color:#64748b">${(s.current_qty??0).toLocaleString()}주</td>
+            <td style="padding:6px 6px;text-align:right;color:${color};font-weight:700">${sign}${Math.abs(tradeQty).toLocaleString()}주</td>
+            <td style="padding:6px 6px;text-align:right;color:${color}">${valStr}</td>
+          </tr>` };
+        });
+
+      let totalBuy = 0, totalSell = 0;
+      stockRows.forEach(({ theme }) => {
+        const s = _mpSuggestions.find(x => x.theme === theme);
+      });
+
       extraHtml = `<div style="border-top:1px solid #1e2535;padding-top:14px;margin-top:4px">
-        <div style="font-size:12px;font-weight:600;color:#94a3b8;margin-bottom:8px">테마 비중 변화 추정
-          <span style="font-size:11px;color:#475569;font-weight:400;margin-left:6px">주식 총액 ${Math.round(totalEval/10000).toLocaleString()}만 기준 · 종목 배분 미반영</span>
+        <div style="font-size:12px;font-weight:600;color:#94a3b8;margin-bottom:8px">
+          종목별 예상 거래량
+          <span style="font-size:11px;color:#475569;font-weight:400;margin-left:6px">테마 내 현재 비중 유지 기준 · 주식 총액 ${Math.round(totalEval/10000).toLocaleString()}만</span>
         </div>
-        <table style="width:100%;border-collapse:collapse;font-size:12px">
-          <thead><tr style="border-bottom:1px solid #1e2535">
-            <th style="padding:5px 10px;text-align:left;color:#64748b;font-size:11px">테마</th>
-            <th style="padding:5px 8px;text-align:right;color:#64748b;font-size:11px">비중변화</th>
-            <th style="padding:5px 8px;text-align:right;color:#64748b;font-size:11px">추정금액</th>
-          </tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-        <div style="font-size:11px;color:#475569;margin-top:10px">종목별 실제 거래량은 하단 목표비율 제안에서 확인하세요.</div>
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead><tr style="border-bottom:1px solid #1e2535">
+              <th style="padding:5px 10px;text-align:left;color:#64748b;font-size:11px">종목</th>
+              <th style="padding:5px 6px;text-align:right;color:#64748b;font-size:11px">테마</th>
+              <th style="padding:5px 6px;text-align:right;color:#64748b;font-size:11px">현재수량</th>
+              <th style="padding:5px 6px;text-align:right;color:#fbbf24;font-size:11px">예상거래</th>
+              <th style="padding:5px 6px;text-align:right;color:#64748b;font-size:11px">금액(만)</th>
+            </tr></thead>
+            <tbody>${stockRows.map(r => r.html).join('')}</tbody>
+          </table>
+        </div>
       </div>`;
     }
   }
