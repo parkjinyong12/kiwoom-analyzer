@@ -3099,7 +3099,7 @@ canvas { max-height: 220px; }
         <div class="page-sub">종목별 공급자 우위 점수 관리 (100점 만점) — 병목성·대체불가·가격결정력·수요·증설·고객락인</div>
       </div>
       <div style="display:flex;gap:8px">
-        <button class="btn btn-ghost" style="font-size:12px" onclick="mpLoad()">새로고침</button>
+        <button class="btn btn-ghost" style="font-size:12px" onclick="mpLoad().then(()=>mpLoadThemeSuggestions().then(mpLoadSuggestions))">새로고침</button>
         <button class="btn btn-primary" onclick="mpOpenModal()">+ 점수 입력</button>
       </div>
     </div>
@@ -3550,7 +3550,7 @@ function showPage(name, fromHash) {
   if (name === 'theme-rebalance')  loadThemeRebalance();
   if (name === 'trade-history')    loadTradeHistory();
   if (name === 'qualitative')      loadQualitative();
-  if (name === 'market-power')     mpLoad();
+  if (name === 'market-power')     mpLoad().then(() => { mpLoadThemeSuggestions().then(mpLoadSuggestions); });
   if (name === 'common-codes')     loadCommonCodes();
 }
 
