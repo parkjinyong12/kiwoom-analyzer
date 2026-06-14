@@ -3396,29 +3396,30 @@ def api_market_power_theme_suggestions():
         return jsonify({"themes": [], "total_eval": total_eval})
 
     # ── 권장 목표비율 계산 ────────────────────────────────────────────────────
-    any_fit = any(r["fit_score"] is not None for r in result)
+    # recommended는 existing에 의존하지 않아야 수렴 가능.
+    # fit_score 입력 시: fit_score 비례 정규화 (고정값 → 안정)
+    # fit_score 없음: composite 비례 정규화 (마켓파워 점수 기반)
+    fit_themes   = [r for r in result if r["fit_score"] is not None]
+    nofit_themes = [r for r in result if r["fit_score"] is None]
 
-    if any_fit:
-        # 적합도 입력된 경우: 점수 비율(fit_share)로 기존 목표를 곱셈 조정.
-        # fit_share > 1 이면 평균보다 적합 → 기존 대비 소폭 상향.
-        # fit_share < 1 이면 평균보다 낮음 → 기존 대비 소폭 하향.
-        # 절댓값 대체가 아닌 상대 배율이므로 기존 목표 분포가 유지된 채 조정됨.
-        scored = [r["fit_score"] for r in result if r["fit_score"] is not None]
-        avg_fit = sum(scored) / len(scored)
-        BLEND = 0.30  # 한 번 적용 시 최대 ±30% 배율 범위 내 이동
-        for r in result:
-            fs = r["fit_score"]
-            fit_share = (fs / avg_fit) if fs is not None else 1.0
-            adj_factor = 1.0 + (fit_share - 1.0) * BLEND
-            r["recommended"] = max(0.01, r["existing_target"] * adj_factor)
+    if fit_themes and not nofit_themes:
+        # 전체 fit_score 비례 → 가장 안정적
+        total_fit = sum(r["fit_score"] for r in fit_themes)
+        for r in fit_themes:
+            r["recommended"] = r["fit_score"] / total_fit * 100 if total_fit > 0 else 0.0
+    elif fit_themes:
+        # 일부만 입력: fit 테마 80% 배분, 나머지 20%를 composite 비례
+        total_fit  = sum(r["fit_score"] for r in fit_themes)
+        total_comp = sum((r["composite"] or 0) for r in nofit_themes) or 1
+        for r in fit_themes:
+            r["recommended"] = r["fit_score"] / total_fit * 80 if total_fit > 0 else 0.0
+        for r in nofit_themes:
+            r["recommended"] = (r["composite"] or 0) / total_comp * 20
     else:
-        # 적합도 미입력: 20일 신호 기반 소폭 조정 (±0.5pp 이하)
-        _sig_adj = {
-            "강한 상향": 0.5, "상향 후보": 0.3, "유지": 0.0,
-            "하향 후보": -0.3, "강한 하향": -0.5, "20일평균 없음": 0.0,
-        }
+        # fit_score 전혀 없음: composite 비례
+        total_comp = sum((r["composite"] or 0) for r in result) or 1
         for r in result:
-            r["recommended"] = max(0.0, r["existing_target"] + _sig_adj.get(r["signal"], 0.0))
+            r["recommended"] = (r["composite"] or 0) / total_comp * 100
 
     # 합계 100% 정규화
     total_rec = sum(r["recommended"] for r in result)
