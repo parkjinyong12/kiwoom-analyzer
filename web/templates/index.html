@@ -2375,29 +2375,38 @@ canvas { max-height: 220px; }
 
     <!-- 일별 스냅샷 히스토리 -->
     <div class="panel" style="margin-bottom:12px">
-      <div class="panel-header" style="cursor:pointer" onclick="csToggle()">
+      <div class="panel-header" style="cursor:default">
         <span>일별 자산 기록 <span id="cs-count" style="font-size:12px;color:#64748b;font-weight:400"></span></span>
-        <span id="cs-chevron" style="font-size:12px;color:#64748b">▼</span>
-      </div>
-      <div id="cs-body" style="display:none">
-        <div style="overflow-x:auto">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>날짜</th>
-                <th style="text-align:right">주식 평가금</th>
-                <th style="text-align:right">현금성자산</th>
-                <th style="text-align:right">대출금</th>
-                <th style="text-align:right">추정자산</th>
-                <th style="text-align:right">담보비율</th>
-                <th style="text-align:center;width:60px">삭제</th>
-              </tr>
-            </thead>
-            <tbody id="cs-tbody">
-              <tr><td colspan="7" class="loading">로딩 중...</td></tr>
-            </tbody>
-          </table>
+        <div style="display:flex;gap:6px">
+          <button id="cs-btn-30"  class="btn btn-ghost" style="font-size:12px;padding:3px 10px" onclick="csSetPeriod(30)">1개월</button>
+          <button id="cs-btn-90"  class="btn btn-ghost" style="font-size:12px;padding:3px 10px" onclick="csSetPeriod(90)">3개월</button>
+          <button id="cs-btn-180" class="btn btn-ghost" style="font-size:12px;padding:3px 10px" onclick="csSetPeriod(180)">6개월</button>
+          <button id="cs-btn-730" class="btn btn-ghost" style="font-size:12px;padding:3px 10px" onclick="csSetPeriod(730)">전체</button>
         </div>
+      </div>
+      <!-- 차트 -->
+      <div style="padding:16px 16px 8px;position:relative;height:220px">
+        <canvas id="cs-chart"></canvas>
+        <div id="cs-chart-empty" style="display:none;position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#475569;font-size:13px">데이터 없음</div>
+      </div>
+      <!-- 테이블 -->
+      <div style="overflow-x:auto;border-top:1px solid #1e2535">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>날짜</th>
+              <th style="text-align:right">주식 평가금</th>
+              <th style="text-align:right">현금성자산</th>
+              <th style="text-align:right">대출금</th>
+              <th style="text-align:right">추정자산</th>
+              <th style="text-align:right">담보비율</th>
+              <th style="text-align:center;width:60px">삭제</th>
+            </tr>
+          </thead>
+          <tbody id="cs-tbody">
+            <tr><td colspan="7" class="loading">로딩 중...</td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
@@ -10289,29 +10298,44 @@ async function loadCredit() {
   } catch(e) {
     console.error('loadCredit failed', e);
   }
+  // 기간 필터 기본값 활성화 + 히스토리 자동 로드
+  csSetPeriod(_csDays);
 }
 
 // ─── 신용 일별 스냅샷 히스토리 ───────────────────────────────
-let _csOpen = false;
+let _csDays = 90;
+let _csChart = null;
 
-function csToggle() {
-  _csOpen = !_csOpen;
-  document.getElementById('cs-body').style.display = _csOpen ? 'block' : 'none';
-  document.getElementById('cs-chevron').textContent = _csOpen ? '▲' : '▼';
-  if (_csOpen) csLoad();
+function csSetPeriod(days) {
+  _csDays = days;
+  // 활성 버튼 표시
+  [30, 90, 180, 730].forEach(d => {
+    const btn = document.getElementById(`cs-btn-${d}`);
+    if (!btn) return;
+    btn.style.background  = d === days ? '#334155' : '';
+    btn.style.color       = d === days ? '#e2e8f0' : '';
+    btn.style.fontWeight  = d === days ? '600'     : '';
+  });
+  csLoad();
 }
 
 async function csLoad() {
   const tbody = document.getElementById('cs-tbody');
   tbody.innerHTML = '<tr><td colspan="7" class="loading">로딩 중...</td></tr>';
   try {
-    const res  = await fetch('/api/credit_snapshots?days=90');
+    const res  = await fetch(`/api/credit_snapshots?days=${_csDays}`);
     const rows = await res.json();
+
     document.getElementById('cs-count').textContent = rows.length ? `(${rows.length}건)` : '';
+
     if (!rows.length) {
       tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:20px;color:#475569">기록 없음 — 매일 20:10에 자동 저장됩니다.</td></tr>';
+      csRenderChart([]);
       return;
     }
+
+    csRenderChart(rows);
+
     tbody.innerHTML = rows.map(r => {
       const estColor = r.estimated_asset >= 0 ? '#4ade80' : '#f87171';
       const crRatio  = r.collateral_ratio !== null ? r.collateral_ratio.toFixed(1) + '%' : '—';
@@ -10335,6 +10359,101 @@ async function csLoad() {
   } catch(e) {
     tbody.innerHTML = '<tr><td colspan="7" style="color:#f87171;text-align:center;padding:16px">로딩 실패</td></tr>';
   }
+}
+
+function csRenderChart(rows) {
+  const canvas = document.getElementById('cs-chart');
+  const emptyEl = document.getElementById('cs-chart-empty');
+  if (!canvas) return;
+
+  if (_csChart) { _csChart.destroy(); _csChart = null; }
+
+  if (!rows.length) {
+    canvas.style.display  = 'none';
+    if (emptyEl) { emptyEl.style.display = 'flex'; }
+    return;
+  }
+  canvas.style.display  = 'block';
+  if (emptyEl) emptyEl.style.display = 'none';
+
+  // API는 내림차순(최신→과거) — 차트용으로 오름차순 반전
+  const asc    = [...rows].reverse();
+  const labels = asc.map(r => r.record_date.substring(5));  // MM-DD
+  const toM    = v => Math.round(v / 10000);                // 원 → 만원
+
+  _csChart = new Chart(canvas.getContext('2d'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: '추정자산',
+          data: asc.map(r => toM(r.estimated_asset)),
+          borderColor: '#4ade80', backgroundColor: 'rgba(74,222,128,0.08)',
+          borderWidth: 2.5, pointRadius: asc.length > 60 ? 0 : 3,
+          tension: 0.3, fill: true, yAxisID: 'y',
+        },
+        {
+          label: '주식평가금',
+          data: asc.map(r => toM(r.stock_eval)),
+          borderColor: '#60a5fa', backgroundColor: 'transparent',
+          borderWidth: 1.5, pointRadius: 0,
+          tension: 0.3, fill: false, yAxisID: 'y',
+        },
+        {
+          label: '대출금',
+          data: asc.map(r => toM(r.loan_amount)),
+          borderColor: '#f87171', backgroundColor: 'transparent',
+          borderWidth: 1.5, borderDash: [4, 3], pointRadius: 0,
+          tension: 0.2, fill: false, yAxisID: 'y',
+        },
+        {
+          label: '담보비율(%)',
+          data: asc.map(r => r.collateral_ratio),
+          borderColor: '#a78bfa', backgroundColor: 'transparent',
+          borderWidth: 1.5, borderDash: [2, 3], pointRadius: 0,
+          tension: 0.2, fill: false, yAxisID: 'y2',
+        },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 12, padding: 12 },
+        },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              if (ctx.dataset.yAxisID === 'y2')
+                return ` 담보비율: ${ctx.parsed.y !== null ? ctx.parsed.y.toFixed(1) : '—'}%`;
+              return ` ${ctx.dataset.label}: ${ctx.parsed.y !== null ? ctx.parsed.y.toLocaleString() : '—'}만원`;
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          ticks: { color: '#475569', font: { size: 10 }, maxTicksLimit: 10 },
+          grid:  { color: 'rgba(30,37,53,0.8)' },
+        },
+        y: {
+          position: 'left',
+          ticks: {
+            color: '#64748b', font: { size: 10 },
+            callback: v => v >= 10000 ? (v/10000).toFixed(0)+'억' : v.toLocaleString()+'만',
+          },
+          grid: { color: 'rgba(30,37,53,0.6)' },
+        },
+        y2: {
+          position: 'right',
+          ticks: { color: '#a78bfa', font: { size: 10 }, callback: v => v + '%' },
+          grid: { drawOnChartArea: false },
+        },
+      },
+    },
+  });
 }
 
 async function csDelete(date) {

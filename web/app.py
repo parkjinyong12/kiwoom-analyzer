@@ -2191,7 +2191,7 @@ def api_credit_positions_delete(pid: int):
 def api_credit_snapshots_list():
     """신용 일별 스냅샷 히스토리 조회 (최근 90일)."""
     uid  = _current_uid()
-    days = int(request.args.get("days", 90))
+    days = min(int(request.args.get("days", 90)), 730)
     rows = query("""
         SELECT record_date, stock_eval, cash_eval, loan_amount,
                estimated_asset, collateral_ratio, memo,
