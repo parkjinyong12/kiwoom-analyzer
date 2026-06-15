@@ -5,6 +5,7 @@
 처리 순서:
   1. manual_holdings에서 DISTINCT stock_code 목록 조회
   2. 각 종목별 ka10081 일봉 호출 → 최신 거래일 종가 취득
+     SOR(_AL) 우선 → 실패 시 KRX 재시도 (KRX+NXT 통합 데이터 우선 사용)
   3. supply_demand (stock_code, date, close_price) upsert
   4. stocks (last_price, fetched_at) upsert
 """
@@ -27,7 +28,7 @@ import pandas as pd
 import psycopg2
 import psycopg2.extras
 
-from agents.market_data import MarketDataAgent, resolve_exchange
+from agents.market_data import MarketDataAgent
 from config import config
 
 
@@ -51,8 +52,7 @@ def main() -> None:
         return
 
     m = MarketDataAgent()
-    exch = resolve_exchange()
-    logger.info("거래소: %s", exch)
+    logger.info("거래소: SOR (KRX+NXT 통합) 우선, 실패 시 KRX fallback")
     updated = 0
     failed = 0
 
@@ -61,11 +61,11 @@ def main() -> None:
         stock_name = t["stock_name"] or ticker
         try:
             try:
-                df = m.get_daily_ohlcv(ticker, count=5, stex_tp=exch)
+                df = m.get_daily_ohlcv(ticker, count=5, stex_tp="SOR")
             except Exception:
                 df = pd.DataFrame()
-            if df.empty and exch == "NXT":
-                logger.info("[%d/%d] %s — NXT 데이터 없음, KRX 재시도", idx, len(targets), ticker)
+            if df.empty:
+                logger.info("[%d/%d] %s — SOR 데이터 없음, KRX 재시도", idx, len(targets), ticker)
                 df = m.get_daily_ohlcv(ticker, count=5, stex_tp="KRX")
             if df.empty:
                 logger.warning("[%d/%d] %s — 일봉 데이터 없음", idx, len(targets), ticker)

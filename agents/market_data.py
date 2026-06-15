@@ -222,11 +222,18 @@ class MarketDataAgent:
     def get_daily_ohlcv(self, ticker: str, count: int = 200, stex_tp: str | None = None) -> pd.DataFrame:
         """일봉 데이터 조회 (최근 count개 봉).
 
-        stex_tp: 거래소 지정 ("KRX"/"NXT"). None이면 현재 시간 기준 자동 선택.
-        NXT 조회 시 종목코드에 _NX 접미사를 붙여 요청 (API 스펙).
+        stex_tp: 거래소 지정 ("KRX"/"NXT"/"SOR"). None이면 현재 시간 기준 자동 선택.
+          KRX → 종목코드 그대로 (예: 005930)
+          NXT → _NX 접미사 (예: 005930_NX)
+          SOR → _AL 접미사, KRX+NXT 통합 (예: 005930_AL)
         """
         exch = stex_tp or resolve_exchange()
-        stk_cd = f"{ticker}_NX" if exch == "NXT" else ticker
+        if exch == "NXT":
+            stk_cd = f"{ticker}_NX"
+        elif exch == "SOR":
+            stk_cd = f"{ticker}_AL"
+        else:
+            stk_cd = ticker
         body = {
             "stk_cd": stk_cd,
             "base_dt": datetime.now(tz=KST).strftime("%Y%m%d"),
@@ -334,11 +341,16 @@ class MarketDataAgent:
     def get_current_price(self, ticker: str, stex_tp: str | None = None) -> Optional[float]:
         """현재가 단일 조회.
 
-        stex_tp: 거래소 지정 ("KRX"/"NXT"). None이면 현재 시간 기준 자동 선택.
-        NXT 조회 시 종목코드에 _NX 접미사를 붙여 요청 (API 스펙).
+        stex_tp: 거래소 지정 ("KRX"/"NXT"/"SOR"). None이면 현재 시간 기준 자동 선택.
+          KRX → 종목코드 그대로, NXT → _NX, SOR → _AL (KRX+NXT 통합)
         """
         exch = stex_tp or resolve_exchange()
-        stk_cd = f"{ticker}_NX" if exch == "NXT" else ticker
+        if exch == "NXT":
+            stk_cd = f"{ticker}_NX"
+        elif exch == "SOR":
+            stk_cd = f"{ticker}_AL"
+        else:
+            stk_cd = ticker
         try:
             data = self._post("/api/dostk/mrkcond", "ka10007", {"stk_cd": stk_cd})
             price_str = data.get("cur_prc", "0").replace(",", "").replace("+", "").replace("-", "")
