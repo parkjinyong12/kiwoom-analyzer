@@ -369,6 +369,26 @@ def _ensure_cash_assets_table():
         cur.execute("ALTER TABLE cash_assets ADD COLUMN IF NOT EXISTS asset_type_code VARCHAR(20)  NOT NULL DEFAULT ''")
 
 
+def _ensure_credit_snapshots_table():
+    """신용 일별 스냅샷 테이블 (날짜당 1건, upsert)."""
+    with get_conn() as conn:
+        conn.cursor().execute("""
+            CREATE TABLE IF NOT EXISTS credit_snapshots (
+                id               SERIAL PRIMARY KEY,
+                user_id          INTEGER NOT NULL REFERENCES users(id),
+                record_date      DATE NOT NULL,
+                stock_eval       BIGINT NOT NULL DEFAULT 0,
+                cash_eval        BIGINT NOT NULL DEFAULT 0,
+                loan_amount      BIGINT NOT NULL DEFAULT 0,
+                estimated_asset  BIGINT NOT NULL DEFAULT 0,
+                collateral_ratio NUMERIC(6,2),
+                memo             TEXT NOT NULL DEFAULT '',
+                created_at       TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE (user_id, record_date)
+            )
+        """)
+
+
 def _ensure_credit_positions_table():
     """신용 포지션 충당금 관리 테이블 (증권사당 1건)."""
     with get_conn() as conn:
@@ -641,6 +661,13 @@ BATCH_JOBS = {
         "match": "scripts/sync_prices",
         "cmd": "python -u scripts/sync_prices.py",
         "log_prefix": "sync_prices",
+    },
+    "snapshot_credit": {
+        "name": "신용 일별 스냅샷",
+        "desc": "주식평가금·현금·대출금·추정자산 합계를 오늘 날짜로 DB 기록 (20:00 자동 실행)",
+        "match": "scripts/snapshot_credit",
+        "cmd": "python -u scripts/snapshot_credit.py",
+        "log_prefix": "snapshot_credit",
     },
     "run_once": {
         "name": "매매신호 갱신",
@@ -2157,6 +2184,80 @@ def api_credit_positions_delete(pid: int):
     uid = _current_uid()
     with get_conn() as conn:
         conn.cursor().execute("DELETE FROM credit_positions WHERE id=%s AND user_id=%s", (pid, uid))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/credit_snapshots", methods=["GET"])
+def api_credit_snapshots_list():
+    """신용 일별 스냅샷 히스토리 조회 (최근 90일)."""
+    uid  = _current_uid()
+    days = int(request.args.get("days", 90))
+    rows = query("""
+        SELECT record_date, stock_eval, cash_eval, loan_amount,
+               estimated_asset, collateral_ratio, memo,
+               TO_CHAR(created_at AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD HH24:MI') AS recorded_at
+        FROM credit_snapshots
+        WHERE user_id = %s AND record_date >= CURRENT_DATE - %s
+        ORDER BY record_date DESC
+    """, (uid, days))
+    return jsonify([{
+        "record_date":      r["record_date"].strftime("%Y-%m-%d"),
+        "stock_eval":       int(r["stock_eval"]),
+        "cash_eval":        int(r["cash_eval"]),
+        "loan_amount":      int(r["loan_amount"]),
+        "estimated_asset":  int(r["estimated_asset"]),
+        "collateral_ratio": float(r["collateral_ratio"]) if r["collateral_ratio"] is not None else None,
+        "memo":             r["memo"] or "",
+        "recorded_at":      r["recorded_at"],
+    } for r in rows])
+
+
+@app.route("/api/credit_snapshots", methods=["POST"])
+def api_credit_snapshots_save():
+    """오늘 날짜 신용 스냅샷 저장 (upsert). 같은 날 재기록 시 덮어씀."""
+    uid  = _current_uid()
+    data = request.get_json() or {}
+    try:
+        stock_eval      = int(data.get("stock_eval")      or 0)
+        cash_eval       = int(data.get("cash_eval")       or 0)
+        loan_amount     = int(data.get("loan_amount")     or 0)
+        estimated_asset = int(data.get("estimated_asset") or 0)
+        collateral_ratio = data.get("collateral_ratio")
+        if collateral_ratio is not None:
+            collateral_ratio = round(float(collateral_ratio), 2)
+        memo = (data.get("memo") or "").strip()
+        record_date = data.get("record_date") or "today"
+    except (ValueError, TypeError) as e:
+        return jsonify({"error": str(e)}), 400
+
+    with get_conn() as conn:
+        conn.cursor().execute("""
+            INSERT INTO credit_snapshots
+                (user_id, record_date, stock_eval, cash_eval, loan_amount,
+                 estimated_asset, collateral_ratio, memo, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+            ON CONFLICT (user_id, record_date) DO UPDATE SET
+                stock_eval       = EXCLUDED.stock_eval,
+                cash_eval        = EXCLUDED.cash_eval,
+                loan_amount      = EXCLUDED.loan_amount,
+                estimated_asset  = EXCLUDED.estimated_asset,
+                collateral_ratio = EXCLUDED.collateral_ratio,
+                memo             = EXCLUDED.memo,
+                created_at       = NOW()
+        """, (uid, record_date, stock_eval, cash_eval, loan_amount,
+              estimated_asset, collateral_ratio, memo))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/credit_snapshots/<string:record_date>", methods=["DELETE"])
+def api_credit_snapshots_delete(record_date: str):
+    """특정 날짜 스냅샷 삭제."""
+    uid = _current_uid()
+    with get_conn() as conn:
+        conn.cursor().execute(
+            "DELETE FROM credit_snapshots WHERE user_id=%s AND record_date=%s",
+            (uid, record_date),
+        )
     return jsonify({"ok": True})
 
 
@@ -4531,6 +4632,17 @@ def _reload_scheduler_job(job_id: str, enabled: bool, hour: int, minute: int, da
 
 
 def _init_scheduler():
+    # snapshot_credit 기본 스케줄 등록 (없으면 insert, 있으면 skip)
+    try:
+        with get_conn() as conn:
+            conn.cursor().execute("""
+                INSERT INTO batch_schedules (job_id, enabled, hour, minute, days, interval_mode, interval_minutes)
+                VALUES ('snapshot_credit', true, 20, 10, 'weekdays', false, 60)
+                ON CONFLICT (job_id) DO NOTHING
+            """)
+    except Exception:
+        pass
+
     try:
         rows = query("SELECT job_id, enabled, hour, minute, days, interval_mode, interval_minutes, interval_start, interval_end FROM batch_schedules")
         for r in rows:
@@ -4819,6 +4931,11 @@ except Exception:
 
 try:
     _ensure_credit_positions_table()
+except Exception:
+    pass
+
+try:
+    _ensure_credit_snapshots_table()
 except Exception:
     pass
 

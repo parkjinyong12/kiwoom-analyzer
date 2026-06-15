@@ -2373,6 +2373,34 @@ canvas { max-height: 220px; }
       </div>
     </div>
 
+    <!-- 일별 스냅샷 히스토리 -->
+    <div class="panel" style="margin-bottom:12px">
+      <div class="panel-header" style="cursor:pointer" onclick="csToggle()">
+        <span>일별 자산 기록 <span id="cs-count" style="font-size:12px;color:#64748b;font-weight:400"></span></span>
+        <span id="cs-chevron" style="font-size:12px;color:#64748b">▼</span>
+      </div>
+      <div id="cs-body" style="display:none">
+        <div style="overflow-x:auto">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>날짜</th>
+                <th style="text-align:right">주식 평가금</th>
+                <th style="text-align:right">현금성자산</th>
+                <th style="text-align:right">대출금</th>
+                <th style="text-align:right">추정자산</th>
+                <th style="text-align:right">담보비율</th>
+                <th style="text-align:center;width:60px">삭제</th>
+              </tr>
+            </thead>
+            <tbody id="cs-tbody">
+              <tr><td colspan="7" class="loading">로딩 중...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
     <!-- 신용 포지션 추가/수정 모달 -->
     <div class="modal-overlay" id="cp-modal" style="display:none">
       <div class="modal" style="width:420px">
@@ -10261,6 +10289,58 @@ async function loadCredit() {
   } catch(e) {
     console.error('loadCredit failed', e);
   }
+}
+
+// ─── 신용 일별 스냅샷 히스토리 ───────────────────────────────
+let _csOpen = false;
+
+function csToggle() {
+  _csOpen = !_csOpen;
+  document.getElementById('cs-body').style.display = _csOpen ? 'block' : 'none';
+  document.getElementById('cs-chevron').textContent = _csOpen ? '▲' : '▼';
+  if (_csOpen) csLoad();
+}
+
+async function csLoad() {
+  const tbody = document.getElementById('cs-tbody');
+  tbody.innerHTML = '<tr><td colspan="7" class="loading">로딩 중...</td></tr>';
+  try {
+    const res  = await fetch('/api/credit_snapshots?days=90');
+    const rows = await res.json();
+    document.getElementById('cs-count').textContent = rows.length ? `(${rows.length}건)` : '';
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:20px;color:#475569">기록 없음 — 매일 20:10에 자동 저장됩니다.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(r => {
+      const estColor = r.estimated_asset >= 0 ? '#4ade80' : '#f87171';
+      const crRatio  = r.collateral_ratio !== null ? r.collateral_ratio.toFixed(1) + '%' : '—';
+      const crColor  = r.collateral_ratio === null ? '#64748b'
+        : r.collateral_ratio >= (rbCollateralRequired + 10) ? '#4ade80'
+        : r.collateral_ratio >= rbCollateralRequired        ? '#f59e0b'
+        : '#f87171';
+      return `<tr>
+        <td style="font-weight:600;color:#94a3b8">${r.record_date}</td>
+        <td class="num" style="color:#60a5fa">${r.stock_eval.toLocaleString()}</td>
+        <td class="num" style="color:#34d399">${r.cash_eval > 0 ? r.cash_eval.toLocaleString() : '—'}</td>
+        <td class="num" style="color:#f87171">${r.loan_amount > 0 ? r.loan_amount.toLocaleString() : '—'}</td>
+        <td class="num" style="color:${estColor};font-weight:700">${r.estimated_asset.toLocaleString()}</td>
+        <td class="num" style="color:${crColor}">${crRatio}</td>
+        <td class="center">
+          <button class="btn btn-danger" style="font-size:11px;padding:2px 7px"
+                  onclick="csDelete('${r.record_date}')">삭제</button>
+        </td>
+      </tr>`;
+    }).join('');
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="7" style="color:#f87171;text-align:center;padding:16px">로딩 실패</td></tr>';
+  }
+}
+
+async function csDelete(date) {
+  if (!confirm(`${date} 기록을 삭제할까요?`)) return;
+  await fetch(`/api/credit_snapshots/${date}`, { method: 'DELETE' });
+  csLoad();
 }
 
 async function crSaveSettings() {
