@@ -38,7 +38,21 @@ def main() -> None:
 
     for uid in users:
         try:
-            # 주식 평가금 합계 (manual_holdings × 최신 종가)
+            # credit_positions에 등록된 증권사 목록 + 대출금 합계
+            # (화면에서 brokerEval[r.brokerage] ?? 0 로 매핑하는 것과 동일한 로직)
+            cur.execute("""
+                SELECT brokerage, COALESCE(loan_amount, 0) AS loan_amount
+                FROM credit_positions
+                WHERE user_id = %s
+            """, (uid,))
+            cp_rows = cur.fetchall()
+            if not cp_rows:
+                logger.info("uid=%d credit_positions 없음 — 스킵", uid)
+                continue
+            cp_brokerages = [r["brokerage"] for r in cp_rows]
+            loan_amount   = sum(int(r["loan_amount"]) for r in cp_rows)
+
+            # 주식 평가금 — credit_positions 증권사만 합산 (화면과 동일)
             cur.execute("""
                 WITH latest_close AS (
                     SELECT DISTINCT ON (stock_code) stock_code, close_price
@@ -46,34 +60,32 @@ def main() -> None:
                     WHERE close_price IS NOT NULL AND close_price > 0
                     ORDER BY stock_code, date DESC
                 )
-                SELECT COALESCE(SUM(mh.quantity * COALESCE(
-                    lc.close_price,
-                    CASE WHEN st.last_price ~ '^[0-9]+$' THEN st.last_price::BIGINT ELSE NULL END,
-                    mh.avg_price,
-                    0
-                )), 0) AS total_stock_eval
+                SELECT
+                    mh.brokerage,
+                    COALESCE(SUM(mh.quantity * COALESCE(
+                        lc.close_price,
+                        CASE WHEN st.last_price ~ '^[0-9]+$' THEN st.last_price::BIGINT ELSE NULL END,
+                        mh.avg_price,
+                        0
+                    )), 0) AS stock_eval
                 FROM manual_holdings mh
                 LEFT JOIN latest_close lc ON lc.stock_code = mh.stock_code
                 LEFT JOIN stocks st ON st.stock_code = mh.stock_code
-                WHERE mh.user_id = %s AND mh.quantity > 0
+                WHERE mh.user_id = %s
+                GROUP BY mh.brokerage
             """, (uid,))
-            stock_eval = int(cur.fetchone()["total_stock_eval"] or 0)
+            broker_stock = {(r["brokerage"] or ""): int(r["stock_eval"] or 0) for r in cur.fetchall()}
+            stock_eval = sum(broker_stock.get(b or "", 0) for b in cp_brokerages)
 
-            # 현금성 자산 합계 (LAD 제외 — 대출성 자산 제외)
+            # 현금성 자산 — credit_positions 증권사만 합산, brokerage != '' 조건 동일
             cur.execute("""
-                SELECT COALESCE(SUM(amount), 0) AS total_cash
+                SELECT brokerage, COALESCE(SUM(amount), 0) AS cash_eval
                 FROM cash_assets
-                WHERE user_id = %s AND asset_type_code != 'LAD'
+                WHERE user_id = %s AND brokerage != '' AND asset_type_code != 'LAD'
+                GROUP BY brokerage
             """, (uid,))
-            cash_eval = int(cur.fetchone()["total_cash"] or 0)
-
-            # 대출금 합계
-            cur.execute("""
-                SELECT COALESCE(SUM(loan_amount), 0) AS total_loan
-                FROM credit_positions
-                WHERE user_id = %s
-            """, (uid,))
-            loan_amount = int(cur.fetchone()["total_loan"] or 0)
+            broker_cash = {r["brokerage"]: int(r["cash_eval"] or 0) for r in cur.fetchall()}
+            cash_eval = sum(broker_cash.get(b, 0) for b in cp_brokerages if b)
 
             # 추정자산 및 담보비율 계산
             collateral_asset  = stock_eval + cash_eval
