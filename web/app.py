@@ -1915,6 +1915,8 @@ def api_rebalance():
     watch_up          = float(settings.get("rebalance_watch_up",   round(alert_up  * 0.5, 1)))
     watch_down        = float(settings.get("rebalance_watch_down", round(alert_down * 0.5, 1)))
     cash_target_ratio = float(settings.get("cash_target_ratio",    0))
+    rb_stock_ceiling  = float(settings.get("rb_stock_ceiling",     0))
+    rb_buy_strategy   = settings.get("rb_buy_strategy",            "target")
 
     result = []
     stock_total = 0
@@ -1960,6 +1962,8 @@ def api_rebalance():
         "watch_up":          watch_up,
         "watch_down":        watch_down,
         "cash_target_ratio": cash_target_ratio,
+        "rb_stock_ceiling":  rb_stock_ceiling,
+        "rb_buy_strategy":   rb_buy_strategy,
     })
 
 
@@ -4411,6 +4415,8 @@ _USER_PREF_KEYS = {
     "rebalance_alert_down",
     "rebalance_watch_up",
     "rebalance_watch_down",
+    "rb_stock_ceiling",
+    "rb_buy_strategy",
 }
 
 

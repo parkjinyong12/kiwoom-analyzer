@@ -2191,6 +2191,77 @@ canvas { max-height: 220px; }
         </div>
         <button class="btn btn-primary" style="font-size:12px;padding:6px 14px" onclick="rbSaveThresholds()">저장</button>
       </div>
+      <!-- 현금화 트리거 / 매수 전략 -->
+      <div style="border-top:1px solid #1e2535;margin:0 16px;padding:10px 0 12px;display:flex;gap:20px;flex-wrap:wrap;align-items:center">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:12px;color:#fb923c;font-weight:600">주식 비중 상한</span>
+          <input type="number" id="rb-stock-ceiling" value="0" min="0" max="100" step="0.5"
+                 style="width:60px;padding:5px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#fb923c;font-size:13px;text-align:center;outline:none"/>
+          <span style="font-size:12px;color:#64748b">% 초과 시 현금화 트리거 (0=미사용)</span>
+        </div>
+        <div style="width:1px;height:18px;background:#334155;flex-shrink:0"></div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:12px;color:#a78bfa">초과 현금 매수 전략</span>
+          <select id="rb-buy-strategy" style="padding:5px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#a78bfa;font-size:12px;outline:none">
+            <option value="target">목표비율 기준</option>
+            <option value="current">보유비율 기준</option>
+            <option value="equal">균등 배분</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- 현금화 트리거 상태 -->
+    <div id="rb-trigger-panel" style="display:none;margin-bottom:12px">
+      <div class="panel">
+        <div class="panel-header" style="cursor:default">
+          <span id="rb-trigger-status-label" style="color:#fb923c">현금화 트리거</span>
+          <span style="font-size:11px;color:#64748b;margin-left:8px">주식 비중 상한 초과 감지</span>
+        </div>
+        <div style="padding:14px 16px">
+          <div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap">
+            <div style="font-size:13px">
+              <span style="color:#64748b">현재 주식 비중</span>
+              <span id="rb-trigger-cur-ratio" style="color:#fb923c;font-weight:700;margin-left:8px">-</span>
+            </div>
+            <div style="font-size:13px">
+              <span style="color:#64748b">상한</span>
+              <span id="rb-trigger-ceiling-val" style="color:#64748b;font-weight:600;margin-left:8px">-</span>
+            </div>
+            <div style="font-size:13px">
+              <span style="color:#64748b">초과 금액</span>
+              <span id="rb-trigger-excess" style="color:#f87171;font-weight:700;margin-left:8px">-</span>
+            </div>
+            <div id="rb-trigger-action" style="padding:8px 16px;border-radius:7px;font-size:12px;font-weight:600"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 현금화 트리거 매도 계획 -->
+    <div id="rb-trigger-plan" style="display:none;margin-bottom:12px">
+      <div class="panel">
+        <div class="panel-header" style="cursor:default">
+          <span id="rb-trigger-plan-header">현금화 트리거 매도 계획</span>
+          <span style="font-size:11px;color:#64748b;margin-left:8px">주식 비중을 상한까지 낮추기 위한 매도 계획</span>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>종목명</th>
+                <th style="text-align:right">현재가</th>
+                <th style="text-align:right">보유수량</th>
+                <th style="text-align:right">매도수량</th>
+                <th style="text-align:right">매도금액</th>
+                <th style="text-align:right">현재 비중<br><span style="font-weight:400;color:#64748b;font-size:10px">총자산 대비</span></th>
+                <th style="text-align:right">매도 후 비중<br><span style="font-weight:400;color:#64748b;font-size:10px">총자산 대비</span></th>
+              </tr>
+            </thead>
+            <tbody id="rb-trigger-plan-tbody"></tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
     <!-- 요약 카드 -->
@@ -2290,6 +2361,51 @@ canvas { max-height: 220px; }
             </thead>
             <tbody id="rb-cash-plan-tbody"></tbody>
           </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 현금 확보 계산기 -->
+    <div class="panel" style="margin-top:12px">
+      <div class="panel-header" style="cursor:default">현금 확보 계산기</div>
+      <div style="padding:12px 16px">
+        <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:4px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:12px;color:#94a3b8">확보할 현금</span>
+            <input type="number" id="rb-calc-amount" min="0" step="100000" placeholder="0"
+                   style="width:140px;padding:5px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#fff;font-size:13px;text-align:right;outline:none"
+                   oninput="document.getElementById('rb-calc-ratio').value=''"/>
+            <span style="font-size:12px;color:#64748b">원</span>
+          </div>
+          <span style="font-size:12px;color:#475569">또는</span>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:12px;color:#94a3b8">목표 현금 비중</span>
+            <input type="number" id="rb-calc-ratio" min="0" max="100" step="0.5" placeholder="0"
+                   style="width:70px;padding:5px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#34d399;font-size:13px;text-align:center;outline:none"
+                   oninput="document.getElementById('rb-calc-amount').value=''"/>
+            <span style="font-size:12px;color:#64748b">%</span>
+          </div>
+          <button class="btn btn-primary" style="font-size:12px;padding:6px 16px" onclick="rbCalcCash()">계산</button>
+          <span style="font-size:11px;color:#475569">보유비율 기준 매도</span>
+        </div>
+        <div id="rb-calc-result" style="display:none;margin-top:12px">
+          <div id="rb-calc-summary" style="margin-bottom:10px;font-size:12px;color:#94a3b8;padding:8px 12px;background:#0a0f1a;border-radius:6px;border:1px solid #1e2535"></div>
+          <div style="overflow-x:auto">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>종목명</th>
+                  <th style="text-align:right">현재가</th>
+                  <th style="text-align:right">보유수량</th>
+                  <th style="text-align:right">매도수량</th>
+                  <th style="text-align:right">매도금액</th>
+                  <th style="text-align:right">현재 비중<br><span style="font-weight:400;color:#64748b;font-size:10px">주식총액 대비</span></th>
+                  <th style="text-align:right">매도 후 비중<br><span style="font-weight:400;color:#64748b;font-size:10px">주식총액 대비</span></th>
+                </tr>
+              </thead>
+              <tbody id="rb-calc-tbody"></tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
@@ -7160,6 +7276,8 @@ let rbTotalCash          = 0;
 let rbCashTargetRatio    = 0;
 let rbCollateralTarget   = 40;
 let rbCollateralRequired = 140;
+let rbStockCeiling       = 0;    // 주식 비중 상한 (0=미사용)
+let rbBuyStrategy        = 'target'; // 초과 현금 매수 전략
 async function loadRebalance() {
   document.getElementById('rb-tbody').innerHTML =
     '<tr><td colspan="6" class="loading">로딩 중...</td></tr>';
@@ -7180,6 +7298,8 @@ async function loadRebalance() {
     rbStockTotal        = json.stock_total       || 0;
     rbTotalCash         = json.total_cash        || 0;
     rbCashTargetRatio   = json.cash_target_ratio || 0;
+    rbStockCeiling      = json.rb_stock_ceiling  || 0;
+    rbBuyStrategy       = json.rb_buy_strategy   || 'target';
 
     document.getElementById('rb-threshold-up').value        = rbAlertUp;
     document.getElementById('rb-threshold-down').value      = rbAlertDown;
@@ -7188,9 +7308,14 @@ async function loadRebalance() {
     if (wUpEl) wUpEl.value = rbWatchUp;
     const wDownEl = document.getElementById('rb-watch-down');
     if (wDownEl) wDownEl.value = rbWatchDown;
+    const ceilEl = document.getElementById('rb-stock-ceiling');
+    if (ceilEl) ceilEl.value = rbStockCeiling || '';
+    const stratEl = document.getElementById('rb-buy-strategy');
+    if (stratEl) stratEl.value = rbBuyStrategy;
 
     rbUpdateSummary(json);
     rbRenderMarginPanel();
+    rbRenderTriggerPanel();
     rbRender();
     rbRenderRecommendation();
   } catch(e) {
@@ -7393,34 +7518,42 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
   const newStockEst    = isBuy ? rbStockTotal + tradeTotal : rbStockTotal - tradeTotal;
   const stockTargetSum = candidates.reduce((s, r) => s + (r.target_ratio || 0), 0);
 
-  // Phase 1: 각 종목의 이상 거래량 (거래 후 주식총액 × 목표비율 → 현재평가와의 차이)
-  const idealMap = new Map();
-  let idealTotal = 0;
-  for (const r of candidates) {
-    if (r.target_ratio > 0 && newStockEst > 0) {
-      const targetEval = r.target_ratio / 100 * newStockEst;
-      const ideal = isBuy
-        ? Math.max(0, targetEval - r.eval_amt)   // 미달분 매수
-        : Math.max(0, r.eval_amt - targetEval);   // 초과분 매도
-      idealMap.set(r.stock_code, ideal);
-      idealTotal += ideal;
-    } else {
-      idealMap.set(r.stock_code, 0);
-    }
-  }
-
-  // Phase 2: 이상 거래량 합보다 필요금액이 클 때 → 나머지를 목표비율로 추가 배분
   const tradeWeightMap = new Map();
   let totalWeight = 0;
-  const remainder = Math.max(0, tradeTotal - idealTotal);
-  for (const r of candidates) {
-    const phase1 = idealMap.get(r.stock_code) || 0;
-    const phase2 = stockTargetSum > 0 ? (r.target_ratio || 0) / stockTargetSum * remainder : 0;
-    const w = phase1 + phase2;
-    tradeWeightMap.set(r.stock_code, w);
-    totalWeight += w;
+
+  if (isBuy && rbBuyStrategy !== 'target') {
+    // 보유비율 또는 균등 전략
+    for (const r of candidates) {
+      const w = rbBuyStrategy === 'equal' ? 1 : r.eval_amt;
+      tradeWeightMap.set(r.stock_code, w);
+      totalWeight += w;
+    }
+  } else {
+    // 목표비율 전략 (기본): Phase 1 미달분 → Phase 2 나머지 목표비율 배분
+    const idealMap = new Map();
+    let idealTotal = 0;
+    for (const r of candidates) {
+      if (r.target_ratio > 0 && newStockEst > 0) {
+        const targetEval = r.target_ratio / 100 * newStockEst;
+        const ideal = isBuy
+          ? Math.max(0, targetEval - r.eval_amt)
+          : Math.max(0, r.eval_amt - targetEval);
+        idealMap.set(r.stock_code, ideal);
+        idealTotal += ideal;
+      } else {
+        idealMap.set(r.stock_code, 0);
+      }
+    }
+    const remainder = Math.max(0, tradeTotal - idealTotal);
+    for (const r of candidates) {
+      const phase1 = idealMap.get(r.stock_code) || 0;
+      const phase2 = stockTargetSum > 0 ? (r.target_ratio || 0) / stockTargetSum * remainder : 0;
+      const w = phase1 + phase2;
+      tradeWeightMap.set(r.stock_code, w);
+      totalWeight += w;
+    }
   }
-  // fallback: 목표 없는 종목만 있거나 합이 0이면 보유비율 기준
+  // fallback: 합이 0이면 보유비율 기준
   if (totalWeight <= 0) {
     for (const r of candidates) {
       const fb = rbStockTotal > 0 ? r.eval_amt / rbStockTotal : 0;
@@ -7477,6 +7610,177 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
       <td class="num" style="color:${fColor};font-weight:600">${finalStockRatio.toFixed(2)}%</td>
     </tr>`;
   }).join('');
+}
+
+function rbRenderTriggerPanel() {
+  const triggerEl = document.getElementById('rb-trigger-panel');
+  const planEl    = document.getElementById('rb-trigger-plan');
+  if (!triggerEl || !planEl) return;
+
+  if (rbStockCeiling <= 0 || rbPortfolioTotal <= 0) {
+    triggerEl.style.display = 'none';
+    planEl.style.display    = 'none';
+    return;
+  }
+
+  const stockRatio = rbPortfolioTotal > 0 ? rbStockTotal / rbPortfolioTotal * 100 : 0;
+  const isTriggered = stockRatio > rbStockCeiling;
+
+  triggerEl.style.display = 'block';
+
+  const statusLabel = document.getElementById('rb-trigger-status-label');
+  const curRatioEl  = document.getElementById('rb-trigger-cur-ratio');
+  const ceilingEl   = document.getElementById('rb-trigger-ceiling-val');
+  const excessEl    = document.getElementById('rb-trigger-excess');
+  const actionEl    = document.getElementById('rb-trigger-action');
+
+  curRatioEl.textContent = stockRatio.toFixed(1) + '%';
+  ceilingEl.textContent  = rbStockCeiling.toFixed(1) + '%';
+
+  if (isTriggered) {
+    const excessAmt = Math.round((stockRatio - rbStockCeiling) / 100 * rbPortfolioTotal);
+    statusLabel.style.color = '#f87171';
+    statusLabel.textContent = '현금화 트리거 발동';
+    curRatioEl.style.color  = '#f87171';
+    excessEl.textContent    = excessAmt.toLocaleString() + '원';
+    actionEl.innerHTML      = `주식 <strong>${excessAmt.toLocaleString()}원</strong> 매도 필요`;
+    actionEl.style.cssText  = 'padding:8px 16px;border-radius:7px;font-size:12px;font-weight:600;background:rgba(248,113,113,0.1);color:#f87171;border:1px solid rgba(248,113,113,0.3)';
+
+    // 매도 계획 렌더링
+    planEl.style.display = 'block';
+    const candidates = rbData.filter(r => r.current_price != null && r.eval_amt > 0);
+    if (!candidates.length) {
+      document.getElementById('rb-trigger-plan-tbody').innerHTML =
+        '<tr><td colspan="7" style="text-align:center;color:#475569;padding:20px">현재가 있는 종목 없음</td></tr>';
+      return;
+    }
+
+    // 보유비율 기준으로 매도 배분
+    const totalEval = candidates.reduce((s, r) => s + r.eval_amt, 0);
+    const newPortfolioTotal = rbPortfolioTotal - excessAmt;
+    const items = [];
+    for (const r of candidates) {
+      const share  = totalEval > 0 ? r.eval_amt / totalEval : 0;
+      const alloc  = Math.round(excessAmt * share);
+      const rawQty = alloc / r.current_price;
+      const qty    = Math.floor(rawQty);
+      if (qty <= 0) continue;
+      const tradeAmt  = qty * r.current_price;
+      const finalEval = r.eval_amt - tradeAmt;
+      items.push({ r, qty, tradeAmt, finalEval });
+    }
+    items.sort((a, b) => b.tradeAmt - a.tradeAmt);
+
+    const actualSellTotal = items.reduce((s, i) => s + i.tradeAmt, 0);
+    document.getElementById('rb-trigger-plan-header').textContent =
+      `현금화 트리거 매도 계획  ·  목표 ${excessAmt.toLocaleString()}원  →  실행 ${actualSellTotal.toLocaleString()}원 (1주 단위)`;
+
+    document.getElementById('rb-trigger-plan-tbody').innerHTML = items.map(({ r, qty, tradeAmt, finalEval }) => {
+      const curRatio   = rbPortfolioTotal    > 0 ? r.eval_amt / rbPortfolioTotal    * 100 : 0;
+      const finalRatio = newPortfolioTotal   > 0 ? finalEval  / newPortfolioTotal   * 100 : 0;
+      const fColor     = finalRatio < curRatio ? '#f87171' : '#4ade80';
+      return `<tr>
+        <td style="font-weight:500">${r.stock_name}</td>
+        <td class="num">${r.current_price.toLocaleString()}원</td>
+        <td class="num" style="color:#64748b">${r.total_qty.toLocaleString()}주</td>
+        <td class="num" style="color:#f87171;font-weight:600">-${qty.toLocaleString()}주</td>
+        <td class="num" style="color:#f87171;font-weight:500">+${tradeAmt.toLocaleString()}원</td>
+        <td class="num" style="font-size:12px;color:#64748b">${curRatio.toFixed(2)}%</td>
+        <td class="num" style="color:${fColor};font-weight:600">${finalRatio.toFixed(2)}%</td>
+      </tr>`;
+    }).join('');
+  } else {
+    const margin = Math.round((rbStockCeiling - stockRatio) / 100 * rbPortfolioTotal);
+    statusLabel.style.color = '#4ade80';
+    statusLabel.textContent = '현금화 트리거';
+    curRatioEl.style.color  = '#4ade80';
+    excessEl.textContent    = '—';
+    actionEl.innerHTML      = `여유 <strong>${margin.toLocaleString()}원</strong> (상한까지 ${(rbStockCeiling - stockRatio).toFixed(1)}pp)`;
+    actionEl.style.cssText  = 'padding:8px 16px;border-radius:7px;font-size:12px;font-weight:600;background:rgba(74,222,128,0.1);color:#4ade80';
+    planEl.style.display    = 'none';
+  }
+}
+
+function rbCalcCash() {
+  const amountInput = parseFloat(document.getElementById('rb-calc-amount').value) || 0;
+  const ratioInput  = parseFloat(document.getElementById('rb-calc-ratio').value)  || 0;
+
+  let targetCash = 0;
+  if (ratioInput > 0 && rbPortfolioTotal > 0) {
+    // 목표 현금 비중으로부터 필요 현금 계산
+    targetCash = Math.round(ratioInput / 100 * rbPortfolioTotal - rbTotalCash);
+  } else {
+    targetCash = Math.round(amountInput);
+  }
+
+  const resultEl = document.getElementById('rb-calc-result');
+  const summaryEl = document.getElementById('rb-calc-summary');
+  const tbody = document.getElementById('rb-calc-tbody');
+
+  if (targetCash <= 0) {
+    summaryEl.textContent = '확보할 현금을 입력하거나 목표 현금 비중을 설정하세요.';
+    resultEl.style.display = 'block';
+    tbody.innerHTML = '';
+    return;
+  }
+
+  const candidates = rbData.filter(r => r.current_price != null && r.eval_amt > 0 && r.total_qty > 0);
+  if (!candidates.length) {
+    summaryEl.textContent = '현재가 있는 보유종목이 없습니다.';
+    resultEl.style.display = 'block';
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#475569;padding:20px">현재가 있는 종목 없음</td></tr>';
+    return;
+  }
+
+  // 현재 보유비율 기준으로 매도 배분
+  const totalEval    = candidates.reduce((s, r) => s + r.eval_amt, 0);
+  const maxSellable  = totalEval;  // 전체 주식 평가금
+  const actualTarget = Math.min(targetCash, maxSellable);
+  const newStockAmt  = rbStockTotal - actualTarget;
+  const newPortTotal = rbPortfolioTotal - actualTarget + actualTarget; // 총자산은 변화 없음 (주식→현금)
+
+  const items = [];
+  for (const r of candidates) {
+    const share  = totalEval > 0 ? r.eval_amt / totalEval : 0;
+    const alloc  = Math.round(actualTarget * share);
+    const rawQty = alloc / r.current_price;
+    const qty    = Math.min(Math.floor(rawQty), r.total_qty);
+    if (qty <= 0) continue;
+    const tradeAmt  = qty * r.current_price;
+    const finalEval = r.eval_amt - tradeAmt;
+    items.push({ r, qty, tradeAmt, finalEval });
+  }
+  items.sort((a, b) => b.tradeAmt - a.tradeAmt);
+
+  const actualSellTotal = items.reduce((s, i) => s + i.tradeAmt, 0);
+  const newCash         = rbTotalCash + actualSellTotal;
+  const newCashRatio    = rbPortfolioTotal > 0 ? newCash / rbPortfolioTotal * 100 : 0;
+
+  summaryEl.innerHTML =
+    `매도 목표 <strong style="color:#fff">${actualTarget.toLocaleString()}원</strong> &nbsp;·&nbsp; ` +
+    `실행 합계 <strong style="color:#f87171">${actualSellTotal.toLocaleString()}원</strong> &nbsp;·&nbsp; ` +
+    `매도 후 현금 <strong style="color:#34d399">${newCash.toLocaleString()}원 (${newCashRatio.toFixed(1)}%)</strong>`;
+
+  if (!items.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#475569;padding:20px">매도 가능 종목 없음</td></tr>';
+  } else {
+    tbody.innerHTML = items.map(({ r, qty, tradeAmt, finalEval }) => {
+      const curRatio   = rbStockTotal  > 0 ? r.eval_amt / rbStockTotal  * 100 : 0;
+      const newStock   = rbStockTotal - actualSellTotal;
+      const finalRatio = newStock > 0 ? finalEval / newStock * 100 : 0;
+      const fColor     = finalRatio < curRatio ? '#f87171' : '#94a3b8';
+      return `<tr>
+        <td style="font-weight:500">${r.stock_name}</td>
+        <td class="num">${r.current_price.toLocaleString()}원</td>
+        <td class="num" style="color:#64748b">${r.total_qty.toLocaleString()}주</td>
+        <td class="num" style="color:#f87171;font-weight:600">-${qty.toLocaleString()}주</td>
+        <td class="num" style="color:#f87171;font-weight:500">+${tradeAmt.toLocaleString()}원</td>
+        <td class="num" style="font-size:12px;color:#64748b">${curRatio.toFixed(2)}%</td>
+        <td class="num" style="color:${fColor};font-weight:600">${finalRatio.toFixed(2)}%</td>
+      </tr>`;
+    }).join('');
+  }
+  resultEl.style.display = 'block';
 }
 
 function rbRender() {
@@ -7810,6 +8114,8 @@ async function rbSaveThresholds() {
   rbWatchUp         = parseFloat(document.getElementById('rb-watch-up')?.value)          || Math.round(rbAlertUp  * 0.5 * 10) / 10;
   rbWatchDown       = parseFloat(document.getElementById('rb-watch-down')?.value)        || Math.round(rbAlertDown * 0.5 * 10) / 10;
   rbCashTargetRatio = parseFloat(document.getElementById('rb-cash-target-input').value)  || 0;
+  rbStockCeiling    = parseFloat(document.getElementById('rb-stock-ceiling')?.value)     || 0;
+  rbBuyStrategy     = document.getElementById('rb-buy-strategy')?.value                 || 'target';
   await fetch('/api/settings', {
     method: 'PUT',
     headers: {'Content-Type':'application/json'},
@@ -7819,6 +8125,8 @@ async function rbSaveThresholds() {
       rebalance_watch_up:   String(rbWatchUp),
       rebalance_watch_down: String(rbWatchDown),
       cash_target_ratio:    String(rbCashTargetRatio),
+      rb_stock_ceiling:     String(rbStockCeiling),
+      rb_buy_strategy:      rbBuyStrategy,
     }),
   });
   await loadRebalance();
