@@ -2191,6 +2191,51 @@ canvas { max-height: 220px; }
         </div>
         <button class="btn btn-primary" style="font-size:12px;padding:6px 14px" onclick="rbSaveThresholds()">저장</button>
       </div>
+      <!-- 담보비율 기반 현금 목표 자동 조정 -->
+      <div style="border-top:1px solid #1e2535;margin:0 16px;padding:10px 0 10px">
+        <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;flex-shrink:0">
+            <input type="checkbox" id="rb-cr-enabled" style="accent-color:#a78bfa;width:14px;height:14px"/>
+            <span style="font-size:12px;color:#a78bfa;font-weight:600">담보비율 기반 현금 목표 자동 조정</span>
+          </label>
+          <div id="rb-cr-steps" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+            <div style="display:flex;align-items:center;gap:4px">
+              <span style="font-size:11px;color:#4ade80">≥</span>
+              <input type="number" id="rb-cr-step1" value="160" min="100" max="500" step="1"
+                     style="width:48px;padding:4px 6px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#4ade80;font-size:12px;text-align:center;outline:none"/>
+              <span style="font-size:11px;color:#64748b">% → +0%p</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px">
+              <span style="font-size:11px;color:#f59e0b">≥</span>
+              <input type="number" id="rb-cr-step2" value="150" min="100" max="500" step="1"
+                     style="width:48px;padding:4px 6px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#f59e0b;font-size:12px;text-align:center;outline:none"/>
+              <span style="font-size:11px;color:#64748b">% → +</span>
+              <input type="number" id="rb-cr-adj1" value="5" min="0" max="50" step="0.5"
+                     style="width:38px;padding:4px 6px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#f59e0b;font-size:12px;text-align:center;outline:none"/>
+              <span style="font-size:11px;color:#64748b">%p</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px">
+              <span style="font-size:11px;color:#fb923c">≥</span>
+              <input type="number" id="rb-cr-step3" value="140" min="100" max="500" step="1"
+                     style="width:48px;padding:4px 6px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#fb923c;font-size:12px;text-align:center;outline:none"
+                     oninput="const l=document.getElementById('rb-cr-step3-label');if(l)l.textContent=this.value"/>
+              <span style="font-size:11px;color:#64748b">% → +</span>
+              <input type="number" id="rb-cr-adj2" value="10" min="0" max="50" step="0.5"
+                     style="width:38px;padding:4px 6px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#fb923c;font-size:12px;text-align:center;outline:none"/>
+              <span style="font-size:11px;color:#64748b">%p</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px">
+              <span style="font-size:11px;color:#f87171">&lt;</span>
+              <span style="font-size:11px;color:#f87171;font-weight:600" id="rb-cr-step3-label">140</span>
+              <span style="font-size:11px;color:#64748b">% → +</span>
+              <input type="number" id="rb-cr-adj3" value="15" min="0" max="50" step="0.5"
+                     style="width:38px;padding:4px 6px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#f87171;font-size:12px;text-align:center;outline:none"/>
+              <span style="font-size:11px;color:#64748b">%p</span>
+            </div>
+            <div id="rb-cr-cur-status" style="font-size:11px;color:#64748b;padding:3px 10px;border-radius:5px;background:#0a0f1a;border:1px solid #1e2535;white-space:nowrap"></div>
+          </div>
+        </div>
+      </div>
       <!-- 현금화 트리거 / 매수 전략 -->
       <div style="border-top:1px solid #1e2535;margin:0 16px;padding:10px 0 12px;display:flex;gap:20px;flex-wrap:wrap;align-items:center">
         <div style="display:flex;align-items:center;gap:8px">
@@ -7276,8 +7321,28 @@ let rbTotalCash          = 0;
 let rbCashTargetRatio    = 0;
 let rbCollateralTarget   = 40;
 let rbCollateralRequired = 140;
-let rbStockCeiling       = 0;    // 주식 비중 상한 (0=미사용)
+let rbStockCeiling       = 0;       // 주식 비중 상한 (0=미사용)
 let rbBuyStrategy        = 'target'; // 초과 현금 매수 전략
+let rbCrEnabled          = false;
+let rbCrStep1            = 160;
+let rbCrStep2            = 150;
+let rbCrStep3            = 140;
+let rbCrAdj1             = 5;
+let rbCrAdj2             = 10;
+let rbCrAdj3             = 15;
+let rbCollateralRatio    = null; // 최근 담보비율 (null = 신용 없음)
+
+function rbGetEffectiveCashTarget() {
+  if (!rbCrEnabled || rbCollateralRatio === null || rbCashTargetRatio <= 0) {
+    return rbCashTargetRatio;
+  }
+  let adj = 0;
+  if (rbCollateralRatio >= rbCrStep1)      adj = 0;
+  else if (rbCollateralRatio >= rbCrStep2) adj = rbCrAdj1;
+  else if (rbCollateralRatio >= rbCrStep3) adj = rbCrAdj2;
+  else                                     adj = rbCrAdj3;
+  return Math.min(100, rbCashTargetRatio + adj);
+}
 async function loadRebalance() {
   document.getElementById('rb-tbody').innerHTML =
     '<tr><td colspan="6" class="loading">로딩 중...</td></tr>';
@@ -7298,8 +7363,16 @@ async function loadRebalance() {
     rbStockTotal        = json.stock_total       || 0;
     rbTotalCash         = json.total_cash        || 0;
     rbCashTargetRatio   = json.cash_target_ratio || 0;
-    rbStockCeiling      = json.rb_stock_ceiling  || 0;
-    rbBuyStrategy       = json.rb_buy_strategy   || 'target';
+    rbStockCeiling      = json.rb_stock_ceiling          || 0;
+    rbBuyStrategy       = json.rb_buy_strategy           || 'target';
+    rbCrEnabled         = json.rb_cr_enabled === 'true'  || json.rb_cr_enabled === true;
+    rbCrStep1           = json.rb_cr_step1               ?? 160;
+    rbCrStep2           = json.rb_cr_step2               ?? 150;
+    rbCrStep3           = json.rb_cr_step3               ?? 140;
+    rbCrAdj1            = json.rb_cr_adj1                ?? 5;
+    rbCrAdj2            = json.rb_cr_adj2                ?? 10;
+    rbCrAdj3            = json.rb_cr_adj3                ?? 15;
+    rbCollateralRatio   = json.current_collateral_ratio  ?? null;
 
     document.getElementById('rb-threshold-up').value        = rbAlertUp;
     document.getElementById('rb-threshold-down').value      = rbAlertDown;
@@ -7312,6 +7385,15 @@ async function loadRebalance() {
     if (ceilEl) ceilEl.value = rbStockCeiling || '';
     const stratEl = document.getElementById('rb-buy-strategy');
     if (stratEl) stratEl.value = rbBuyStrategy;
+    const crEnabledEl = document.getElementById('rb-cr-enabled');
+    if (crEnabledEl) crEnabledEl.checked = rbCrEnabled;
+    const s1 = document.getElementById('rb-cr-step1'); if (s1) s1.value = rbCrStep1;
+    const s2 = document.getElementById('rb-cr-step2'); if (s2) s2.value = rbCrStep2;
+    const s3 = document.getElementById('rb-cr-step3'); if (s3) s3.value = rbCrStep3;
+    const a1 = document.getElementById('rb-cr-adj1');  if (a1) a1.value = rbCrAdj1;
+    const a2 = document.getElementById('rb-cr-adj2');  if (a2) a2.value = rbCrAdj2;
+    const a3 = document.getElementById('rb-cr-adj3');  if (a3) a3.value = rbCrAdj3;
+    rbUpdateCrStatus();
 
     rbUpdateSummary(json);
     rbRenderMarginPanel();
@@ -7377,9 +7459,10 @@ function rbUpdateSummary(json) {
 
   // 현금 편차 알림 — 주식간 페이지에서는 현금 무관
   let cashAlerted = false;
-  if (!isStockPage && rbCashTargetRatio > 0 && total > 0) {
+  const _effCashTgt = rbGetEffectiveCashTarget();
+  if (!isStockPage && _effCashTgt > 0 && total > 0) {
     const cashRatio  = cash / total * 100;
-    const cashDevRel = (cashRatio - rbCashTargetRatio) / rbCashTargetRatio * 100;
+    const cashDevRel = (cashRatio - _effCashTgt) / _effCashTgt * 100;
     cashAlerted = cashDevRel > rbAlertUp || cashDevRel < -rbAlertDown;
   }
 
@@ -7410,8 +7493,12 @@ function rbRenderMarginPanel() {
   const total      = rbPortfolioTotal;
   const cashRatio  = total > 0 ? cash  / total * 100 : 0;
   const stockRatio = total > 0 ? stockEval / total * 100 : 0;
-  const cashTgt    = rbCashTargetRatio;
+  const cashTgt    = rbGetEffectiveCashTarget();  // 담보비율 조정 반영
   const stockTgt   = cashTgt > 0 ? 100 - cashTgt : 0;
+
+  // 담보비율 조정량 계산 (표시용)
+  const crAdj = rbCrEnabled && rbCashTargetRatio > 0
+    ? cashTgt - rbCashTargetRatio : 0;
 
   // ── 요약 카드 ──
   const rvTotal  = document.getElementById('rb-rv-total');
@@ -7431,7 +7518,10 @@ function rbRenderMarginPanel() {
       const sign  = devPP >= 0 ? '+' : '';
       rvVs.textContent = cashRatio.toFixed(1) + '% / ' + cashTgt.toFixed(1) + '%';
       rvVs.style.color = Math.abs(devPP) < 1 ? '#4ade80' : devPP > 0 ? '#f87171' : '#60a5fa';
-      document.getElementById('rb-rv-vs-note').textContent = `편차 ${sign}${devPP.toFixed(2)}pp`;
+      document.getElementById('rb-rv-vs-note').textContent =
+        crAdj > 0
+          ? `편차 ${sign}${devPP.toFixed(2)}pp  (기본 ${rbCashTargetRatio}%+담보 +${crAdj}%p)`
+          : `편차 ${sign}${devPP.toFixed(2)}pp`;
     } else {
       rvVs.textContent = cashRatio.toFixed(1) + '% / —';
       rvVs.style.color = '#64748b';
@@ -7475,7 +7565,10 @@ function rbRenderMarginPanel() {
     scActionEl.style.cssText = 'padding:12px 14px;border-radius:8px;font-size:13px;font-weight:600;text-align:center;line-height:1.8;background:rgba(100,116,139,0.1);color:#64748b';
   } else {
     document.getElementById('rb-sc-stock-tgt').textContent = stockTgt.toFixed(1) + '%  (' + Math.round(stockTgt / 100 * total).toLocaleString() + '원)';
-    document.getElementById('rb-sc-cash-tgt').textContent  = cashTgt.toFixed(1)  + '%  (' + Math.round(cashTgt  / 100 * total).toLocaleString() + '원)';
+    document.getElementById('rb-sc-cash-tgt').textContent  =
+      crAdj > 0
+        ? `${cashTgt.toFixed(1)}%  (기본 ${rbCashTargetRatio}% + 담보조정 +${crAdj}%p)`
+        : cashTgt.toFixed(1) + '%  (' + Math.round(cashTgt / 100 * total).toLocaleString() + '원)';
     const cashDevRel = (cashRatio - cashTgt) / cashTgt * 100;
     const cashDevPP  = cashRatio - cashTgt;
     const devEl      = document.getElementById('rb-sc-deviation');
@@ -7610,6 +7703,34 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
       <td class="num" style="color:${fColor};font-weight:600">${finalStockRatio.toFixed(2)}%</td>
     </tr>`;
   }).join('');
+}
+
+function rbUpdateCrStatus() {
+  // step3 미만 라벨 동기화
+  const step3Val = parseFloat(document.getElementById('rb-cr-step3')?.value) || rbCrStep3;
+  const lbl = document.getElementById('rb-cr-step3-label');
+  if (lbl) lbl.textContent = step3Val;
+
+  const statusEl = document.getElementById('rb-cr-cur-status');
+  if (!statusEl) return;
+  if (!rbCrEnabled) {
+    statusEl.textContent = '비활성';
+    statusEl.style.color = '#475569';
+    return;
+  }
+  if (rbCollateralRatio === null) {
+    statusEl.textContent = '담보비율 데이터 없음';
+    statusEl.style.color = '#475569';
+    return;
+  }
+  const eff = rbGetEffectiveCashTarget();
+  const adj = eff - rbCashTargetRatio;
+  let zone = '';
+  if (rbCollateralRatio >= rbCrStep1)      { zone = `≥${rbCrStep1}% 안전 구간`; statusEl.style.color = '#4ade80'; }
+  else if (rbCollateralRatio >= rbCrStep2) { zone = `${rbCrStep2}~${rbCrStep1}% 주의 구간`; statusEl.style.color = '#f59e0b'; }
+  else if (rbCollateralRatio >= rbCrStep3) { zone = `${rbCrStep3}~${rbCrStep2}% 경고 구간`; statusEl.style.color = '#fb923c'; }
+  else                                     { zone = `<${rbCrStep3}% 위험 구간`; statusEl.style.color = '#f87171'; }
+  statusEl.textContent = `현재 담보비율 ${rbCollateralRatio.toFixed(1)}% (${zone}) → 유효 목표 ${eff.toFixed(1)}%${adj > 0 ? ` (+${adj}%p)` : ''}`;
 }
 
 function rbRenderTriggerPanel() {
@@ -7792,7 +7913,7 @@ function rbRender() {
 
   // ── 현금성 자산 행 ──────────────────────────────────────
   const cashRatio  = rbPortfolioTotal > 0 ? rbTotalCash / rbPortfolioTotal * 100 : 0;
-  const cashTgt    = rbCashTargetRatio;
+  const cashTgt    = rbGetEffectiveCashTarget();
   const cashDevPP  = cashTgt > 0 ? parseFloat((cashRatio - cashTgt).toFixed(2)) : null;
   const cashDevRel = (cashDevPP !== null && cashTgt > 0)
     ? parseFloat((cashDevPP / cashTgt * 100).toFixed(1)) : null;
@@ -8116,6 +8237,13 @@ async function rbSaveThresholds() {
   rbCashTargetRatio = parseFloat(document.getElementById('rb-cash-target-input').value)  || 0;
   rbStockCeiling    = parseFloat(document.getElementById('rb-stock-ceiling')?.value)     || 0;
   rbBuyStrategy     = document.getElementById('rb-buy-strategy')?.value                 || 'target';
+  rbCrEnabled       = document.getElementById('rb-cr-enabled')?.checked                 ?? false;
+  rbCrStep1         = parseFloat(document.getElementById('rb-cr-step1')?.value)         || 160;
+  rbCrStep2         = parseFloat(document.getElementById('rb-cr-step2')?.value)         || 150;
+  rbCrStep3         = parseFloat(document.getElementById('rb-cr-step3')?.value)         || 140;
+  rbCrAdj1          = parseFloat(document.getElementById('rb-cr-adj1')?.value)          || 5;
+  rbCrAdj2          = parseFloat(document.getElementById('rb-cr-adj2')?.value)          || 10;
+  rbCrAdj3          = parseFloat(document.getElementById('rb-cr-adj3')?.value)          || 15;
   await fetch('/api/settings', {
     method: 'PUT',
     headers: {'Content-Type':'application/json'},
@@ -8127,6 +8255,13 @@ async function rbSaveThresholds() {
       cash_target_ratio:    String(rbCashTargetRatio),
       rb_stock_ceiling:     String(rbStockCeiling),
       rb_buy_strategy:      rbBuyStrategy,
+      rb_cr_enabled:        String(rbCrEnabled),
+      rb_cr_step1:          String(rbCrStep1),
+      rb_cr_step2:          String(rbCrStep2),
+      rb_cr_step3:          String(rbCrStep3),
+      rb_cr_adj1:           String(rbCrAdj1),
+      rb_cr_adj2:           String(rbCrAdj2),
+      rb_cr_adj3:           String(rbCrAdj3),
     }),
   });
   await loadRebalance();

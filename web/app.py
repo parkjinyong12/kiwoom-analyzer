@@ -1917,6 +1917,19 @@ def api_rebalance():
     cash_target_ratio = float(settings.get("cash_target_ratio",    0))
     rb_stock_ceiling  = float(settings.get("rb_stock_ceiling",     0))
     rb_buy_strategy   = settings.get("rb_buy_strategy",            "target")
+    rb_cr_enabled     = settings.get("rb_cr_enabled",              "false")
+    rb_cr_step1       = float(settings.get("rb_cr_step1",          160))
+    rb_cr_step2       = float(settings.get("rb_cr_step2",          150))
+    rb_cr_step3       = float(settings.get("rb_cr_step3",          140))
+    rb_cr_adj1        = float(settings.get("rb_cr_adj1",           5))
+    rb_cr_adj2        = float(settings.get("rb_cr_adj2",           10))
+    rb_cr_adj3        = float(settings.get("rb_cr_adj3",           15))
+    # 최신 담보비율 (credit_snapshots 가장 최근 레코드)
+    cr_snap = query_one(
+        "SELECT collateral_ratio FROM credit_snapshots WHERE user_id = %s ORDER BY record_date DESC LIMIT 1",
+        (uid,),
+    )
+    current_collateral_ratio = float(cr_snap["collateral_ratio"]) if cr_snap and cr_snap["collateral_ratio"] else None
 
     result = []
     stock_total = 0
@@ -1962,8 +1975,16 @@ def api_rebalance():
         "watch_up":          watch_up,
         "watch_down":        watch_down,
         "cash_target_ratio": cash_target_ratio,
-        "rb_stock_ceiling":  rb_stock_ceiling,
-        "rb_buy_strategy":   rb_buy_strategy,
+        "rb_stock_ceiling":          rb_stock_ceiling,
+        "rb_buy_strategy":           rb_buy_strategy,
+        "rb_cr_enabled":             rb_cr_enabled,
+        "rb_cr_step1":               rb_cr_step1,
+        "rb_cr_step2":               rb_cr_step2,
+        "rb_cr_step3":               rb_cr_step3,
+        "rb_cr_adj1":                rb_cr_adj1,
+        "rb_cr_adj2":                rb_cr_adj2,
+        "rb_cr_adj3":                rb_cr_adj3,
+        "current_collateral_ratio":  current_collateral_ratio,
     })
 
 
@@ -4417,6 +4438,13 @@ _USER_PREF_KEYS = {
     "rebalance_watch_down",
     "rb_stock_ceiling",
     "rb_buy_strategy",
+    "rb_cr_enabled",
+    "rb_cr_step1",
+    "rb_cr_step2",
+    "rb_cr_step3",
+    "rb_cr_adj1",
+    "rb_cr_adj2",
+    "rb_cr_adj3",
 }
 
 
