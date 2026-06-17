@@ -7753,7 +7753,19 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
   if (!isBuy && !isSell) { planEl.style.display = 'none'; return; }
   planEl.style.display = 'block';
 
-  const tradeTotal = Math.round(Math.abs(cashRatio - cashTgt) / 100 * total);
+  let tradeTotal;
+  if (isSell && rbTotalLoan > rbTotalCash) {
+    // 순부채 있을 때: 매도대금이 대출상환에 먼저 사용되므로
+    // 필요 매도 = 순부채(대출−현금) + 목표현금(순자산 기준)
+    // 순자산 = total − loan → 그 40%가 목표 순현금
+    const netDebt       = rbTotalLoan - rbTotalCash;
+    const netEquity     = Math.max(0, total - rbTotalLoan);
+    const targetNetCash = cashTgt / 100 * netEquity;
+    tradeTotal = Math.round(netDebt + targetNetCash);
+    tradeTotal = Math.min(tradeTotal, Math.round(rbStockTotal));
+  } else {
+    tradeTotal = Math.round(Math.abs(cashRatio - cashTgt) / 100 * total);
+  }
   const color      = isBuy ? '#60a5fa' : '#f87171';
   const candidates = rbData.filter(r => r.current_price != null && r.eval_amt > 0);
   if (!candidates.length) return;
@@ -7827,12 +7839,17 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
   const label = isBuy ? '📈 주식 매수 계획' : '📉 주식 매도 계획';
   const needLabel  = isBuy ? '현금 투입 목표' : '현금 확보 목표';
   const overUnder  = actualTotal >= tradeTotal ? '목표 소폭 초과' : '목표 소폭 미달';
-  // 매도 시 신용 대출금 상환 안내
+  // 매도 시 신용 대출금 상환 및 순현금 안내
   let loanNote = '';
   if (isSell && rbTotalLoan > 0) {
-    const loanRepay  = Math.min(rbTotalLoan, actualTotal);
-    const netCash    = Math.max(0, actualTotal - rbTotalLoan);
-    loanNote = `  ·  ⚠️ 대출 상환 ${loanRepay.toLocaleString()}원 / 실제 순현금 +${netCash.toLocaleString()}원`;
+    const loanRepay     = Math.min(rbTotalLoan, actualTotal);
+    const remainLoan    = rbTotalLoan - loanRepay;
+    const netCashGained = Math.max(0, actualTotal - loanRepay);
+    const finalFreeCash = Math.max(0, rbTotalCash + netCashGained - remainLoan);
+    loanNote =
+      `  ·  대출 상환 ${loanRepay.toLocaleString()}원` +
+      (remainLoan === 0 ? ` (전액)` : ` (잔여 ${remainLoan.toLocaleString()}원)`) +
+      `  →  확보 후 순현금 ${finalFreeCash.toLocaleString()}원`;
   }
   document.getElementById('rb-cash-plan-header').textContent =
     `${label}  ·  ${needLabel} ${tradeTotal.toLocaleString()}원  →  실행 ${actualTotal.toLocaleString()}원 (${overUnder}, 1주 단위)${loanNote}`;
