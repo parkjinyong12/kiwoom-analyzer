@@ -2206,82 +2206,12 @@ canvas { max-height: 220px; }
     <div class="panel" style="margin-bottom:12px">
       <div class="panel-header" style="cursor:default;display:flex;align-items:baseline;gap:10px">
         <span>위험 관리</span>
-        <span style="font-size:11px;color:#475569;font-weight:400">담보비율 연동 조정 · 주식 비중 상한 설정</span>
+        <span style="font-size:11px;color:#475569;font-weight:400">신용관리에서 설정한 목표 담보비율 확인</span>
       </div>
-      <!-- 담보비율 연동 조정 -->
-      <div style="padding:12px 16px">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-            <input type="checkbox" id="rb-cr-enabled" onchange="rbLiveUpdate()" style="accent-color:#a78bfa;width:14px;height:14px"/>
-            <span style="font-size:12px;color:#a78bfa;font-weight:600">담보비율 연동 현금 목표 자동 상향</span>
-          </label>
-          <span style="font-size:10px;color:#475569">담보비율이 낮을수록 현금 목표를 더 높게 설정</span>
-        </div>
-        <!-- 담보비율 단계표 -->
-        <div style="display:grid;grid-template-columns:repeat(4,auto);gap:4px 16px;align-items:center;padding:8px 12px;background:#0a0f1a;border-radius:6px;border:1px solid #1e2535;width:fit-content">
-          <span style="font-size:10px;color:#64748b;grid-column:1/-1;margin-bottom:2px">담보비율 구간 → 현금 목표 추가 조정값</span>
-          <div style="display:flex;align-items:center;gap:3px">
-            <span style="font-size:11px;color:#4ade80">≥</span>
-            <input type="number" id="rb-cr-step1" value="160" min="100" max="500" step="1" oninput="rbLiveUpdate()"
-                   style="width:46px;padding:3px 5px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#4ade80;font-size:11px;text-align:center;outline:none"/>
-            <span style="font-size:11px;color:#64748b">%</span>
-          </div>
-          <div style="display:flex;align-items:center;gap:3px">
-            <span style="font-size:11px;color:#f59e0b">≥</span>
-            <input type="number" id="rb-cr-step2" value="150" min="100" max="500" step="1" oninput="rbLiveUpdate()"
-                   style="width:46px;padding:3px 5px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#f59e0b;font-size:11px;text-align:center;outline:none"/>
-            <span style="font-size:11px;color:#64748b">%</span>
-          </div>
-          <div style="display:flex;align-items:center;gap:3px">
-            <span style="font-size:11px;color:#fb923c">≥</span>
-            <input type="number" id="rb-cr-step3" value="140" min="100" max="500" step="1"
-                   oninput="rbLiveUpdate();const l=document.getElementById('rb-cr-step3-label');if(l)l.textContent=this.value"
-                   style="width:46px;padding:3px 5px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#fb923c;font-size:11px;text-align:center;outline:none"/>
-            <span style="font-size:11px;color:#64748b">%</span>
-          </div>
-          <div style="font-size:11px;color:#f87171">&lt;<span id="rb-cr-step3-label">140</span>%</div>
-          <!-- 조정값 행 -->
-          <span style="font-size:11px;color:#4ade80;text-align:center">+0%p</span>
-          <div style="display:flex;align-items:center;gap:2px">
-            <span style="font-size:11px;color:#64748b">+</span>
-            <input type="number" id="rb-cr-adj1" value="5" min="0" max="50" step="0.5" oninput="rbLiveUpdate()"
-                   style="width:36px;padding:3px 5px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#f59e0b;font-size:11px;text-align:center;outline:none"/>
-            <span style="font-size:11px;color:#64748b">%p</span>
-          </div>
-          <div style="display:flex;align-items:center;gap:2px">
-            <span style="font-size:11px;color:#64748b">+</span>
-            <input type="number" id="rb-cr-adj2" value="10" min="0" max="50" step="0.5" oninput="rbLiveUpdate()"
-                   style="width:36px;padding:3px 5px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#fb923c;font-size:11px;text-align:center;outline:none"/>
-            <span style="font-size:11px;color:#64748b">%p</span>
-          </div>
-          <div style="display:flex;align-items:center;gap:2px">
-            <span style="font-size:11px;color:#64748b">+</span>
-            <input type="number" id="rb-cr-adj3" value="15" min="0" max="50" step="0.5" oninput="rbLiveUpdate()"
-                   style="width:36px;padding:3px 5px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#f87171;font-size:11px;text-align:center;outline:none"/>
-            <span style="font-size:11px;color:#64748b">%p</span>
-          </div>
-        </div>
-      </div>
-      <!-- 목표 담보비율 (인출 제한 판정 기준) -->
-      <div style="border-top:1px solid #0f1117;padding:10px 16px 10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <span style="font-size:12px;color:#34d399;font-weight:600">목표 담보비율</span>
-        <input type="number" id="rb-coll-required" value="140" min="100" max="500" step="1"
-               oninput="rbLiveUpdate()"
-               style="width:60px;padding:4px 8px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#34d399;font-size:13px;text-align:center;outline:none"/>
-        <span style="font-size:11px;color:#64748b">%</span>
-        <span style="font-size:10px;color:#475569">— 신용 매도 시 비례 대출 상환은 자동 적용 · 담보비율이 이 값 미달이면 현금 인출 제한</span>
-      </div>
-      <!-- 주식 상한 트리거 -->
-      <div style="border-top:1px solid #0f1117;padding:10px 16px 12px;display:flex;gap:12px;flex-wrap:wrap;align-items:center">
-        <div style="display:flex;flex-direction:column;gap:2px">
-          <span style="font-size:10px;color:#64748b">주식 비중이 이 값을 넘으면 즉시 매도 계획 생성</span>
-          <div style="display:flex;align-items:center;gap:6px">
-            <span style="font-size:12px;color:#fb923c;font-weight:600">주식 상한</span>
-            <input type="number" id="rb-stock-ceiling" value="0" min="0" max="100" step="0.5" oninput="rbLiveUpdate()"
-                   style="width:56px;padding:4px 6px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#fb923c;font-size:12px;text-align:center;outline:none"/>
-            <span style="font-size:11px;color:#64748b">% 초과 시 현금화 트리거 발동 · 0 = 미사용</span>
-          </div>
-        </div>
+      <div style="padding:10px 16px;display:flex;align-items:center;gap:8px">
+        <span style="font-size:12px;color:#64748b">목표 담보비율</span>
+        <span id="rb-coll-required-display" style="font-size:16px;font-weight:700;color:#34d399">140%</span>
+        <span style="font-size:11px;color:#475569">— 신용관리 탭에서 변경 가능 · 담보비율 미달 시 매도 현금은 담보비율 개선에 사용됨</span>
       </div>
     </div>
 
@@ -2289,19 +2219,33 @@ canvas { max-height: 220px; }
     <div class="panel" style="margin-bottom:12px">
       <div class="panel-header" style="cursor:default;display:flex;align-items:baseline;gap:10px">
         <span>매매 전략</span>
-        <span style="font-size:11px;color:#475569;font-weight:400">초과 현금 매수 배분 방식 · 주의 구간 임계값</span>
+        <span style="font-size:11px;color:#475569;font-weight:400">매수·매도 배분 방식 · 주의 구간 임계값</span>
       </div>
       <div style="padding:12px 16px;display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start">
-        <!-- 초과 현금 매수 방식 -->
+        <!-- 매수 전략 -->
         <div style="display:flex;flex-direction:column;gap:4px">
-          <span style="font-size:10px;color:#64748b">현금 과다 시 매수 대상 종목 비중 배분 방식</span>
+          <span style="font-size:10px;color:#64748b">현금 과다 시 매수 종목 배분 방식</span>
           <div style="display:flex;align-items:center;gap:6px">
-            <span style="font-size:12px;color:#a78bfa;font-weight:600">매수 전략</span>
+            <span style="font-size:12px;color:#60a5fa;font-weight:600">매수 전략</span>
             <select id="rb-buy-strategy" onchange="rbLiveUpdate()"
-                    style="padding:5px 10px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#a78bfa;font-size:12px;outline:none">
-              <option value="target">목표비율 기준 — 목표 보유 비중에 맞춰 배분</option>
-              <option value="current">보유비율 기준 — 현재 보유 비중에 비례 배분</option>
-              <option value="equal">균등 배분 — 모든 종목에 동일 금액 배분</option>
+                    style="padding:5px 10px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#60a5fa;font-size:12px;outline:none">
+              <option value="target">목표비율 기준</option>
+              <option value="current">보유비율 기준</option>
+              <option value="equal">균등 배분</option>
+            </select>
+          </div>
+        </div>
+        <div style="width:1px;height:40px;background:#334155;flex-shrink:0;margin-top:6px"></div>
+        <!-- 매도 전략 -->
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <span style="font-size:10px;color:#64748b">현금 부족 시 매도 종목 배분 방식</span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:12px;color:#f87171;font-weight:600">매도 전략</span>
+            <select id="rb-sell-strategy" onchange="rbLiveUpdate()"
+                    style="padding:5px 10px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#f87171;font-size:12px;outline:none">
+              <option value="target">목표비율 기준</option>
+              <option value="current">보유비율 기준</option>
+              <option value="equal">균등 배분</option>
             </select>
           </div>
         </div>
@@ -2314,7 +2258,7 @@ canvas { max-height: 220px; }
             <span style="font-size:11px;color:#64748b">현금 +</span>
             <input type="number" id="rb-watch-up" value="15" min="0.5" max="500" step="0.5" oninput="rbLiveUpdate()"
                    style="width:52px;padding:4px 6px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#f59e0b;font-size:12px;text-align:center;outline:none"/>
-            <span style="font-size:11px;color:#64748b">%p 이상 /  현금 –</span>
+            <span style="font-size:11px;color:#64748b">%p /  현금 –</span>
             <input type="number" id="rb-watch-down" value="12.5" min="0.5" max="500" step="0.5" oninput="rbLiveUpdate()"
                    style="width:52px;padding:4px 6px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#f59e0b;font-size:12px;text-align:center;outline:none"/>
             <span style="font-size:11px;color:#64748b">%p 이상</span>
@@ -7402,7 +7346,8 @@ let rbCollateralTarget   = 40;
 let rbCollateralRequired = 140;
 let rbTotalLoan          = 0;       // 신용 대출금 합계
 let rbStockCeiling       = 0;       // 주식 비중 상한 (0=미사용)
-let rbBuyStrategy        = 'target'; // 초과 현금 매수 전략
+let rbBuyStrategy        = 'target';
+let rbSellStrategy       = 'target';
 let rbCrEnabled          = false;
 let rbCrStep1            = 160;
 let rbCrStep2            = 150;
@@ -7410,7 +7355,7 @@ let rbCrStep3            = 140;
 let rbCrAdj1             = 5;
 let rbCrAdj2             = 10;
 let rbCrAdj3             = 15;
-let rbCollateralRatio    = null; // 최근 담보비율 (null = 신용 없음)
+let rbCollateralRatio    = null;
 
 function rbGetEffectiveCashTarget() {
   if (!rbCrEnabled || rbCollateralRatio === null || rbCashTargetRatio <= 0) {
@@ -7529,6 +7474,7 @@ async function loadRebalance() {
     rbTotalLoan         = json.total_loan                || 0;
     rbStockCeiling      = json.rb_stock_ceiling          || 0;
     rbBuyStrategy       = json.rb_buy_strategy           || 'target';
+    rbSellStrategy      = json.rb_sell_strategy          || 'target';
     rbCollateralRequired = json.rb_coll_required !== undefined
                           ? parseFloat(json.rb_coll_required) || 140
                           : parseFloat(settings.collateral_required_ratio ?? 140);
@@ -7552,8 +7498,10 @@ async function loadRebalance() {
     if (ceilEl) ceilEl.value = rbStockCeiling || '';
     const stratEl = document.getElementById('rb-buy-strategy');
     if (stratEl) stratEl.value = rbBuyStrategy;
-    const collReqEl = document.getElementById('rb-coll-required');
-    if (collReqEl) collReqEl.value = rbCollateralRequired;
+    const collReqDisplay = document.getElementById('rb-coll-required-display');
+    if (collReqDisplay) collReqDisplay.textContent = rbCollateralRequired + '%';
+    const stratSellEl = document.getElementById('rb-sell-strategy');
+    if (stratSellEl) stratSellEl.value = rbSellStrategy;
     const crEnabledEl = document.getElementById('rb-cr-enabled');
     if (crEnabledEl) crEnabledEl.checked = rbCrEnabled;
     const s1 = document.getElementById('rb-cr-step1'); if (s1) s1.value = rbCrStep1;
@@ -7813,10 +7761,11 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
   const tradeWeightMap = new Map();
   let totalWeight = 0;
 
-  if (isBuy && rbBuyStrategy !== 'target') {
+  const activeStrategy = isBuy ? rbBuyStrategy : rbSellStrategy;
+  if (activeStrategy !== 'target') {
     // 보유비율 또는 균등 전략
     for (const r of candidates) {
-      const w = rbBuyStrategy === 'equal' ? 1 : r.eval_amt;
+      const w = activeStrategy === 'equal' ? 1 : r.eval_amt;
       tradeWeightMap.set(r.stock_code, w);
       totalWeight += w;
     }
@@ -7976,8 +7925,8 @@ function rbLiveUpdate() {
   rbWatchDown       = parseFloat(document.getElementById('rb-watch-down')?.value)         || Math.round(rbAlertDown * 0.5 * 10) / 10;
   rbStockCeiling      = parseFloat(document.getElementById('rb-stock-ceiling')?.value)      || 0;
   rbBuyStrategy       = document.getElementById('rb-buy-strategy')?.value                  || 'target';
-  rbCollateralRequired = parseFloat(document.getElementById('rb-coll-required')?.value)    || 140;
-  rbCrEnabled         = document.getElementById('rb-cr-enabled')?.checked                  ?? false;
+  rbSellStrategy       = document.getElementById('rb-sell-strategy')?.value                 || 'target';
+  rbCrEnabled         = false;
   rbCrStep1         = parseFloat(document.getElementById('rb-cr-step1')?.value)           || 160;
   rbCrStep2         = parseFloat(document.getElementById('rb-cr-step2')?.value)           || 150;
   rbCrStep3         = parseFloat(document.getElementById('rb-cr-step3')?.value)           || 140;
@@ -8593,8 +8542,8 @@ async function rbSaveThresholds() {
   rbCashTargetRatio = parseFloat(document.getElementById('rb-cash-target-input').value)  || 0;
   rbStockCeiling      = parseFloat(document.getElementById('rb-stock-ceiling')?.value)     || 0;
   rbBuyStrategy       = document.getElementById('rb-buy-strategy')?.value                 || 'target';
-  rbCollateralRequired = parseFloat(document.getElementById('rb-coll-required')?.value)   || 140;
-  rbCrEnabled         = document.getElementById('rb-cr-enabled')?.checked                 ?? false;
+  rbSellStrategy       = document.getElementById('rb-sell-strategy')?.value                || 'target';
+  rbCrEnabled         = false;
   rbCrStep1         = parseFloat(document.getElementById('rb-cr-step1')?.value)         || 160;
   rbCrStep2         = parseFloat(document.getElementById('rb-cr-step2')?.value)         || 150;
   rbCrStep3         = parseFloat(document.getElementById('rb-cr-step3')?.value)         || 140;
@@ -8612,7 +8561,7 @@ async function rbSaveThresholds() {
       cash_target_ratio:    String(rbCashTargetRatio),
       rb_stock_ceiling:     String(rbStockCeiling),
       rb_buy_strategy:      rbBuyStrategy,
-      rb_coll_required:     String(rbCollateralRequired),
+      rb_sell_strategy:     rbSellStrategy,
       rb_cr_enabled:        String(rbCrEnabled),
       rb_cr_step1:          String(rbCrStep1),
       rb_cr_step2:          String(rbCrStep2),
