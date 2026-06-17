@@ -2198,7 +2198,6 @@ canvas { max-height: 220px; }
             </div>
           </div>
         </div>
-        <div id="rb-cr-cur-status" style="align-self:flex-end;font-size:11px;color:#64748b;padding:3px 10px;border-radius:5px;background:#0a0f1a;border:1px solid #1e2535;white-space:nowrap;max-width:300px;overflow:hidden;text-overflow:ellipsis"></div>
       </div>
     </div>
 
@@ -2208,10 +2207,17 @@ canvas { max-height: 220px; }
         <span>위험 관리</span>
         <span style="font-size:11px;color:#475569;font-weight:400">신용관리에서 설정한 목표 담보비율 확인</span>
       </div>
-      <div style="padding:10px 16px;display:flex;align-items:center;gap:8px">
-        <span style="font-size:12px;color:#64748b">목표 담보비율</span>
-        <span id="rb-coll-required-display" style="font-size:16px;font-weight:700;color:#34d399">140%</span>
-        <span style="font-size:11px;color:#475569">— 신용관리 탭에서 변경 가능 · 담보비율 미달 시 매도 현금은 담보비율 개선에 사용됨</span>
+      <div style="padding:10px 16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-size:12px;color:#64748b">현재 담보비율</span>
+          <span id="rb-coll-current-display" style="font-size:16px;font-weight:700;color:#e2e8f0">—</span>
+        </div>
+        <div style="width:1px;height:20px;background:#334155;flex-shrink:0"></div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-size:12px;color:#64748b">목표 담보비율</span>
+          <span id="rb-coll-required-display" style="font-size:16px;font-weight:700;color:#34d399">140%</span>
+        </div>
+        <span style="font-size:11px;color:#475569">— 신용관리 탭에서 변경 · 미달 시 매도 현금은 담보비율 개선에 사용됨</span>
       </div>
     </div>
 
@@ -7500,6 +7506,19 @@ async function loadRebalance() {
     if (stratEl) stratEl.value = rbBuyStrategy;
     const collReqDisplay = document.getElementById('rb-coll-required-display');
     if (collReqDisplay) collReqDisplay.textContent = rbCollateralRequired + '%';
+    const collCurDisplay = document.getElementById('rb-coll-current-display');
+    if (collCurDisplay) {
+      if (rbCollateralRatio !== null) {
+        const color = rbCollateralRatio >= rbCollateralRequired + 20 ? '#4ade80'
+                    : rbCollateralRatio >= rbCollateralRequired      ? '#f59e0b'
+                    : '#f87171';
+        collCurDisplay.textContent = rbCollateralRatio.toFixed(1) + '%';
+        collCurDisplay.style.color = color;
+      } else {
+        collCurDisplay.textContent = '—';
+        collCurDisplay.style.color = '#475569';
+      }
+    }
     const stratSellEl = document.getElementById('rb-sell-strategy');
     if (stratSellEl) stratSellEl.value = rbSellStrategy;
     const crEnabledEl = document.getElementById('rb-cr-enabled');
@@ -7510,7 +7529,6 @@ async function loadRebalance() {
     const a1 = document.getElementById('rb-cr-adj1');  if (a1) a1.value = rbCrAdj1;
     const a2 = document.getElementById('rb-cr-adj2');  if (a2) a2.value = rbCrAdj2;
     const a3 = document.getElementById('rb-cr-adj3');  if (a3) a3.value = rbCrAdj3;
-    rbUpdateCrStatus();
 
     rbUpdateSummary(json);
     rbRenderMarginPanel();
@@ -7965,33 +7983,6 @@ function rbToggleCalc() {
   arrow.textContent     = open ? '▴ 접기' : '▾ 펼치기';
 }
 
-function rbUpdateCrStatus() {
-  // step3 미만 라벨 동기화
-  const step3Val = parseFloat(document.getElementById('rb-cr-step3')?.value) || rbCrStep3;
-  const lbl = document.getElementById('rb-cr-step3-label');
-  if (lbl) lbl.textContent = step3Val;
-
-  const statusEl = document.getElementById('rb-cr-cur-status');
-  if (!statusEl) return;
-  if (!rbCrEnabled) {
-    statusEl.textContent = '비활성';
-    statusEl.style.color = '#475569';
-    return;
-  }
-  if (rbCollateralRatio === null) {
-    statusEl.textContent = '담보비율 데이터 없음';
-    statusEl.style.color = '#475569';
-    return;
-  }
-  const eff = rbGetEffectiveCashTarget();
-  const adj = eff - rbCashTargetRatio;
-  let zone = '';
-  if (rbCollateralRatio >= rbCrStep1)      { zone = `≥${rbCrStep1}% 안전 구간`; statusEl.style.color = '#4ade80'; }
-  else if (rbCollateralRatio >= rbCrStep2) { zone = `${rbCrStep2}~${rbCrStep1}% 주의 구간`; statusEl.style.color = '#f59e0b'; }
-  else if (rbCollateralRatio >= rbCrStep3) { zone = `${rbCrStep3}~${rbCrStep2}% 경고 구간`; statusEl.style.color = '#fb923c'; }
-  else                                     { zone = `<${rbCrStep3}% 위험 구간`; statusEl.style.color = '#f87171'; }
-  statusEl.textContent = `현재 담보비율 ${rbCollateralRatio.toFixed(1)}% (${zone}) → 유효 목표 ${eff.toFixed(1)}%${adj > 0 ? ` (+${adj}%p)` : ''}`;
-}
 
 function rbRenderTriggerPanel() {
   const triggerEl = document.getElementById('rb-trigger-panel');
