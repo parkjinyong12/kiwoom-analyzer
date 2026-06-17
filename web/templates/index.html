@@ -2153,121 +2153,247 @@ canvas { max-height: 220px; }
         <div class="page-title">현금 대 주식 리밸런싱</div>
         <div class="page-sub">주식·현금 비율 목표 설정 및 리밸런싱 현황</div>
       </div>
-      <button class="btn btn-ghost" style="font-size:12px" onclick="loadRebalance()">새로고침</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" style="font-size:12px;padding:6px 14px" onclick="rbSaveThresholds()">저장</button>
+        <button class="btn btn-ghost" style="font-size:12px" onclick="loadRebalance()">새로고침</button>
+      </div>
     </div>
 
-    <!-- 기준 설정 -->
+    <!-- 1. 목표 설정 -->
     <div class="panel" style="margin-bottom:12px">
-      <div class="panel-header" style="cursor:default;display:flex;align-items:center;justify-content:space-between">
-        <span>리밸런싱 기준 설정</span>
-        <button id="rb-adv-btn" onclick="rbToggleAdvanced()"
-                style="font-size:11px;color:#64748b;background:none;border:1px solid #1e2535;border-radius:5px;padding:3px 10px;cursor:pointer">
-          고급 설정 <span id="rb-adv-arrow">▾</span>
-        </button>
+      <div class="panel-header" style="cursor:default;display:flex;align-items:baseline;gap:10px">
+        <span>목표 설정</span>
+        <span style="font-size:11px;color:#475569;font-weight:400">현금 비율 목표와 리밸런싱 발동 기준</span>
       </div>
-      <!-- 핵심 설정 (항상 보임) -->
-      <div style="display:flex;gap:16px;align-items:center;padding:12px 16px;flex-wrap:wrap">
-        <div style="display:flex;align-items:center;gap:8px">
-          <span style="font-size:12px;color:#34d399;font-weight:600">현금 목표</span>
-          <input type="number" id="rb-cash-target-input" value="30" min="0" max="100" step="0.1"
-                 oninput="rbLiveUpdate()"
-                 style="width:60px;padding:5px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#34d399;font-size:13px;text-align:center;outline:none"/>
-          <span style="font-size:12px;color:#64748b">%</span>
-        </div>
-        <div style="width:1px;height:18px;background:#334155;flex-shrink:0"></div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <span style="font-size:12px;color:#f87171">과다</span>
-          <input type="number" id="rb-threshold-up" value="30" min="1" max="500" step="1"
-                 oninput="rbLiveUpdate()"
-                 style="width:52px;padding:5px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#f87171;font-size:13px;text-align:center;outline:none"/>
-          <span style="font-size:12px;color:#64748b">%</span>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <span style="font-size:12px;color:#60a5fa">부족</span>
-          <input type="number" id="rb-threshold-down" value="25" min="1" max="500" step="1"
-                 oninput="rbLiveUpdate()"
-                 style="width:52px;padding:5px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#60a5fa;font-size:13px;text-align:center;outline:none"/>
-          <span style="font-size:12px;color:#64748b">%</span>
-        </div>
-        <div style="width:1px;height:18px;background:#334155;flex-shrink:0"></div>
-        <div id="rb-cr-cur-status" style="font-size:11px;color:#64748b;padding:3px 10px;border-radius:5px;background:#0a0f1a;border:1px solid #1e2535;white-space:nowrap;max-width:300px;overflow:hidden;text-overflow:ellipsis"></div>
-        <button class="btn btn-primary" style="font-size:12px;padding:6px 14px;margin-left:auto;flex-shrink:0" onclick="rbSaveThresholds()">저장</button>
-      </div>
-      <!-- 고급 설정 (접힘) -->
-      <div id="rb-advanced-panel" style="display:none;border-top:1px solid #1e2535">
-        <!-- 주의 기준 -->
-        <div style="padding:10px 16px;display:flex;gap:12px;flex-wrap:wrap;align-items:center">
-          <span style="font-size:11px;color:#475569;flex-shrink:0">주의 기준</span>
+      <div style="padding:12px 16px;display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap">
+        <!-- 현금 목표 -->
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <span style="font-size:10px;color:#64748b">전체 자산 중 목표 현금 비중</span>
           <div style="display:flex;align-items:center;gap:6px">
-            <span style="font-size:11px;color:#f59e0b">상향</span>
-            <input type="number" id="rb-watch-up" value="15" min="0.5" max="500" step="0.5" oninput="rbLiveUpdate()"
-                   style="width:52px;padding:4px 6px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#f59e0b;font-size:12px;text-align:center;outline:none"/>
-            <span style="font-size:11px;color:#64748b">% / 하향</span>
-            <input type="number" id="rb-watch-down" value="12.5" min="0.5" max="500" step="0.5" oninput="rbLiveUpdate()"
-                   style="width:52px;padding:4px 6px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#f59e0b;font-size:12px;text-align:center;outline:none"/>
-            <span style="font-size:11px;color:#f59e0b">%</span>
+            <span style="font-size:12px;color:#34d399;font-weight:600">현금 목표</span>
+            <input type="number" id="rb-cash-target-input" value="30" min="0" max="100" step="0.1"
+                   oninput="rbLiveUpdate()"
+                   style="width:60px;padding:5px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#34d399;font-size:13px;text-align:center;outline:none"/>
+            <span style="font-size:12px;color:#64748b">%</span>
           </div>
         </div>
-        <!-- 담보비율 자동 조정 -->
-        <div style="border-top:1px solid #0f1117;padding:10px 16px;display:flex;gap:12px;flex-wrap:wrap;align-items:center">
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;flex-shrink:0">
+        <div style="width:1px;height:40px;background:#334155;flex-shrink:0;margin-top:6px"></div>
+        <!-- 리밸런싱 발동 기준 -->
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <span style="font-size:10px;color:#64748b">편차가 이 값 초과 시 리밸런싱 신호 발생</span>
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <div style="display:flex;align-items:center;gap:6px">
+              <span style="font-size:12px;color:#f87171;font-weight:600">과다 기준</span>
+              <input type="number" id="rb-threshold-up" value="30" min="1" max="500" step="1"
+                     oninput="rbLiveUpdate()"
+                     style="width:52px;padding:5px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#f87171;font-size:13px;text-align:center;outline:none"/>
+              <span style="font-size:11px;color:#64748b">%p → 매도 신호</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <span style="font-size:12px;color:#60a5fa;font-weight:600">부족 기준</span>
+              <input type="number" id="rb-threshold-down" value="25" min="1" max="500" step="1"
+                     oninput="rbLiveUpdate()"
+                     style="width:52px;padding:5px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#60a5fa;font-size:13px;text-align:center;outline:none"/>
+              <span style="font-size:11px;color:#64748b">%p → 매수 신호</span>
+            </div>
+          </div>
+        </div>
+        <div id="rb-cr-cur-status" style="align-self:flex-end;font-size:11px;color:#64748b;padding:3px 10px;border-radius:5px;background:#0a0f1a;border:1px solid #1e2535;white-space:nowrap;max-width:300px;overflow:hidden;text-overflow:ellipsis"></div>
+      </div>
+    </div>
+
+    <!-- 2. 위험 관리 -->
+    <div class="panel" style="margin-bottom:12px">
+      <div class="panel-header" style="cursor:default;display:flex;align-items:baseline;gap:10px">
+        <span>위험 관리</span>
+        <span style="font-size:11px;color:#475569;font-weight:400">담보비율 연동 조정 · 주식 비중 상한 설정</span>
+      </div>
+      <!-- 담보비율 연동 조정 -->
+      <div style="padding:12px 16px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
             <input type="checkbox" id="rb-cr-enabled" onchange="rbLiveUpdate()" style="accent-color:#a78bfa;width:14px;height:14px"/>
-            <span style="font-size:11px;color:#a78bfa;font-weight:600">담보비율 → 현금 목표 자동 상향</span>
+            <span style="font-size:12px;color:#a78bfa;font-weight:600">담보비율 연동 현금 목표 자동 상향</span>
           </label>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-            <div style="display:flex;align-items:center;gap:3px">
-              <span style="font-size:11px;color:#4ade80">≥</span>
-              <input type="number" id="rb-cr-step1" value="160" min="100" max="500" step="1" oninput="rbLiveUpdate()"
-                     style="width:46px;padding:3px 5px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#4ade80;font-size:11px;text-align:center;outline:none"/>
-              <span style="font-size:11px;color:#64748b">% +0</span>
-            </div>
-            <div style="display:flex;align-items:center;gap:3px">
-              <span style="font-size:11px;color:#f59e0b">≥</span>
-              <input type="number" id="rb-cr-step2" value="150" min="100" max="500" step="1" oninput="rbLiveUpdate()"
-                     style="width:46px;padding:3px 5px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#f59e0b;font-size:11px;text-align:center;outline:none"/>
-              <span style="font-size:11px;color:#64748b">% +</span>
-              <input type="number" id="rb-cr-adj1" value="5" min="0" max="50" step="0.5" oninput="rbLiveUpdate()"
-                     style="width:36px;padding:3px 5px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#f59e0b;font-size:11px;text-align:center;outline:none"/>
-              <span style="font-size:11px;color:#64748b">%p</span>
-            </div>
-            <div style="display:flex;align-items:center;gap:3px">
-              <span style="font-size:11px;color:#fb923c">≥</span>
-              <input type="number" id="rb-cr-step3" value="140" min="100" max="500" step="1"
-                     oninput="rbLiveUpdate();const l=document.getElementById('rb-cr-step3-label');if(l)l.textContent=this.value"
-                     style="width:46px;padding:3px 5px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#fb923c;font-size:11px;text-align:center;outline:none"/>
-              <span style="font-size:11px;color:#64748b">% +</span>
-              <input type="number" id="rb-cr-adj2" value="10" min="0" max="50" step="0.5" oninput="rbLiveUpdate()"
-                     style="width:36px;padding:3px 5px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#fb923c;font-size:11px;text-align:center;outline:none"/>
-              <span style="font-size:11px;color:#64748b">%p</span>
-            </div>
-            <div style="display:flex;align-items:center;gap:3px">
-              <span style="font-size:11px;color:#f87171">&lt;<span id="rb-cr-step3-label">140</span>% +</span>
-              <input type="number" id="rb-cr-adj3" value="15" min="0" max="50" step="0.5" oninput="rbLiveUpdate()"
-                     style="width:36px;padding:3px 5px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#f87171;font-size:11px;text-align:center;outline:none"/>
-              <span style="font-size:11px;color:#64748b">%p</span>
-            </div>
+          <span style="font-size:10px;color:#475569">담보비율이 낮을수록 현금 목표를 더 높게 설정</span>
+        </div>
+        <!-- 담보비율 단계표 -->
+        <div style="display:grid;grid-template-columns:repeat(4,auto);gap:4px 16px;align-items:center;padding:8px 12px;background:#0a0f1a;border-radius:6px;border:1px solid #1e2535;width:fit-content">
+          <span style="font-size:10px;color:#64748b;grid-column:1/-1;margin-bottom:2px">담보비율 구간 → 현금 목표 추가 조정값</span>
+          <div style="display:flex;align-items:center;gap:3px">
+            <span style="font-size:11px;color:#4ade80">≥</span>
+            <input type="number" id="rb-cr-step1" value="160" min="100" max="500" step="1" oninput="rbLiveUpdate()"
+                   style="width:46px;padding:3px 5px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#4ade80;font-size:11px;text-align:center;outline:none"/>
+            <span style="font-size:11px;color:#64748b">%</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:3px">
+            <span style="font-size:11px;color:#f59e0b">≥</span>
+            <input type="number" id="rb-cr-step2" value="150" min="100" max="500" step="1" oninput="rbLiveUpdate()"
+                   style="width:46px;padding:3px 5px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#f59e0b;font-size:11px;text-align:center;outline:none"/>
+            <span style="font-size:11px;color:#64748b">%</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:3px">
+            <span style="font-size:11px;color:#fb923c">≥</span>
+            <input type="number" id="rb-cr-step3" value="140" min="100" max="500" step="1"
+                   oninput="rbLiveUpdate();const l=document.getElementById('rb-cr-step3-label');if(l)l.textContent=this.value"
+                   style="width:46px;padding:3px 5px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#fb923c;font-size:11px;text-align:center;outline:none"/>
+            <span style="font-size:11px;color:#64748b">%</span>
+          </div>
+          <div style="font-size:11px;color:#f87171">&lt;<span id="rb-cr-step3-label">140</span>%</div>
+          <!-- 조정값 행 -->
+          <span style="font-size:11px;color:#4ade80;text-align:center">+0%p</span>
+          <div style="display:flex;align-items:center;gap:2px">
+            <span style="font-size:11px;color:#64748b">+</span>
+            <input type="number" id="rb-cr-adj1" value="5" min="0" max="50" step="0.5" oninput="rbLiveUpdate()"
+                   style="width:36px;padding:3px 5px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#f59e0b;font-size:11px;text-align:center;outline:none"/>
+            <span style="font-size:11px;color:#64748b">%p</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:2px">
+            <span style="font-size:11px;color:#64748b">+</span>
+            <input type="number" id="rb-cr-adj2" value="10" min="0" max="50" step="0.5" oninput="rbLiveUpdate()"
+                   style="width:36px;padding:3px 5px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#fb923c;font-size:11px;text-align:center;outline:none"/>
+            <span style="font-size:11px;color:#64748b">%p</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:2px">
+            <span style="font-size:11px;color:#64748b">+</span>
+            <input type="number" id="rb-cr-adj3" value="15" min="0" max="50" step="0.5" oninput="rbLiveUpdate()"
+                   style="width:36px;padding:3px 5px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#f87171;font-size:11px;text-align:center;outline:none"/>
+            <span style="font-size:11px;color:#64748b">%p</span>
           </div>
         </div>
-        <!-- 현금화 트리거 / 매수 전략 -->
-        <div style="border-top:1px solid #0f1117;padding:10px 16px 12px;display:flex;gap:16px;flex-wrap:wrap;align-items:center">
+      </div>
+      <!-- 주식 상한 트리거 -->
+      <div style="border-top:1px solid #0f1117;padding:10px 16px 12px;display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <span style="font-size:10px;color:#64748b">주식 비중이 이 값을 넘으면 즉시 매도 계획 생성</span>
           <div style="display:flex;align-items:center;gap:6px">
-            <span style="font-size:11px;color:#fb923c">주식 상한</span>
+            <span style="font-size:12px;color:#fb923c;font-weight:600">주식 상한</span>
             <input type="number" id="rb-stock-ceiling" value="0" min="0" max="100" step="0.5" oninput="rbLiveUpdate()"
                    style="width:56px;padding:4px 6px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#fb923c;font-size:12px;text-align:center;outline:none"/>
-            <span style="font-size:11px;color:#64748b">% 초과 시 현금화 트리거 (0=미사용)</span>
+            <span style="font-size:11px;color:#64748b">% 초과 시 현금화 트리거 발동 · 0 = 미사용</span>
           </div>
-          <div style="width:1px;height:16px;background:#334155;flex-shrink:0"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. 매매 전략 -->
+    <div class="panel" style="margin-bottom:12px">
+      <div class="panel-header" style="cursor:default;display:flex;align-items:baseline;gap:10px">
+        <span>매매 전략</span>
+        <span style="font-size:11px;color:#475569;font-weight:400">초과 현금 매수 배분 방식 · 주의 구간 임계값</span>
+      </div>
+      <div style="padding:12px 16px;display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start">
+        <!-- 초과 현금 매수 방식 -->
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <span style="font-size:10px;color:#64748b">현금 과다 시 매수 대상 종목 비중 배분 방식</span>
           <div style="display:flex;align-items:center;gap:6px">
-            <span style="font-size:11px;color:#a78bfa">매수 전략</span>
+            <span style="font-size:12px;color:#a78bfa;font-weight:600">매수 전략</span>
             <select id="rb-buy-strategy" onchange="rbLiveUpdate()"
-                    style="padding:4px 8px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#a78bfa;font-size:11px;outline:none">
-              <option value="target">목표비율 기준</option>
-              <option value="current">보유비율 기준</option>
-              <option value="equal">균등 배분</option>
+                    style="padding:5px 10px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#a78bfa;font-size:12px;outline:none">
+              <option value="target">목표비율 기준 — 목표 보유 비중에 맞춰 배분</option>
+              <option value="current">보유비율 기준 — 현재 보유 비중에 비례 배분</option>
+              <option value="equal">균등 배분 — 모든 종목에 동일 금액 배분</option>
             </select>
           </div>
         </div>
+        <div style="width:1px;height:40px;background:#334155;flex-shrink:0;margin-top:6px"></div>
+        <!-- 주의 임계값 -->
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <span style="font-size:10px;color:#64748b">리밸런싱 신호 전 경고 단계 (현금 목표 대비 편차)</span>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:12px;color:#f59e0b;font-weight:600">주의 구간</span>
+            <span style="font-size:11px;color:#64748b">현금 +</span>
+            <input type="number" id="rb-watch-up" value="15" min="0.5" max="500" step="0.5" oninput="rbLiveUpdate()"
+                   style="width:52px;padding:4px 6px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#f59e0b;font-size:12px;text-align:center;outline:none"/>
+            <span style="font-size:11px;color:#64748b">%p 이상 /  현금 –</span>
+            <input type="number" id="rb-watch-down" value="12.5" min="0.5" max="500" step="0.5" oninput="rbLiveUpdate()"
+                   style="width:52px;padding:4px 6px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#f59e0b;font-size:12px;text-align:center;outline:none"/>
+            <span style="font-size:11px;color:#64748b">%p 이상</span>
+          </div>
+        </div>
       </div>
+    </div>
+
+    <!-- 4. 현황 -->
+    <div class="panel" id="rb-margin-panel" style="margin-bottom:12px">
+      <div class="panel-header" style="cursor:default;display:flex;align-items:baseline;gap:10px">
+        <span>현황</span>
+        <span style="font-size:11px;color:#475569;font-weight:400">총자산 · 주식 · 현금 현황 및 목표 대비 편차</span>
+      </div>
+      <!-- 요약 카드 -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:12px 16px">
+        <div class="card" style="margin:0">
+          <div class="card-label">총 자산</div>
+          <div class="card-value blue" id="rb-rv-total" style="font-size:18px">-</div>
+          <div class="card-note" id="rb-rv-total-note">-</div>
+        </div>
+        <div class="card" style="margin:0">
+          <div class="card-label">주식 평가금</div>
+          <div class="card-value" id="rb-rv-stock" style="font-size:18px;color:#60a5fa">-</div>
+          <div class="card-note" id="rb-rv-stock-ratio" style="color:#60a5fa">-</div>
+        </div>
+        <div class="card" style="margin:0">
+          <div class="card-label">현금성자산</div>
+          <div class="card-value" id="rb-rv-cash" style="font-size:18px;color:#34d399">-</div>
+          <div class="card-note" id="rb-rv-cash-ratio" style="color:#34d399">-</div>
+        </div>
+        <div class="card" style="margin:0">
+          <div class="card-label">현금 편차</div>
+          <div class="card-value" id="rb-rv-vs" style="font-size:18px">-</div>
+          <div class="card-note" id="rb-rv-vs-note">-</div>
+        </div>
+      </div>
+      <!-- 비율 바 -->
+      <div style="padding:0 16px 14px">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:#64748b;margin-bottom:5px">
+          <span>현재</span><span id="rb-bar-cur-label" style="font-weight:600">-</span>
+        </div>
+        <div style="height:30px;border-radius:6px;overflow:hidden;background:#1e2535;display:flex">
+          <div id="rb-bar-stock" style="background:#3b82f6;min-width:0;transition:width 0.4s;display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;font-weight:700;overflow:hidden;padding:0 4px"></div>
+          <div id="rb-bar-cash"  style="background:#10b981;flex:1;display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;font-weight:700;overflow:hidden;padding:0 4px"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:#64748b;margin-top:8px;margin-bottom:4px">
+          <span>목표</span><span id="rb-bar-tgt-label" style="font-weight:600">-</span>
+        </div>
+        <div style="height:10px;border-radius:4px;overflow:hidden;background:#1e2535;display:flex">
+          <div id="rb-tgt-bar-stock" style="background:rgba(59,130,246,0.45);min-width:0;transition:width 0.4s"></div>
+          <div id="rb-tgt-bar-cash"  style="background:rgba(16,185,129,0.45);flex:1"></div>
+        </div>
+        <!-- 수치 요약 -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:center;margin-top:14px">
+          <div style="font-size:13px;display:flex;flex-direction:column;gap:7px">
+            <div style="display:flex;justify-content:space-between">
+              <span style="color:#64748b">현재 주식</span>
+              <span id="rb-sc-stock-cur" style="color:#60a5fa;font-weight:600">-</span>
+            </div>
+            <div style="display:flex;justify-content:space-between">
+              <span style="color:#64748b">현재 현금</span>
+              <span id="rb-sc-cash-cur" style="color:#34d399;font-weight:600">-</span>
+            </div>
+            <div style="border-top:1px solid #1e2535;padding-top:7px;margin-top:2px;display:flex;justify-content:space-between">
+              <span style="color:#64748b">목표 주식</span>
+              <span id="rb-sc-stock-tgt" style="color:#64748b">-</span>
+            </div>
+            <div style="display:flex;justify-content:space-between">
+              <span style="color:#64748b">목표 현금</span>
+              <span id="rb-sc-cash-tgt" style="color:#64748b">-</span>
+            </div>
+            <div style="border-top:1px solid #1e2535;padding-top:7px;margin-top:2px;display:flex;justify-content:space-between">
+              <span style="color:#94a3b8;font-weight:600">현금 편차</span>
+              <span id="rb-sc-deviation" style="font-weight:700">-</span>
+            </div>
+          </div>
+          <div>
+            <div id="rb-sc-action" style="padding:14px 16px;border-radius:8px;font-size:13px;font-weight:600;text-align:center;line-height:1.9">-</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5. 액션 -->
+    <div style="padding:2px 0 8px;display:flex;align-items:baseline;gap:8px">
+      <span style="font-size:11px;color:#475569;font-weight:600;letter-spacing:0.5px;text-transform:uppercase">액션</span>
+      <span style="font-size:10px;color:#334155">신호 발생 시 자동 표시 · 현금 확보 시뮬레이션</span>
     </div>
 
     <!-- 현금화 트리거 상태 -->
@@ -2323,84 +2449,8 @@ canvas { max-height: 220px; }
       </div>
     </div>
 
-    <!-- 요약 카드 -->
-    <div class="cards" style="grid-template-columns:repeat(4,1fr);margin-bottom:12px">
-      <div class="card">
-        <div class="card-label">총 자산</div>
-        <div class="card-value blue" id="rb-rv-total" style="font-size:18px">-</div>
-        <div class="card-note" id="rb-rv-total-note">-</div>
-      </div>
-      <div class="card">
-        <div class="card-label">주식 평가금</div>
-        <div class="card-value" id="rb-rv-stock" style="font-size:18px;color:#60a5fa">-</div>
-        <div class="card-note" id="rb-rv-stock-ratio" style="color:#60a5fa">-</div>
-      </div>
-      <div class="card">
-        <div class="card-label">현금성자산</div>
-        <div class="card-value" id="rb-rv-cash" style="font-size:18px;color:#34d399">-</div>
-        <div class="card-note" id="rb-rv-cash-ratio" style="color:#34d399">-</div>
-      </div>
-      <div class="card">
-        <div class="card-label">현금 현재 / 목표</div>
-        <div class="card-value" id="rb-rv-vs" style="font-size:18px">-</div>
-        <div class="card-note" id="rb-rv-vs-note">-</div>
-      </div>
-    </div>
-
-    <!-- 주식·현금 비율 현황 -->
-    <div class="panel" id="rb-margin-panel">
-      <div class="panel-header" style="cursor:default">주식 · 현금 비율 현황</div>
-      <div style="padding:16px 16px 14px">
-        <!-- 비율 바 -->
-        <div style="margin-bottom:18px">
-          <div style="display:flex;justify-content:space-between;font-size:11px;color:#64748b;margin-bottom:5px">
-            <span>현재</span><span id="rb-bar-cur-label" style="font-weight:600">-</span>
-          </div>
-          <div style="height:30px;border-radius:6px;overflow:hidden;background:#1e2535;display:flex">
-            <div id="rb-bar-stock" style="background:#3b82f6;min-width:0;transition:width 0.4s;display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;font-weight:700;overflow:hidden;padding:0 4px"></div>
-            <div id="rb-bar-cash"  style="background:#10b981;flex:1;display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;font-weight:700;overflow:hidden;padding:0 4px"></div>
-          </div>
-          <div style="display:flex;justify-content:space-between;font-size:11px;color:#64748b;margin-top:8px;margin-bottom:4px">
-            <span>목표</span><span id="rb-bar-tgt-label" style="font-weight:600">-</span>
-          </div>
-          <div style="height:10px;border-radius:4px;overflow:hidden;background:#1e2535;display:flex">
-            <div id="rb-tgt-bar-stock" style="background:rgba(59,130,246,0.45);min-width:0;transition:width 0.4s"></div>
-            <div id="rb-tgt-bar-cash"  style="background:rgba(16,185,129,0.45);flex:1"></div>
-          </div>
-        </div>
-        <!-- 수치 및 액션 -->
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:center">
-          <div style="font-size:13px;display:flex;flex-direction:column;gap:7px">
-            <div style="display:flex;justify-content:space-between">
-              <span style="color:#64748b">현재 주식</span>
-              <span id="rb-sc-stock-cur" style="color:#60a5fa;font-weight:600">-</span>
-            </div>
-            <div style="display:flex;justify-content:space-between">
-              <span style="color:#64748b">현재 현금</span>
-              <span id="rb-sc-cash-cur" style="color:#34d399;font-weight:600">-</span>
-            </div>
-            <div style="border-top:1px solid #1e2535;padding-top:7px;margin-top:2px;display:flex;justify-content:space-between">
-              <span style="color:#64748b">목표 주식</span>
-              <span id="rb-sc-stock-tgt" style="color:#64748b">-</span>
-            </div>
-            <div style="display:flex;justify-content:space-between">
-              <span style="color:#64748b">목표 현금</span>
-              <span id="rb-sc-cash-tgt" style="color:#64748b">-</span>
-            </div>
-            <div style="border-top:1px solid #1e2535;padding-top:7px;margin-top:2px;display:flex;justify-content:space-between">
-              <span style="color:#94a3b8;font-weight:600">현금 편차</span>
-              <span id="rb-sc-deviation" style="font-weight:700">-</span>
-            </div>
-          </div>
-          <div>
-            <div id="rb-sc-action" style="padding:14px 16px;border-radius:8px;font-size:13px;font-weight:600;text-align:center;line-height:1.9">-</div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 현금↔주식 거래 계획 -->
-    <div id="rb-cash-plan" style="display:none;margin-top:12px">
+    <!-- 거래 계획 -->
+    <div id="rb-cash-plan" style="display:none;margin-bottom:12px">
       <div class="panel">
         <div class="panel-header" style="cursor:default">
           <span id="rb-cash-plan-header">거래 계획</span>
@@ -2425,7 +2475,7 @@ canvas { max-height: 220px; }
     </div>
 
     <!-- 현금 확보 계산기 -->
-    <div class="panel" style="margin-top:12px">
+    <div class="panel" style="margin-bottom:12px">
       <div class="panel-header" style="cursor:pointer;user-select:none;display:flex;align-items:center;justify-content:space-between"
            onclick="rbToggleCalc()">
         <span>현금 확보 계산기</span>
