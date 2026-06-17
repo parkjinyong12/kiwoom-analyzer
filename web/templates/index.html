@@ -7646,8 +7646,12 @@ function rbRenderMarginPanel() {
   const cash       = rbTotalCash;
   const stockEval  = rbStockTotal;
   const total      = rbPortfolioTotal;
-  const cashRatio  = total > 0 ? cash  / total * 100 : 0;
-  const stockRatio = total > 0 ? stockEval / total * 100 : 0;
+  // 순자산 기준: 현금비율 = 현금 / (주식+현금−대출)
+  // 주식·현금을 팔고 사도 순자산은 변하지 않아 분모가 안정적
+  const netEquity  = Math.max(0, total - rbTotalLoan);
+  const cashRatio  = netEquity > 0 ? cash / netEquity * 100 : 0;
+  // 순주식비중 = (주식 − 대출) / 순자산  → cashRatio + stockRatio = 100%
+  const stockRatio = netEquity > 0 ? (stockEval - rbTotalLoan) / netEquity * 100 : 0;
   const cashTgt    = rbGetEffectiveCashTarget();  // 담보비율 조정 반영
   const stockTgt   = cashTgt > 0 ? 100 - cashTgt : 0;
 
@@ -7665,12 +7669,14 @@ function rbRenderMarginPanel() {
     document.getElementById('rb-rv-total-note').textContent =
       `주식 ${Math.round(stockEval).toLocaleString()} + 현금 ${Math.round(cash).toLocaleString()}`;
     rvStock.textContent = Math.round(stockEval).toLocaleString() + '원';
-    document.getElementById('rb-rv-stock-ratio').textContent = stockRatio.toFixed(1) + '%';
+    document.getElementById('rb-rv-stock-ratio').textContent =
+      rbTotalLoan > 0
+        ? `순주식 ${stockRatio.toFixed(1)}%  (gross ${(total > 0 ? stockEval/total*100 : 0).toFixed(1)}%)`
+        : stockRatio.toFixed(1) + '%';
     rvCash.textContent  = Math.round(cash).toLocaleString() + '원';
-    const freeCash = Math.max(0, cash - rbTotalLoan);
     document.getElementById('rb-rv-cash-ratio').textContent =
       rbTotalLoan > 0
-        ? `${cashRatio.toFixed(1)}%  (대출 ${Math.round(rbTotalLoan).toLocaleString()}원 / 순현금 ${Math.round(freeCash).toLocaleString()}원)`
+        ? `${cashRatio.toFixed(1)}%  (순자산 ${Math.round(netEquity).toLocaleString()}원 기준)`
         : cashRatio.toFixed(1) + '%';
     if (cashTgt > 0) {
       const devPP = cashRatio - cashTgt;
@@ -7695,13 +7701,14 @@ function rbRenderMarginPanel() {
     barStock.style.width = stockRatio.toFixed(1) + '%';
     barStock.textContent = stockRatio >= 8 ? '주식 ' + stockRatio.toFixed(1) + '%' : '';
     barCash.textContent  = cashRatio  >= 8 ? '현금 ' + cashRatio.toFixed(1)  + '%' : '';
+    const basisNote = rbTotalLoan > 0 ? ' (순자산기준)' : '';
     document.getElementById('rb-bar-cur-label').textContent =
-      `주식 ${stockRatio.toFixed(1)}%  현금 ${cashRatio.toFixed(1)}%`;
+      `순주식 ${stockRatio.toFixed(1)}%  현금 ${cashRatio.toFixed(1)}%${basisNote}`;
     const tgtStock = document.getElementById('rb-tgt-bar-stock');
     if (cashTgt > 0) {
       tgtStock.style.width = stockTgt.toFixed(1) + '%';
       document.getElementById('rb-bar-tgt-label').textContent =
-        `주식 ${stockTgt.toFixed(1)}%  현금 ${cashTgt.toFixed(1)}%`;
+        `순주식 ${stockTgt.toFixed(1)}%  현금 ${cashTgt.toFixed(1)}%${basisNote}`;
     } else {
       tgtStock.style.width = '0%';
       document.getElementById('rb-bar-tgt-label').textContent = '목표 미설정';
@@ -7750,7 +7757,7 @@ function rbRenderMarginPanel() {
       scActionEl.innerHTML = `✅ 주식:현금 비율 정상 범위<br><span style="font-size:11px;font-weight:400">현금 ${cashRatio.toFixed(1)}% · 목표 ${cashTgt.toFixed(1)}%</span>`;
       scActionEl.style.cssText = 'padding:12px 14px;border-radius:8px;font-size:13px;font-weight:600;text-align:center;line-height:1.8;background:rgba(74,222,128,0.1);color:#4ade80';
     }
-    rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt);
+    rbRenderCashPlan(cashDevRel, netEquity, cashRatio, cashTgt);
   }
 }
 
@@ -7767,19 +7774,18 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
   let tradeTotal;
 
   if (isSell && r < 1) {
-    // 현금 목표(raw, CR 자동조정 무시) 기준 비례상환 방식 매도금액
-    // 매도 Y → 현금 Y×(1-r), 포트폴리오 Y×r 감소
-    // 목표: (cash + Y×(1-r)) / (total - Y×r) = rawTgt/100
+    // 순자산 기준: 매도해도 순자산(netEquity=total) 불변 → 분모 고정
+    // 목표: (cash + Y×(1-r)) / netEquity = rawTgt/100
+    // → Y = (rawTgt/100 × netEquity − cash) / (1−r)
     const rawTgt = rbCashTargetRatio;
-    const t   = rawTgt / 100;
-    const num = t * total - rbTotalCash;
-    const den = (1 - r) + r * t;
-    tradeTotal = den > 0 && num > 0 ? Math.round(num / den) : 0;
+    const num = rawTgt / 100 * total - rbTotalCash;
+    tradeTotal = num > 0 ? Math.round(num / (1 - r)) : 0;
     tradeTotal = Math.min(tradeTotal, Math.round(rbStockTotal));
   } else if (isSell) {
     tradeTotal = Math.round(Math.abs(cashRatio - cashTgt) / 100 * total);
   } else {
-    tradeTotal = Math.round(Math.abs(cashRatio - cashTgt) / 100 * total);
+    // 매수: 현금 과다 → (cash − rawTgt/100 × netEquity) 만큼 주식 매수
+    tradeTotal = Math.round(Math.max(0, rbTotalCash - cashTgt / 100 * total));
   }
   const color      = isBuy ? '#60a5fa' : '#f87171';
   const candidates = rbData.filter(r => r.current_price != null && r.eval_amt > 0);
@@ -8086,10 +8092,12 @@ function rbCalcCash() {
   const amountInput = parseFloat(document.getElementById('rb-calc-amount').value) || 0;
   const ratioInput  = parseFloat(document.getElementById('rb-calc-ratio').value)  || 0;
 
-  // 비례상환 기준 매도 필요금액 계산
-  // loanRate = 대출금/주식총액 → 매도 1원당 loanRate원 상환, (1-loanRate)원 현금으로 확보
-  const r    = rbLoanRepayRatio();
-  const total = rbPortfolioTotal;
+  // 순자산 기준 매도 필요금액 계산
+  // 순자산 = 주식+현금−대출 → 매도해도 순자산 불변 → 분모 고정
+  // 목표: (cash + Y×(1-r)) / netEquity = ratioInput/100
+  // → Y = (ratioInput/100 × netEquity − cash) / (1−r)
+  const r         = rbLoanRepayRatio();
+  const netEquity = Math.max(0, rbPortfolioTotal - rbTotalLoan);
 
   const resultEl  = document.getElementById('rb-calc-result');
   const summaryEl = document.getElementById('rb-calc-summary');
@@ -8100,18 +8108,15 @@ function rbCalcCash() {
   let targetDesc = '';
 
   if (ratioInput > 0) {
-    // 목표 현금 비중 입력
-    const cashRatio = total > 0 ? rbTotalCash / total * 100 : 0;
+    // 목표 현금 비중 입력 (순자산 기준)
+    const cashRatio = netEquity > 0 ? rbTotalCash / netEquity * 100 : 0;
     if (cashRatio >= ratioInput) {
       alreadySatisfied = true;
-      targetDesc = `현재 현금비중 ${cashRatio.toFixed(1)}%로 이미 목표(${ratioInput}%)를 충족합니다.`;
+      targetDesc = `현재 현금비중 ${cashRatio.toFixed(1)}% (순자산기준)로 이미 목표(${ratioInput}%)를 충족합니다.`;
     } else {
-      // Y = (t×total - cash) / [(1-r) + r×t]
-      const t   = ratioInput / 100;
-      const num = t * total - rbTotalCash;
-      const den = (1 - r) + r * t;
-      sellNeeded = den > 0 ? Math.max(0, Math.round(num / den)) : 0;
-      targetDesc = `목표 현금 비중 ${ratioInput}%`;
+      const num = ratioInput / 100 * netEquity - rbTotalCash;
+      sellNeeded = (1 - r) > 0 ? Math.max(0, Math.round(num / (1 - r))) : 0;
+      targetDesc = `목표 현금 비중 ${ratioInput}% (순자산기준)`;
     }
   } else if (amountInput > 0) {
     // 절대금액 입력 (목표 총 현금 = amountInput)
@@ -8222,7 +8227,8 @@ function rbRender() {
   }
 
   // ── 현금성 자산 행 ──────────────────────────────────────
-  const cashRatio  = rbPortfolioTotal > 0 ? rbTotalCash / rbPortfolioTotal * 100 : 0;
+  const rbNetEq    = Math.max(0, rbPortfolioTotal - rbTotalLoan);  // 순자산
+  const cashRatio  = rbNetEq > 0 ? rbTotalCash / rbNetEq * 100 : 0;  // 순자산 기준 현금비율
   const cashTgt    = rbGetEffectiveCashTarget();
   const cashDevPP  = cashTgt > 0 ? parseFloat((cashRatio - cashTgt).toFixed(2)) : null;
   const cashDevRel = (cashDevPP !== null && cashTgt > 0)
@@ -8244,8 +8250,8 @@ function rbRender() {
   }
 
   let cashAdjCell = `<td class="center" style="color:#475569">-</td>`;
-  if (cashTgt > 0 && rbPortfolioTotal > 0) {
-    const targetCash = rbPortfolioTotal * cashTgt / 100;
+  if (cashTgt > 0 && rbNetEq > 0) {
+    const targetCash = rbNetEq * cashTgt / 100;   // 순자산 기준 목표 현금
     const diff       = targetCash - rbTotalCash;
     const adjAmt     = Math.abs(Math.round(diff));
     if (adjAmt < 1000) {
