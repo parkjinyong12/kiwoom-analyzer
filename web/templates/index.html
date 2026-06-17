@@ -7722,8 +7722,8 @@ function rbRenderMarginPanel() {
     document.getElementById('rb-sc-deviation').style.color = '#64748b';
     scActionEl.innerHTML   = '현금 목표비율 미설정<br><span style="font-size:11px;font-weight:400">위 설정에서 현금 목표비율을 입력하세요</span>';
     scActionEl.style.cssText = 'padding:12px 14px;border-radius:8px;font-size:13px;font-weight:600;text-align:center;line-height:1.8;background:rgba(100,116,139,0.1);color:#64748b';
-    // cashTgt=0이어도 담보비율 미달이면 정상화 매도 계획 표시
-    rbRenderCashPlan(null, total, cashRatio, 0);
+    const planEl = document.getElementById('rb-cash-plan');
+    if (planEl) planEl.style.display = 'none';
   } else {
     document.getElementById('rb-sc-stock-tgt').textContent = stockTgt.toFixed(1) + '%  (' + Math.round(stockTgt / 100 * total).toLocaleString() + '원)';
     document.getElementById('rb-sc-cash-tgt').textContent  =
@@ -7758,51 +7758,26 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
   const planEl = document.getElementById('rb-cash-plan');
   if (!planEl) return;
 
-  // 담보비율 미달 여부: (주식+현금)/대출 < 목표 담보비율
-  const curCollRatio = rbTotalLoan > 0 ? (rbStockTotal + rbTotalCash) / rbTotalLoan * 100 : null;
-  const needCollFix  = curCollRatio !== null && rbCollateralRequired > 0
-                       && curCollRatio < rbCollateralRequired;
-
   const isBuy  = cashDevRel !== null && cashDevRel > rbAlertUp;
-  const isSell = (cashDevRel !== null && cashDevRel < -rbAlertDown) || needCollFix;
+  const isSell = cashDevRel !== null && cashDevRel < -rbAlertDown;
   if (!isBuy && !isSell) { planEl.style.display = 'none'; return; }
   planEl.style.display = 'block';
 
   const r = rbLoanRepayRatio();
   let tradeTotal;
-  let sellReason = '';
 
-  if (isSell) {
-    // ① 담보비율 정상화를 위한 최소 매도금액
-    //    매도 Y 후: (stock+cash - Y×r) / (loan - Y×r) = req/100
-    //    → Z = Y×r = (stock+cash - req/100×loan) / (1 - req/100)
-    let Y_collateral = 0;
-    if (needCollFix && r > 0) {
-      const numZ = (rbStockTotal + rbTotalCash) - rbCollateralRequired / 100 * rbTotalLoan;
-      const denZ = 1 - rbCollateralRequired / 100;
-      const Z    = denZ !== 0 ? numZ / denZ : 0;
-      Y_collateral = Z > 0 ? Math.round(Z / r) : 0;
-    }
-
-    // ② 현금 목표 달성을 위한 매도금액
-    //    CR 자동조정(effective target)을 무시하고 순수 현금목표(rbCashTargetRatio)만 사용
-    //    → 담보비율 연동 상향이 매도금액을 과도하게 부풀리는 문제 방지
-    let Y_cash = 0;
+  if (isSell && r < 1) {
+    // 현금 목표(raw, CR 자동조정 무시) 기준 비례상환 방식 매도금액
+    // 매도 Y → 현금 Y×(1-r), 포트폴리오 Y×r 감소
+    // 목표: (cash + Y×(1-r)) / (total - Y×r) = rawTgt/100
     const rawTgt = rbCashTargetRatio;
-    if (rawTgt > 0 && r < 1) {
-      const t   = rawTgt / 100;
-      const num = t * total - rbTotalCash;
-      const den = (1 - r) + r * t;
-      Y_cash = den > 0 && num > 0 ? Math.round(num / den) : 0;
-    }
-
-    // ③ 담보비율 정상화 우선, 현금목표는 추가 조건
-    const collDriven = needCollFix && Y_collateral >= Y_cash;
-    tradeTotal = Math.max(Y_collateral, Y_cash);
+    const t   = rawTgt / 100;
+    const num = t * total - rbTotalCash;
+    const den = (1 - r) + r * t;
+    tradeTotal = den > 0 && num > 0 ? Math.round(num / den) : 0;
     tradeTotal = Math.min(tradeTotal, Math.round(rbStockTotal));
-    sellReason = collDriven
-      ? `담보비율 ${(curCollRatio ?? 0).toFixed(1)}%→${rbCollateralRequired}% 정상화`
-      : `현금목표 ${rawTgt}% 달성`;
+  } else if (isSell) {
+    tradeTotal = Math.round(Math.abs(cashRatio - cashTgt) / 100 * total);
   } else {
     tradeTotal = Math.round(Math.abs(cashRatio - cashTgt) / 100 * total);
   }
@@ -7877,20 +7852,47 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
 
   const actualTotal = items.reduce((s, i) => s + i.tradeAmt, 0);
   const label     = isBuy ? '📈 주식 매수 계획' : '📉 주식 매도 계획';
-  const needLabel = isBuy ? '현금 투입 목표' : (sellReason || '현금 확보 목표');
+  const needLabel = isBuy ? '현금 투입 목표' : `현금목표 ${rbCashTargetRatio}% 달성`;
   const overUnder  = actualTotal >= tradeTotal ? '목표 소폭 초과' : '목표 소폭 미달';
   // 매도 시 신용 대출금 비례상환 및 확보 현금 안내
   let loanNote = '';
   if (isSell && rbTotalLoan > 0) {
-    const r             = rbLoanRepayRatio();
-    const loanRepay     = Math.min(rbTotalLoan, Math.round(actualTotal * r));
-    const cashGained    = actualTotal - loanRepay;
-    const remainLoan    = rbTotalLoan - loanRepay;
-    const finalCash     = rbTotalCash + cashGained;
+    const lr         = rbLoanRepayRatio();
+    const loanRepay  = Math.min(rbTotalLoan, Math.round(actualTotal * lr));
+    const cashGained = actualTotal - loanRepay;
+    const remainLoan = rbTotalLoan - loanRepay;
+    const finalCash  = rbTotalCash + cashGained;
+
+    // 담보비율 구간 분리: 매도금액을 ① 담보비율 정상화 구간 / ② 확보가능 현금 구간으로 표시
+    const curColl = (rbStockTotal + rbTotalCash) / rbTotalLoan * 100;
+    let collBreak = '';
+    if (rbCollateralRequired > 0 && curColl < rbCollateralRequired && lr > 0) {
+      // 담보비율 정상화에 필요한 매도금액 계산
+      // Z = Y×r = (stock+cash - req/100×loan) / (1 - req/100)
+      const numZ = (rbStockTotal + rbTotalCash) - rbCollateralRequired / 100 * rbTotalLoan;
+      const denZ = 1 - rbCollateralRequired / 100;
+      const Y_coll = denZ !== 0 ? Math.round((numZ / denZ) / lr) : 0;
+
+      if (actualTotal < Y_coll) {
+        // 이 매도로는 담보비율 목표 미달 — 전액이 담보비율 정상화 구간
+        const newColl = remainLoan > 0 ? ((rbStockTotal - actualTotal + finalCash) / remainLoan * 100) : null;
+        collBreak = `  ·  담보비율 ${curColl.toFixed(0)}%→${newColl !== null ? newColl.toFixed(0) : '∞'}%` +
+          ` (목표 ${rbCollateralRequired}% 미달 — 추가 ${(Y_coll - actualTotal).toLocaleString()}원 필요)`;
+      } else {
+        // 담보비율 목표 초과 → ① 정상화 구간 / ② 확보가능 현금 구간 분리
+        const overSell     = actualTotal - Y_coll;          // 담보비율 달성 후 추가 매도분
+        const s            = rbPostSellState(actualTotal);  // 최종 상태
+        const withdrawable = s ? s.withdrawable : 0;
+        collBreak = `  ·  담보비율 ${curColl.toFixed(0)}%→${rbCollateralRequired}% 구간 ${Y_coll.toLocaleString()}원` +
+          ` / 이후 확보가능 현금 ${withdrawable.toLocaleString()}원`;
+      }
+    }
+
     loanNote =
       `  ·  대출 상환 ${loanRepay.toLocaleString()}원` +
       (remainLoan === 0 ? ` (전액)` : ` (잔여 ${remainLoan.toLocaleString()}원)`) +
-      `  →  확보 후 현금 ${finalCash.toLocaleString()}원`;
+      `  →  현금 ${finalCash.toLocaleString()}원` +
+      collBreak;
   }
   document.getElementById('rb-cash-plan-header').textContent =
     `${label}  ·  ${needLabel} ${tradeTotal.toLocaleString()}원  →  실행 ${actualTotal.toLocaleString()}원 (${overUnder}, 1주 단위)${loanNote}`;
