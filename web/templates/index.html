@@ -7944,27 +7944,24 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
   }).join('');
 }
 
+let _rbLiveTimer = null;
 function rbLiveUpdate() {
+  // 값 즉시 반영
   rbCashTargetRatio = parseFloat(document.getElementById('rb-cash-target-input')?.value) || 0;
   rbAlertUp         = parseFloat(document.getElementById('rb-threshold-up')?.value)       || 30;
   rbAlertDown       = parseFloat(document.getElementById('rb-threshold-down')?.value)     || 25;
   rbWatchUp         = parseFloat(document.getElementById('rb-watch-up')?.value)           || Math.round(rbAlertUp  * 0.5 * 10) / 10;
   rbWatchDown       = parseFloat(document.getElementById('rb-watch-down')?.value)         || Math.round(rbAlertDown * 0.5 * 10) / 10;
-  rbStockCeiling      = parseFloat(document.getElementById('rb-stock-ceiling')?.value)      || 0;
-  rbBuyStrategy       = document.getElementById('rb-buy-strategy')?.value                  || 'target';
-  rbSellStrategy       = document.getElementById('rb-sell-strategy')?.value                 || 'target';
-  rbCrEnabled         = false;
-  rbCrStep1         = parseFloat(document.getElementById('rb-cr-step1')?.value)           || 160;
-  rbCrStep2         = parseFloat(document.getElementById('rb-cr-step2')?.value)           || 150;
-  rbCrStep3         = parseFloat(document.getElementById('rb-cr-step3')?.value)           || 140;
-  rbCrAdj1          = parseFloat(document.getElementById('rb-cr-adj1')?.value)            || 5;
-  rbCrAdj2          = parseFloat(document.getElementById('rb-cr-adj2')?.value)            || 10;
-  rbCrAdj3          = parseFloat(document.getElementById('rb-cr-adj3')?.value)            || 15;
-  rbUpdateCrStatus();
-  rbUpdateSummary({ portfolio_total: rbPortfolioTotal, total_cash: rbTotalCash });
-  rbRenderMarginPanel();
-  rbRenderTriggerPanel();
-  rbRender();
+  rbBuyStrategy     = document.getElementById('rb-buy-strategy')?.value                   || 'target';
+  rbSellStrategy    = document.getElementById('rb-sell-strategy')?.value                  || 'target';
+  // 화면 갱신은 debounce (300ms 대기 후 실행)
+  clearTimeout(_rbLiveTimer);
+  _rbLiveTimer = setTimeout(() => {
+    rbUpdateSummary({ portfolio_total: rbPortfolioTotal, total_cash: rbTotalCash });
+    rbRenderMarginPanel();
+    rbRenderTriggerPanel();
+    rbRender();
+  }, 300);
 }
 
 function rbToggleAdvanced() {
@@ -8540,16 +8537,8 @@ async function rbSaveThresholds() {
   rbWatchUp         = parseFloat(document.getElementById('rb-watch-up')?.value)          || Math.round(rbAlertUp  * 0.5 * 10) / 10;
   rbWatchDown       = parseFloat(document.getElementById('rb-watch-down')?.value)        || Math.round(rbAlertDown * 0.5 * 10) / 10;
   rbCashTargetRatio = parseFloat(document.getElementById('rb-cash-target-input').value)  || 0;
-  rbStockCeiling      = parseFloat(document.getElementById('rb-stock-ceiling')?.value)     || 0;
-  rbBuyStrategy       = document.getElementById('rb-buy-strategy')?.value                 || 'target';
-  rbSellStrategy       = document.getElementById('rb-sell-strategy')?.value                || 'target';
-  rbCrEnabled         = false;
-  rbCrStep1         = parseFloat(document.getElementById('rb-cr-step1')?.value)         || 160;
-  rbCrStep2         = parseFloat(document.getElementById('rb-cr-step2')?.value)         || 150;
-  rbCrStep3         = parseFloat(document.getElementById('rb-cr-step3')?.value)         || 140;
-  rbCrAdj1          = parseFloat(document.getElementById('rb-cr-adj1')?.value)          || 5;
-  rbCrAdj2          = parseFloat(document.getElementById('rb-cr-adj2')?.value)          || 10;
-  rbCrAdj3          = parseFloat(document.getElementById('rb-cr-adj3')?.value)          || 15;
+  rbBuyStrategy     = document.getElementById('rb-buy-strategy')?.value                  || 'target';
+  rbSellStrategy    = document.getElementById('rb-sell-strategy')?.value                 || 'target';
   await fetch('/api/settings', {
     method: 'PUT',
     headers: {'Content-Type':'application/json'},
@@ -8559,16 +8548,8 @@ async function rbSaveThresholds() {
       rebalance_watch_up:   String(rbWatchUp),
       rebalance_watch_down: String(rbWatchDown),
       cash_target_ratio:    String(rbCashTargetRatio),
-      rb_stock_ceiling:     String(rbStockCeiling),
       rb_buy_strategy:      rbBuyStrategy,
       rb_sell_strategy:     rbSellStrategy,
-      rb_cr_enabled:        String(rbCrEnabled),
-      rb_cr_step1:          String(rbCrStep1),
-      rb_cr_step2:          String(rbCrStep2),
-      rb_cr_step3:          String(rbCrStep3),
-      rb_cr_adj1:           String(rbCrAdj1),
-      rb_cr_adj2:           String(rbCrAdj2),
-      rb_cr_adj3:           String(rbCrAdj3),
     }),
   });
   await loadRebalance();
