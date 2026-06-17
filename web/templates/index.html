@@ -7928,8 +7928,8 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
       if (newColl === null) {
         // 대출 전액 상환
         collNote = `  ·  대출 전액 상환  ·  인출가능 ${postState.withdrawable.toLocaleString()}원`;
-      } else if (rbCollateralRequired > 0 && newColl < rbCollateralRequired) {
-        // 담보비율 목표 미달 — 현금 있지만 인출 제한
+      } else if (rbCollateralRequired > 0 && Math.round(newColl) < rbCollateralRequired) {
+        // 담보비율 목표 미달 — 현금 있지만 인출 제한 (1주 단위 오차 0.5% 미만은 달성으로 처리)
         let extraNote = '';
         if (lr > 0) {
           const numZ  = (rbStockTotal + rbTotalCash) - rbCollateralRequired / 100 * rbTotalLoan;
