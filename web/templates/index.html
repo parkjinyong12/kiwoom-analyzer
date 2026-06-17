@@ -7918,10 +7918,19 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
       }
     }
 
+    // 매도 후 담보비율
+    const postState   = rbTotalLoan > 0 ? rbPostSellState(actualTotal) : null;
+    const newCollStr  = postState
+      ? (postState.newRatio !== null
+          ? `담보비율 ${(curCollRatio ?? 0).toFixed(0)}%→${postState.newRatio.toFixed(0)}%`
+          : `담보비율 → 대출 전액 상환`)
+      : '';
+
     loanNote =
       `  ·  대출 상환 ${loanRepay.toLocaleString()}원` +
       (remainLoan === 0 ? ` (전액)` : ` (잔여 ${remainLoan.toLocaleString()}원)`) +
       `  →  현금 ${finalCash.toLocaleString()}원` +
+      (newCollStr ? `  ·  ${newCollStr}` : '') +
       collBreak;
   }
   document.getElementById('rb-cash-plan-header').textContent =
