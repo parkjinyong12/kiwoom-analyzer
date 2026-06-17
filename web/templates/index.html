@@ -7906,45 +7906,44 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
     const remainLoan = rbTotalLoan - loanRepay;
     const finalCash  = rbTotalCash + cashGained;
 
-    // 담보비율 구간 분리: 매도금액을 ① 담보비율 정상화 구간 / ② 확보가능 현금 구간으로 표시
-    const curColl = (rbStockTotal + rbTotalCash) / rbTotalLoan * 100;
-    let collBreak = '';
-    if (rbCollateralRequired > 0 && curColl < rbCollateralRequired && lr > 0) {
-      // 담보비율 정상화에 필요한 매도금액 계산
-      // Z = Y×r = (stock+cash - req/100×loan) / (1 - req/100)
-      const numZ = (rbStockTotal + rbTotalCash) - rbCollateralRequired / 100 * rbTotalLoan;
-      const denZ = 1 - rbCollateralRequired / 100;
-      const Y_coll = denZ !== 0 ? Math.round((numZ / denZ) / lr) : 0;
+    // 매도 후 상태 시뮬레이션
+    const postState = rbPostSellState(actualTotal);
+    const curColl   = (rbStockTotal + rbTotalCash) / rbTotalLoan * 100;
 
-      if (actualTotal < Y_coll) {
-        // 이 매도로는 담보비율 목표 미달 — 전액이 담보비율 정상화 구간
-        const newColl = remainLoan > 0 ? ((rbStockTotal - actualTotal + finalCash) / remainLoan * 100) : null;
-        collBreak = `  ·  담보비율 ${curColl.toFixed(0)}%→${newColl !== null ? newColl.toFixed(0) : '∞'}%` +
-          ` (목표 ${rbCollateralRequired}% 미달 — 추가 ${(Y_coll - actualTotal).toLocaleString()}원 필요)`;
+    let collNote = '';
+    if (postState) {
+      const newColl = postState.newRatio;
+      if (newColl === null) {
+        // 대출 전액 상환
+        collNote = `  ·  대출 전액 상환  ·  인출가능 ${postState.withdrawable.toLocaleString()}원`;
+      } else if (rbCollateralRequired > 0 && newColl < rbCollateralRequired) {
+        // 담보비율 목표 미달 — 현금 있지만 인출 제한
+        let extraNote = '';
+        if (lr > 0) {
+          const numZ  = (rbStockTotal + rbTotalCash) - rbCollateralRequired / 100 * rbTotalLoan;
+          const denZ  = 1 - rbCollateralRequired / 100;
+          const Y_coll = denZ !== 0 ? Math.round((numZ / denZ) / lr) : 0;
+          const extra  = Y_coll - actualTotal;
+          if (extra > 0) extraNote = ` — 추가 ${extra.toLocaleString()}원 필요`;
+        }
+        collNote = `  ·  담보비율 ${curColl.toFixed(0)}%→${newColl.toFixed(0)}% (목표 ${rbCollateralRequired}% 미달${extraNote})` +
+          `  ·  현금 ${finalCash.toLocaleString()}원 (인출 제한)`;
       } else {
-        // 담보비율 목표 초과 → ① 정상화 구간 / ② 확보가능 현금 구간 분리
-        const overSell     = actualTotal - Y_coll;          // 담보비율 달성 후 추가 매도분
-        const s            = rbPostSellState(actualTotal);  // 최종 상태
-        const withdrawable = s ? s.withdrawable : 0;
-        collBreak = `  ·  담보비율 ${curColl.toFixed(0)}%→${rbCollateralRequired}% 구간 ${Y_coll.toLocaleString()}원` +
-          ` / 이후 확보가능 현금 ${withdrawable.toLocaleString()}원`;
+        // 담보비율 목표 달성 — 인출가능 현금 표시
+        const collReached = rbCollateralRequired > 0
+          ? ` (목표 ${rbCollateralRequired}% 달성)` : '';
+        collNote = `  ·  담보비율 ${curColl.toFixed(0)}%→${newColl?.toFixed(0) ?? '∞'}%${collReached}` +
+          `  ·  인출가능 ${postState.withdrawable.toLocaleString()}원`;
       }
+    } else {
+      // 대출 없이 순수 매도 → 현금 표시
+      collNote = `  →  현금 ${finalCash.toLocaleString()}원`;
     }
-
-    // 매도 후 담보비율
-    const postState   = rbTotalLoan > 0 ? rbPostSellState(actualTotal) : null;
-    const newCollStr  = postState
-      ? (postState.newRatio !== null
-          ? `담보비율 ${(curCollRatio ?? 0).toFixed(0)}%→${postState.newRatio.toFixed(0)}%`
-          : `담보비율 → 대출 전액 상환`)
-      : '';
 
     loanNote =
       `  ·  대출 상환 ${loanRepay.toLocaleString()}원` +
       (remainLoan === 0 ? ` (전액)` : ` (잔여 ${remainLoan.toLocaleString()}원)`) +
-      `  →  현금 ${finalCash.toLocaleString()}원` +
-      (newCollStr ? `  ·  ${newCollStr}` : '') +
-      collBreak;
+      collNote;
   }
   document.getElementById('rb-cash-plan-header').textContent =
     `${label}  ·  ${needLabel} ${tradeTotal.toLocaleString()}원  →  실행 ${actualTotal.toLocaleString()}원 (${overUnder}, 1주 단위)${loanNote}`;
