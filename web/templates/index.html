@@ -2462,8 +2462,8 @@ canvas { max-height: 220px; }
     <!-- 거래 계획 -->
     <div id="rb-cash-plan" style="display:none;margin-bottom:12px">
       <div class="panel">
-        <div class="panel-header" style="cursor:default">
-          <span id="rb-cash-plan-header">거래 계획</span>
+        <div class="panel-header" style="cursor:default;flex-direction:column;align-items:flex-start;gap:8px">
+          <div id="rb-cash-plan-header" style="width:100%">거래 계획</div>
           <span style="font-size:11px;color:#64748b">목표비율 기준 배분 · 비중은 주식총액 대비</span>
         </div>
         <div style="overflow-x:auto">
@@ -7803,7 +7803,6 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
     // 매수: 현금 과다 → 초과 현금으로 주식 매수
     tradeTotal = Math.round(Math.max(0, rbTotalCash - cashTgt / 100 * total));
   }
-  const color      = isBuy ? '#60a5fa' : '#f87171';
   const candidates = rbData.filter(r => r.current_price != null && r.eval_amt > 0);
   if (!candidates.length) return;
 
@@ -7876,8 +7875,9 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
   const label     = isBuy ? '📈 주식 매수 계획' : '📉 주식 매도 계획';
   const needLabel = isBuy ? '현금 투입 목표' : `현금목표 ${rbCashTargetRatio}% 달성`;
   const overUnder  = actualTotal >= tradeTotal ? '목표 소폭 초과' : '목표 소폭 미달';
+  const color      = isBuy ? '#60a5fa' : '#f87171';
   // 매도 시 신용 대출금 비례상환 및 확보 현금 안내
-  let loanNote = '';
+  let loanHtml = '';
   if (isSell && rbTotalLoan > 0) {
     const lr         = rbLoanRepayRatio();
     const loanRepay  = Math.min(rbTotalLoan, Math.round(actualTotal * lr));
@@ -7889,44 +7889,58 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
     const postState = rbPostSellState(actualTotal);
     const curColl   = (rbStockTotal + rbTotalCash) / rbTotalLoan * 100;
 
-    let collNote = '';
     if (postState) {
       const newColl = postState.newRatio;
+      // 담보비율 + 현금 상태 칩 구성
+      let collChip = '';
+      let cashChip = '';
       if (newColl === null) {
-        // 대출 전액 상환
-        collNote = `  ·  대출 전액 상환  ·  인출가능 ${postState.withdrawable.toLocaleString()}원`;
+        collChip = `<span style="background:#064e3b;color:#34d399;padding:2px 8px;border-radius:4px;font-size:11px">✓ 대출 전액 상환</span>`;
+        cashChip = `<span style="background:#0f2a1a;color:#4ade80;padding:2px 8px;border-radius:4px;font-size:11px">인출가능 ${postState.withdrawable.toLocaleString()}원</span>`;
       } else if (rbCollateralRequired > 0 && Math.round(newColl) < rbCollateralRequired) {
-        // 담보비율 목표 미달 — 현금 있지만 인출 제한 (1주 단위 오차 0.5% 미만은 달성으로 처리)
-        let extraNote = '';
+        let extra = 0;
         if (lr > 0) {
-          const numZ  = (rbStockTotal + rbTotalCash) - rbCollateralRequired / 100 * rbTotalLoan;
-          const denZ  = 1 - rbCollateralRequired / 100;
+          const numZ   = (rbStockTotal + rbTotalCash) - rbCollateralRequired / 100 * rbTotalLoan;
+          const denZ   = 1 - rbCollateralRequired / 100;
           const Y_coll = denZ !== 0 ? Math.round((numZ / denZ) / lr) : 0;
-          const extra  = Y_coll - actualTotal;
-          if (extra > 0) extraNote = ` — 추가 ${extra.toLocaleString()}원 필요`;
+          extra = Math.max(0, Y_coll - actualTotal);
         }
-        collNote = `  ·  담보비율 ${curColl.toFixed(0)}%→${newColl.toFixed(0)}% (목표 ${rbCollateralRequired}% 미달${extraNote})` +
-          `  ·  현금 ${finalCash.toLocaleString()}원 (인출 제한)`;
+        collChip = `<span style="background:#3b1a1a;color:#f87171;padding:2px 8px;border-radius:4px;font-size:11px">담보비율 ${curColl.toFixed(0)}% → ${newColl.toFixed(0)}%&nbsp;&nbsp;목표 ${rbCollateralRequired}% 미달${extra > 0 ? `&nbsp;(${extra.toLocaleString()}원 더 필요)` : ''}</span>`;
+        cashChip = `<span style="background:#2a1a00;color:#f59e0b;padding:2px 8px;border-radius:4px;font-size:11px">⚠ 현금 ${finalCash.toLocaleString()}원 인출 제한</span>`;
       } else {
-        // 담보비율 목표 달성 (또는 원래 이미 달성 상태)
-        // curColl < rbCollateralRequired 였을 때만 "달성" 표시
         const wasUnder = rbCollateralRequired > 0 && curColl < rbCollateralRequired;
-        const collReached = wasUnder ? ` (목표 ${rbCollateralRequired}% 달성)` : '';
-        collNote = `  ·  담보비율 ${curColl.toFixed(0)}%→${newColl?.toFixed(0) ?? '∞'}%${collReached}` +
-          `  ·  인출가능 ${postState.withdrawable.toLocaleString()}원`;
+        collChip = `<span style="background:#0f2a1a;color:#4ade80;padding:2px 8px;border-radius:4px;font-size:11px">담보비율 ${curColl.toFixed(0)}% → ${newColl?.toFixed(0) ?? '∞'}%${wasUnder ? `&nbsp;&nbsp;목표 ${rbCollateralRequired}% 달성 ✓` : ''}</span>`;
+        cashChip = `<span style="background:#0f1e2a;color:#60a5fa;padding:2px 8px;border-radius:4px;font-size:11px">인출가능 ${postState.withdrawable.toLocaleString()}원</span>`;
       }
+      loanHtml = `
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:6px;padding-top:6px;border-top:1px solid #1e2535">
+          <span style="font-size:11px;color:#64748b">신용 대출 상환</span>
+          <span style="font-size:12px;color:#e2e8f0;font-weight:600">${loanRepay.toLocaleString()}원</span>
+          <span style="font-size:11px;color:#475569">(잔여 ${remainLoan.toLocaleString()}원)</span>
+          <span style="color:#334155;font-size:11px;margin:0 2px">│</span>
+          ${collChip}
+          <span style="color:#334155;font-size:11px;margin:0 2px">│</span>
+          ${cashChip}
+        </div>`;
     } else {
-      // 대출 없이 순수 매도 → 현금 표시
-      collNote = `  →  현금 ${finalCash.toLocaleString()}원`;
+      // 대출 없이 순수 매도
+      loanHtml = `<div style="margin-top:4px"><span style="font-size:12px;color:#60a5fa">현금 확보 ${finalCash.toLocaleString()}원</span></div>`;
     }
-
-    loanNote =
-      `  ·  대출 상환 ${loanRepay.toLocaleString()}원` +
-      (remainLoan === 0 ? ` (전액)` : ` (잔여 ${remainLoan.toLocaleString()}원)`) +
-      collNote;
   }
-  document.getElementById('rb-cash-plan-header').textContent =
-    `${label}  ·  ${needLabel} ${tradeTotal.toLocaleString()}원  →  실행 ${actualTotal.toLocaleString()}원 (${overUnder}, 1주 단위)${loanNote}`;
+
+  const matchIcon = actualTotal >= tradeTotal ? '✓' : '~';
+  const matchColor = actualTotal >= tradeTotal ? '#94a3b8' : '#f59e0b';
+  document.getElementById('rb-cash-plan-header').innerHTML = `
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span style="font-size:14px;font-weight:700;color:${color}">${label}</span>
+      <span style="color:#334155;font-size:12px">│</span>
+      <span style="font-size:11px;color:#64748b">${needLabel}</span>
+      <span style="font-size:13px;font-weight:700;color:#e2e8f0">${tradeTotal.toLocaleString()}원</span>
+      <span style="font-size:11px;color:#475569">→ 실행</span>
+      <span style="font-size:13px;font-weight:700;color:${color}">${actualTotal.toLocaleString()}원</span>
+      <span style="font-size:11px;color:${matchColor}">${matchIcon} 1주 단위 ${overUnder}</span>
+    </div>
+    ${loanHtml}`;
 
   const tbody = document.getElementById('rb-cash-plan-tbody');
   if (!items.length) {
