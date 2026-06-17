@@ -2262,20 +2262,14 @@ canvas { max-height: 220px; }
           </div>
         </div>
       </div>
-      <!-- 담보비율 우선 상환 옵션 -->
-      <div style="border-top:1px solid #0f1117;padding:10px 16px 10px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-          <input type="checkbox" id="rb-coll-first" onchange="rbLiveUpdate()" style="accent-color:#34d399;width:14px;height:14px" checked/>
-          <span style="font-size:12px;color:#34d399;font-weight:600">담보비율 정상화 우선</span>
-        </label>
-        <div style="display:flex;align-items:center;gap:4px">
-          <span style="font-size:11px;color:#64748b">목표 담보비율</span>
-          <input type="number" id="rb-coll-required" value="140" min="100" max="500" step="1"
-                 oninput="rbLiveUpdate()"
-                 style="width:52px;padding:3px 6px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#34d399;font-size:12px;text-align:center;outline:none"/>
-          <span style="font-size:11px;color:#64748b">%</span>
-        </div>
-        <span style="font-size:10px;color:#475569">매도 시 이 담보비율 달성을 현금 확보보다 먼저 — 이후 현금목표 추가 반영</span>
+      <!-- 목표 담보비율 (인출 제한 판정 기준) -->
+      <div style="border-top:1px solid #0f1117;padding:10px 16px 10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="font-size:12px;color:#34d399;font-weight:600">목표 담보비율</span>
+        <input type="number" id="rb-coll-required" value="140" min="100" max="500" step="1"
+               oninput="rbLiveUpdate()"
+               style="width:60px;padding:4px 8px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#34d399;font-size:13px;text-align:center;outline:none"/>
+        <span style="font-size:11px;color:#64748b">%</span>
+        <span style="font-size:10px;color:#475569">— 신용 매도 시 비례 대출 상환은 자동 적용 · 담보비율이 이 값 미달이면 현금 인출 제한</span>
       </div>
       <!-- 주식 상한 트리거 -->
       <div style="border-top:1px solid #0f1117;padding:10px 16px 12px;display:flex;gap:12px;flex-wrap:wrap;align-items:center">
@@ -7409,7 +7403,6 @@ let rbCollateralRequired = 140;
 let rbTotalLoan          = 0;       // 신용 대출금 합계
 let rbStockCeiling       = 0;       // 주식 비중 상한 (0=미사용)
 let rbBuyStrategy        = 'target'; // 초과 현금 매수 전략
-let rbCollFirstEnabled   = true;    // 담보비율 정상화 우선 상환 여부
 let rbCrEnabled          = false;
 let rbCrStep1            = 160;
 let rbCrStep2            = 150;
@@ -7536,8 +7529,6 @@ async function loadRebalance() {
     rbTotalLoan         = json.total_loan                || 0;
     rbStockCeiling      = json.rb_stock_ceiling          || 0;
     rbBuyStrategy       = json.rb_buy_strategy           || 'target';
-    rbCollFirstEnabled  = json.rb_coll_first === undefined ? true
-                          : (json.rb_coll_first === 'true' || json.rb_coll_first === true);
     rbCollateralRequired = json.rb_coll_required !== undefined
                           ? parseFloat(json.rb_coll_required) || 140
                           : parseFloat(settings.collateral_required_ratio ?? 140);
@@ -7561,8 +7552,6 @@ async function loadRebalance() {
     if (ceilEl) ceilEl.value = rbStockCeiling || '';
     const stratEl = document.getElementById('rb-buy-strategy');
     if (stratEl) stratEl.value = rbBuyStrategy;
-    const collFirstEl = document.getElementById('rb-coll-first');
-    if (collFirstEl) collFirstEl.checked = rbCollFirstEnabled;
     const collReqEl = document.getElementById('rb-coll-required');
     if (collReqEl) collReqEl.value = rbCollateralRequired;
     const crEnabledEl = document.getElementById('rb-cr-enabled');
@@ -7790,13 +7779,11 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
   const planEl = document.getElementById('rb-cash-plan');
   if (!planEl) return;
 
-  // 담보비율 미달 여부 (대출 있고, 현재 담보비율 < 목표)
+  // 담보비율 현황 (표시용 — 매도량 결정에는 영향 없음)
   const curCollRatio = rbTotalLoan > 0 ? (rbStockTotal + rbTotalCash) / rbTotalLoan * 100 : null;
-  const needCollFix  = curCollRatio !== null && rbCollateralRequired > 0
-                       && curCollRatio < rbCollateralRequired;
 
   const isBuy  = cashDevRel !== null && cashDevRel > rbAlertUp;
-  const isSell = (cashDevRel !== null && cashDevRel < -rbAlertDown) || needCollFix;
+  const isSell = cashDevRel !== null && cashDevRel < -rbAlertDown;
   if (!isBuy && !isSell) { planEl.style.display = 'none'; return; }
   planEl.style.display = 'block';
 
@@ -7804,30 +7791,14 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
   let tradeTotal;
 
   if (isSell) {
-    // ① 담보비율 정상화 최소 매도금액 (체크박스 ON일 때만)
-    //    매도 Y 후: (stock+cash − Y×r) / (loan − Y×r) = req/100
-    //    → Z = Y×r = (stock+cash − req/100×loan) / (1 − req/100)
-    let Y_collateral = 0;
-    if (rbCollFirstEnabled && needCollFix && r > 0) {
-      const numZ = (rbStockTotal + rbTotalCash) - rbCollateralRequired / 100 * rbTotalLoan;
-      const denZ = 1 - rbCollateralRequired / 100;
-      const Z    = denZ !== 0 ? numZ / denZ : 0;
-      Y_collateral = Z > 0 ? Math.round(Z / r) : 0;
-    }
-
-    // ② 현금 목표 달성 매도금액 (순자산 기준, 분모 고정)
-    //    (cash + Y×(1−r)) / netEquity = rawTgt/100
-    //    → Y = (rawTgt/100 × netEquity − cash) / (1−r)
+    // 현금목표 달성 매도금액 (순자산 기준, 분모 고정)
+    // (cash + Y×(1−r)) / netEquity = tgt/100  →  Y = (tgt/100 × netEquity − cash) / (1−r)
     let Y_cash = 0;
     if (r < 1) {
-      const rawTgt = rbCashTargetRatio;
-      const num    = rawTgt / 100 * total - rbTotalCash;
+      const num = rbCashTargetRatio / 100 * total - rbTotalCash;
       Y_cash = num > 0 ? Math.round(num / (1 - r)) : 0;
     }
-
-    // ③ 담보비율 우선이면 max, 아니면 현금목표만
-    tradeTotal = rbCollFirstEnabled ? Math.max(Y_collateral, Y_cash) : Y_cash;
-    tradeTotal = Math.min(tradeTotal, Math.round(rbStockTotal));
+    tradeTotal = Math.min(Y_cash, Math.round(rbStockTotal));
   } else {
     // 매수: 현금 과다 → 초과 현금으로 주식 매수
     tradeTotal = Math.round(Math.max(0, rbTotalCash - cashTgt / 100 * total));
@@ -7903,11 +7874,7 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
 
   const actualTotal = items.reduce((s, i) => s + i.tradeAmt, 0);
   const label     = isBuy ? '📈 주식 매수 계획' : '📉 주식 매도 계획';
-  const needLabel = isBuy
-    ? '현금 투입 목표'
-    : needCollFix && tradeTotal > 0
-      ? `담보비율 ${(curCollRatio ?? 0).toFixed(0)}%→${rbCollateralRequired}% 우선 + 현금목표 ${rbCashTargetRatio}%`
-      : `현금목표 ${rbCashTargetRatio}% 달성`;
+  const needLabel = isBuy ? '현금 투입 목표' : `현금목표 ${rbCashTargetRatio}% 달성`;
   const overUnder  = actualTotal >= tradeTotal ? '목표 소폭 초과' : '목표 소폭 미달';
   // 매도 시 신용 대출금 비례상환 및 확보 현금 안내
   let loanNote = '';
@@ -7995,7 +7962,6 @@ function rbLiveUpdate() {
   rbWatchDown       = parseFloat(document.getElementById('rb-watch-down')?.value)         || Math.round(rbAlertDown * 0.5 * 10) / 10;
   rbStockCeiling      = parseFloat(document.getElementById('rb-stock-ceiling')?.value)      || 0;
   rbBuyStrategy       = document.getElementById('rb-buy-strategy')?.value                  || 'target';
-  rbCollFirstEnabled  = document.getElementById('rb-coll-first')?.checked                  ?? true;
   rbCollateralRequired = parseFloat(document.getElementById('rb-coll-required')?.value)    || 140;
   rbCrEnabled         = document.getElementById('rb-cr-enabled')?.checked                  ?? false;
   rbCrStep1         = parseFloat(document.getElementById('rb-cr-step1')?.value)           || 160;
@@ -8613,7 +8579,6 @@ async function rbSaveThresholds() {
   rbCashTargetRatio = parseFloat(document.getElementById('rb-cash-target-input').value)  || 0;
   rbStockCeiling      = parseFloat(document.getElementById('rb-stock-ceiling')?.value)     || 0;
   rbBuyStrategy       = document.getElementById('rb-buy-strategy')?.value                 || 'target';
-  rbCollFirstEnabled   = document.getElementById('rb-coll-first')?.checked                ?? true;
   rbCollateralRequired = parseFloat(document.getElementById('rb-coll-required')?.value)   || 140;
   rbCrEnabled         = document.getElementById('rb-cr-enabled')?.checked                 ?? false;
   rbCrStep1         = parseFloat(document.getElementById('rb-cr-step1')?.value)         || 160;
@@ -8633,7 +8598,6 @@ async function rbSaveThresholds() {
       cash_target_ratio:    String(rbCashTargetRatio),
       rb_stock_ceiling:     String(rbStockCeiling),
       rb_buy_strategy:      rbBuyStrategy,
-      rb_coll_first:        String(rbCollFirstEnabled),
       rb_coll_required:     String(rbCollateralRequired),
       rb_cr_enabled:        String(rbCrEnabled),
       rb_cr_step1:          String(rbCrStep1),
