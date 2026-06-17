@@ -7415,21 +7415,29 @@ function rbGetEffectiveCashTarget() {
   return Math.min(100, rbCashTargetRatio + adj);
 }
 
+// 신용매수 포트폴리오의 추정 대출비율 (매도시 대출상환 비율)
+// 증거금율 ≈ (주식총액 - 대출금) / 주식총액 → 대출비율 = 대출금 / 주식총액
+function rbLoanRepayRatio() {
+  return rbStockTotal > 0 ? Math.min(1, rbTotalLoan / rbStockTotal) : 0;
+}
+
 // 매도 후 담보비율 예측 + 인출 가능 현금 계산
 // 담보비율 = (주식평가금 + 현금) / 대출금 × 100
-// 매도 대금은 신용 대출 상환에 먼저 사용됨
+// 신용매수 주식 매도 시 매도금액의 (대출/주식총액) 비율만큼 대출 비례상환 → 나머지는 현금
 function rbPostSellState(sellAmt) {
   if (rbTotalLoan <= 0 || sellAmt <= 0) return null;
-  const loanRepay    = Math.min(rbTotalLoan, sellAmt);
+  const lrRatio      = rbLoanRepayRatio();                         // 매도금 중 대출상환 비율
+  const loanRepay    = Math.min(rbTotalLoan, Math.round(sellAmt * lrRatio));
+  const cashGained   = sellAmt - loanRepay;                        // 매도 후 현금으로 남는 금액
   const newLoan      = rbTotalLoan - loanRepay;
   const newStock     = rbStockTotal - sellAmt;
-  const newCash      = rbTotalCash + Math.max(0, sellAmt - rbTotalLoan);
+  const newCash      = rbTotalCash + cashGained;
   const newRatio     = newLoan > 0 ? (newStock + newCash) / newLoan * 100 : null;
-  // 담보비율 기준 유지 시 인출 가능 최대 현금
+  // 담보비율 유지 시 인출 가능 최대 현금 (현금 초과분만 인출 가능)
   const withdrawable = newLoan > 0
-    ? Math.max(0, Math.round(newStock + newCash - rbCollateralRequired / 100 * newLoan))
+    ? Math.min(newCash, Math.max(0, Math.round(newStock + newCash - rbCollateralRequired / 100 * newLoan)))
     : Math.round(newCash);
-  return { loanRepay, newLoan, newStock, newCash, newRatio, withdrawable };
+  return { loanRepay, cashGained, newLoan, newStock, newCash, newRatio, withdrawable };
 }
 
 function rbRenderCollateralInfo(sellAmt, containerId) {
@@ -7754,14 +7762,16 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
   planEl.style.display = 'block';
 
   let tradeTotal;
-  if (isSell && rbTotalLoan > rbTotalCash) {
-    // 순부채 있을 때: 매도대금이 대출상환에 먼저 사용되므로
-    // 필요 매도 = 순부채(대출−현금) + 목표현금(순자산 기준)
-    // 순자산 = total − loan → 그 40%가 목표 순현금
-    const netDebt       = rbTotalLoan - rbTotalCash;
-    const netEquity     = Math.max(0, total - rbTotalLoan);
-    const targetNetCash = cashTgt / 100 * netEquity;
-    tradeTotal = Math.round(netDebt + targetNetCash);
+  if (isSell && rbTotalLoan > 0) {
+    // 비례상환 방식: 매도 Y원 → 대출 Y×r 상환, 현금 Y×(1-r) 증가
+    // 포트폴리오 = total - Y×r (대출상환분만큼 줄어듦)
+    // 목표: (cash + Y×(1-r)) / (total - Y×r) = cashTgt/100
+    // 풀면: Y = (cashTgt/100 × total - cash) / [(1-r) + r × cashTgt/100]
+    const r    = rbLoanRepayRatio();
+    const t    = cashTgt / 100;
+    const num  = t * total - rbTotalCash;
+    const den  = (1 - r) + r * t;
+    tradeTotal = den > 0 ? Math.max(0, Math.round(num / den)) : 0;
     tradeTotal = Math.min(tradeTotal, Math.round(rbStockTotal));
   } else {
     tradeTotal = Math.round(Math.abs(cashRatio - cashTgt) / 100 * total);
@@ -7839,17 +7849,18 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
   const label = isBuy ? '📈 주식 매수 계획' : '📉 주식 매도 계획';
   const needLabel  = isBuy ? '현금 투입 목표' : '현금 확보 목표';
   const overUnder  = actualTotal >= tradeTotal ? '목표 소폭 초과' : '목표 소폭 미달';
-  // 매도 시 신용 대출금 상환 및 순현금 안내
+  // 매도 시 신용 대출금 비례상환 및 확보 현금 안내
   let loanNote = '';
   if (isSell && rbTotalLoan > 0) {
-    const loanRepay     = Math.min(rbTotalLoan, actualTotal);
+    const r             = rbLoanRepayRatio();
+    const loanRepay     = Math.min(rbTotalLoan, Math.round(actualTotal * r));
+    const cashGained    = actualTotal - loanRepay;
     const remainLoan    = rbTotalLoan - loanRepay;
-    const netCashGained = Math.max(0, actualTotal - loanRepay);
-    const finalFreeCash = Math.max(0, rbTotalCash + netCashGained - remainLoan);
+    const finalCash     = rbTotalCash + cashGained;
     loanNote =
       `  ·  대출 상환 ${loanRepay.toLocaleString()}원` +
       (remainLoan === 0 ? ` (전액)` : ` (잔여 ${remainLoan.toLocaleString()}원)`) +
-      `  →  확보 후 순현금 ${finalFreeCash.toLocaleString()}원`;
+      `  →  확보 후 현금 ${finalCash.toLocaleString()}원`;
   }
   document.getElementById('rb-cash-plan-header').textContent =
     `${label}  ·  ${needLabel} ${tradeTotal.toLocaleString()}원  →  실행 ${actualTotal.toLocaleString()}원 (${overUnder}, 1주 단위)${loanNote}`;
@@ -8043,22 +8054,46 @@ function rbCalcCash() {
   const amountInput = parseFloat(document.getElementById('rb-calc-amount').value) || 0;
   const ratioInput  = parseFloat(document.getElementById('rb-calc-ratio').value)  || 0;
 
-  // 현재 순현금 (대출 차감)
-  const freeCash = Math.max(0, rbTotalCash - rbTotalLoan);
-
-  // 목표 순현금 (실제 손에 쥐는 현금)
-  let targetFreeCash = 0;
-  if (ratioInput > 0 && rbPortfolioTotal > 0) {
-    targetFreeCash = Math.round(ratioInput / 100 * rbPortfolioTotal);
-  } else {
-    targetFreeCash = Math.round(amountInput);
-  }
+  // 비례상환 기준 매도 필요금액 계산
+  // loanRate = 대출금/주식총액 → 매도 1원당 loanRate원 상환, (1-loanRate)원 현금으로 확보
+  const r    = rbLoanRepayRatio();
+  const total = rbPortfolioTotal;
 
   const resultEl  = document.getElementById('rb-calc-result');
   const summaryEl = document.getElementById('rb-calc-summary');
   const tbody     = document.getElementById('rb-calc-tbody');
 
-  if (targetFreeCash <= 0) {
+  let sellNeeded = 0;
+  let alreadySatisfied = false;
+  let targetDesc = '';
+
+  if (ratioInput > 0) {
+    // 목표 현금 비중 입력
+    const cashRatio = total > 0 ? rbTotalCash / total * 100 : 0;
+    if (cashRatio >= ratioInput) {
+      alreadySatisfied = true;
+      targetDesc = `현재 현금비중 ${cashRatio.toFixed(1)}%로 이미 목표(${ratioInput}%)를 충족합니다.`;
+    } else {
+      // Y = (t×total - cash) / [(1-r) + r×t]
+      const t   = ratioInput / 100;
+      const num = t * total - rbTotalCash;
+      const den = (1 - r) + r * t;
+      sellNeeded = den > 0 ? Math.max(0, Math.round(num / den)) : 0;
+      targetDesc = `목표 현금 비중 ${ratioInput}%`;
+    }
+  } else if (amountInput > 0) {
+    // 절대금액 입력 (목표 총 현금 = amountInput)
+    if (rbTotalCash >= amountInput) {
+      alreadySatisfied = true;
+      targetDesc = `현재 현금 ${rbTotalCash.toLocaleString()}원으로 이미 목표(${amountInput.toLocaleString()}원)를 충족합니다.`;
+    } else {
+      // 매도 Y원 → 현금 Y×(1-r) 증가 → 최종 현금 = rbTotalCash + Y×(1-r) = amountInput
+      const cashIncrease = amountInput - rbTotalCash;
+      const cashPerSell  = 1 - r;                        // 1원 매도시 확보 현금
+      sellNeeded = cashPerSell > 0.001 ? Math.round(cashIncrease / cashPerSell) : 0;
+      targetDesc = `목표 현금 ${amountInput.toLocaleString()}원`;
+    }
+  } else {
     summaryEl.textContent = '확보할 현금을 입력하거나 목표 현금 비중을 설정하세요.';
     document.getElementById('rb-calc-collateral-info').innerHTML = '';
     resultEl.style.display = 'block';
@@ -8066,16 +8101,15 @@ function rbCalcCash() {
     return;
   }
 
-  // 이미 충분한 순현금 보유 중이면 안내만
-  if (freeCash >= targetFreeCash) {
-    summaryEl.innerHTML = `현재 순현금 <strong style="color:#34d399">${freeCash.toLocaleString()}원</strong>으로 이미 목표(${targetFreeCash.toLocaleString()}원)를 충족합니다.`;
+  if (alreadySatisfied) {
+    summaryEl.innerHTML = `<span style="color:#34d399">${targetDesc}</span>`;
     document.getElementById('rb-calc-collateral-info').innerHTML = '';
     resultEl.style.display = 'block';
     tbody.innerHTML = '';
     return;
   }
 
-  const candidates = rbData.filter(r => r.current_price != null && r.eval_amt > 0 && r.total_qty > 0);
+  const candidates = rbData.filter(c => c.current_price != null && c.eval_amt > 0 && c.total_qty > 0);
   if (!candidates.length) {
     summaryEl.textContent = '현재가 있는 보유종목이 없습니다.';
     resultEl.style.display = 'block';
@@ -8083,54 +8117,45 @@ function rbCalcCash() {
     return;
   }
 
-  // 매도대금은 신용 대출 상환에 먼저 사용됨
-  // sellNeeded = targetFreeCash + rbTotalLoan - rbTotalCash
-  // 검증: 매도 후 finalFreeCash = max(0, rbTotalCash + max(0,sell-loan) - max(0,loan-sell))
-  //        = targetFreeCash (대출 전액 상환 시)
-  const netDebt     = Math.max(0, rbTotalLoan - rbTotalCash); // 현금으로 상환 불가한 순부채
-  const shortfall   = targetFreeCash - freeCash;              // 목표 순현금까지 부족분
-  const sellNeeded  = shortfall + netDebt;                    // 실제 매도해야 할 금액
-
-  const totalEval   = candidates.reduce((s, r) => s + r.eval_amt, 0);
+  const totalEval    = candidates.reduce((s, c) => s + c.eval_amt, 0);
   const actualTarget = Math.min(sellNeeded, totalEval);
 
   const items = [];
-  for (const r of candidates) {
-    const share  = totalEval > 0 ? r.eval_amt / totalEval : 0;
+  for (const c of candidates) {
+    const share  = totalEval > 0 ? c.eval_amt / totalEval : 0;
     const alloc  = Math.round(actualTarget * share);
-    const rawQty = alloc / r.current_price;
-    const qty    = Math.min(Math.floor(rawQty), r.total_qty);
+    const rawQty = alloc / c.current_price;
+    const qty    = Math.min(Math.floor(rawQty), c.total_qty);
     if (qty <= 0) continue;
-    const tradeAmt  = qty * r.current_price;
-    const finalEval = r.eval_amt - tradeAmt;
-    items.push({ r, qty, tradeAmt, finalEval });
+    const tradeAmt  = qty * c.current_price;
+    const finalEval = c.eval_amt - tradeAmt;
+    items.push({ r: c, qty, tradeAmt, finalEval });
   }
   items.sort((a, b) => b.tradeAmt - a.tradeAmt);
 
   const actualSellTotal = items.reduce((s, i) => s + i.tradeAmt, 0);
-  const loanRepay       = Math.min(rbTotalLoan, actualSellTotal);   // 대출 상환분
-  const remainingLoan   = rbTotalLoan - loanRepay;                  // 잔여 대출
-  const netCashGained   = Math.max(0, actualSellTotal - loanRepay); // 매도 대금 중 대출 초과분
-  // 확보 후 순현금: 기존현금 + 매도잉여 - 잔여대출
-  // (freeCash 기반이 아닌 전체 현금 기준 — 대출 상환 시 기존 현금도 해제됨)
-  const finalFreeCash   = Math.max(0, rbTotalCash + netCashGained - remainingLoan);
+  // 비례상환: 매도금 × loanRate → 대출상환, 나머지 → 현금
+  const loanRepay     = rbTotalLoan > 0 ? Math.min(rbTotalLoan, Math.round(actualSellTotal * r)) : 0;
+  const cashGained    = actualSellTotal - loanRepay;
+  const remainingLoan = rbTotalLoan - loanRepay;
+  const finalCash     = rbTotalCash + cashGained;
 
   let summaryHtml =
+    `<strong style="color:#94a3b8">${targetDesc}</strong> &nbsp;·&nbsp; ` +
     `매도 합계 <strong style="color:#f87171">${actualSellTotal.toLocaleString()}원</strong>`;
-  if (rbTotalLoan > 0 && loanRepay > 0) {
-    const freedExisting = Math.min(rbTotalCash, loanRepay); // 기존 현금 중 대출상환으로 해제된 금액
+  if (rbTotalLoan > 0) {
+    const lrPct = (r * 100).toFixed(1);
     summaryHtml +=
       ` &nbsp;→&nbsp; 대출 상환 <strong style="color:#f59e0b">${loanRepay.toLocaleString()}원</strong>` +
       (remainingLoan === 0
         ? ` (전액 상환)`
         : ` (잔여 ${remainingLoan.toLocaleString()}원)`) +
-      `&nbsp;·&nbsp; 확보 후 순현금 <strong style="color:#34d399">${finalFreeCash.toLocaleString()}원</strong>` +
+      `&nbsp;·&nbsp; 확보 후 현금 <strong style="color:#34d399">${finalCash.toLocaleString()}원</strong>` +
       `<span style="font-size:10px;color:#475569;margin-left:6px">` +
-        `기존현금 ${rbTotalCash.toLocaleString()}원 + 매도잉여 ${netCashGained.toLocaleString()}원` +
-        (remainingLoan === 0 && rbTotalCash > 0 ? ` (대출상환 후 기존현금 해제 포함)` : ``) +
+        `추정 대출비율 ${lrPct}% 적용 (매도시 비례상환)` +
       `</span>`;
   } else {
-    summaryHtml += `&nbsp;·&nbsp; 확보 후 현금 <strong style="color:#34d399">${(rbTotalCash + actualSellTotal).toLocaleString()}원</strong>`;
+    summaryHtml += `&nbsp;·&nbsp; 확보 후 현금 <strong style="color:#34d399">${finalCash.toLocaleString()}원</strong>`;
   }
   summaryEl.innerHTML = summaryHtml;
 
