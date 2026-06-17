@@ -7929,9 +7929,10 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
         collNote = `  ·  담보비율 ${curColl.toFixed(0)}%→${newColl.toFixed(0)}% (목표 ${rbCollateralRequired}% 미달${extraNote})` +
           `  ·  현금 ${finalCash.toLocaleString()}원 (인출 제한)`;
       } else {
-        // 담보비율 목표 달성 — 인출가능 현금 표시
-        const collReached = rbCollateralRequired > 0
-          ? ` (목표 ${rbCollateralRequired}% 달성)` : '';
+        // 담보비율 목표 달성 (또는 원래 이미 달성 상태)
+        // curColl < rbCollateralRequired 였을 때만 "달성" 표시
+        const wasUnder = rbCollateralRequired > 0 && curColl < rbCollateralRequired;
+        const collReached = wasUnder ? ` (목표 ${rbCollateralRequired}% 달성)` : '';
         collNote = `  ·  담보비율 ${curColl.toFixed(0)}%→${newColl?.toFixed(0) ?? '∞'}%${collReached}` +
           `  ·  인출가능 ${postState.withdrawable.toLocaleString()}원`;
       }
