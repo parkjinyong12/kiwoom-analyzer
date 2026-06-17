@@ -7906,7 +7906,7 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
           extra = Math.max(0, Y_coll - actualTotal);
         }
         collChip = `<span style="background:#3b1a1a;color:#f87171;padding:2px 8px;border-radius:4px;font-size:11px">담보비율 ${curColl.toFixed(0)}% → ${newColl.toFixed(0)}%&nbsp;&nbsp;목표 ${rbCollateralRequired}% 미달${extra > 0 ? `&nbsp;(${extra.toLocaleString()}원 더 필요)` : ''}</span>`;
-        cashChip = `<span style="background:#2a1a00;color:#f59e0b;padding:2px 8px;border-radius:4px;font-size:11px">⚠ 현금 ${finalCash.toLocaleString()}원 인출 제한</span>`;
+        cashChip = `<span style="background:#2a1a00;color:#f59e0b;padding:2px 8px;border-radius:4px;font-size:11px">현금 ${finalCash.toLocaleString()}원 → 담보비율 개선에 사용</span>`;
       } else {
         const wasUnder = rbCollateralRequired > 0 && curColl < rbCollateralRequired;
         collChip = `<span style="background:#0f2a1a;color:#4ade80;padding:2px 8px;border-radius:4px;font-size:11px">담보비율 ${curColl.toFixed(0)}% → ${newColl?.toFixed(0) ?? '∞'}%${wasUnder ? `&nbsp;&nbsp;목표 ${rbCollateralRequired}% 달성 ✓` : ''}</span>`;
