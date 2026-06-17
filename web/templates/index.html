@@ -2222,9 +2222,10 @@ canvas { max-height: 220px; }
         <span style="font-size:11px;color:#475569;font-weight:400">매수·매도 배분 방식 · 주의 구간 임계값</span>
       </div>
       <div style="padding:12px 16px;display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start">
-        <!-- 매수 전략 -->
-        <div style="display:flex;flex-direction:column;gap:4px">
-          <span style="font-size:10px;color:#64748b">현금 과다 시 매수 종목 배분 방식</span>
+        <!-- 매수/매도 전략 (상황에 따라 하나만 표시) -->
+        <!-- 매수 전략 (hidden by default, shown when isBuy) -->
+        <div id="rb-buy-strategy-wrap" style="display:none;flex-direction:column;gap:4px">
+          <span style="font-size:10px;color:#64748b">현금 과다 → 매수 종목 배분 방식</span>
           <div style="display:flex;align-items:center;gap:6px">
             <span style="font-size:12px;color:#60a5fa;font-weight:600">매수 전략</span>
             <select id="rb-buy-strategy" onchange="rbLiveUpdate()"
@@ -2235,10 +2236,9 @@ canvas { max-height: 220px; }
             </select>
           </div>
         </div>
-        <div style="width:1px;height:40px;background:#334155;flex-shrink:0;margin-top:6px"></div>
-        <!-- 매도 전략 -->
-        <div style="display:flex;flex-direction:column;gap:4px">
-          <span style="font-size:10px;color:#64748b">현금 부족 시 매도 종목 배분 방식</span>
+        <!-- 매도 전략 (hidden by default, shown when isSell) -->
+        <div id="rb-sell-strategy-wrap" style="display:none;flex-direction:column;gap:4px">
+          <span style="font-size:10px;color:#64748b">현금 부족 → 매도 종목 배분 방식</span>
           <div style="display:flex;align-items:center;gap:6px">
             <span style="font-size:12px;color:#f87171;font-weight:600">매도 전략</span>
             <select id="rb-sell-strategy" onchange="rbLiveUpdate()"
@@ -2249,7 +2249,7 @@ canvas { max-height: 220px; }
             </select>
           </div>
         </div>
-        <div style="width:1px;height:40px;background:#334155;flex-shrink:0;margin-top:6px"></div>
+        <div id="rb-strategy-divider" style="display:none;width:1px;height:40px;background:#334155;flex-shrink:0;margin-top:6px"></div>
         <!-- 주의 임계값 -->
         <div style="display:flex;flex-direction:column;gap:4px">
           <span style="font-size:10px;color:#64748b">리밸런싱 신호 전 경고 단계 (현금 목표 대비 편차)</span>
@@ -7732,6 +7732,15 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
 
   const isBuy  = cashDevRel !== null && cashDevRel > rbAlertUp;
   const isSell = cashDevRel !== null && cashDevRel < -rbAlertDown;
+
+  // 현재 상황에 맞는 전략 selector만 표시
+  const buyWrap  = document.getElementById('rb-buy-strategy-wrap');
+  const sellWrap = document.getElementById('rb-sell-strategy-wrap');
+  const divider  = document.getElementById('rb-strategy-divider');
+  if (buyWrap)  buyWrap.style.display  = isBuy  ? 'flex' : 'none';
+  if (sellWrap) sellWrap.style.display = isSell ? 'flex' : 'none';
+  if (divider)  divider.style.display  = (isBuy || isSell) ? 'block' : 'none';
+
   if (!isBuy && !isSell) { planEl.style.display = 'none'; return; }
   planEl.style.display = 'block';
 
