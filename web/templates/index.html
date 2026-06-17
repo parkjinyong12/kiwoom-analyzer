@@ -2446,6 +2446,7 @@ canvas { max-height: 220px; }
             <tbody id="rb-trigger-plan-tbody"></tbody>
           </table>
         </div>
+        <div id="rb-trigger-collateral-info" style="padding:0 16px 12px"></div>
       </div>
     </div>
 
@@ -2519,6 +2520,7 @@ canvas { max-height: 220px; }
               <tbody id="rb-calc-tbody"></tbody>
             </table>
           </div>
+          <div id="rb-calc-collateral-info"></div>
         </div>
       </div>
     </div>
@@ -7412,6 +7414,81 @@ function rbGetEffectiveCashTarget() {
   else                                     adj = rbCrAdj3;
   return Math.min(100, rbCashTargetRatio + adj);
 }
+
+// 매도 후 담보비율 예측 + 인출 가능 현금 계산
+// 담보비율 = (주식평가금 + 현금) / 대출금 × 100
+// 매도 대금은 신용 대출 상환에 먼저 사용됨
+function rbPostSellState(sellAmt) {
+  if (rbTotalLoan <= 0 || sellAmt <= 0) return null;
+  const loanRepay    = Math.min(rbTotalLoan, sellAmt);
+  const newLoan      = rbTotalLoan - loanRepay;
+  const newStock     = rbStockTotal - sellAmt;
+  const newCash      = rbTotalCash + Math.max(0, sellAmt - rbTotalLoan);
+  const newRatio     = newLoan > 0 ? (newStock + newCash) / newLoan * 100 : null;
+  // 담보비율 기준 유지 시 인출 가능 최대 현금
+  const withdrawable = newLoan > 0
+    ? Math.max(0, Math.round(newStock + newCash - rbCollateralRequired / 100 * newLoan))
+    : Math.round(newCash);
+  return { loanRepay, newLoan, newStock, newCash, newRatio, withdrawable };
+}
+
+function rbRenderCollateralInfo(sellAmt, containerId) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  if (rbTotalLoan <= 0) { el.innerHTML = ''; return; }
+
+  const s = rbPostSellState(sellAmt);
+  if (!s) { el.innerHTML = ''; return; }
+
+  const ratioColor = (r) =>
+    r === null         ? '#4ade80'
+    : r >= rbCollateralRequired + 20 ? '#4ade80'
+    : r >= rbCollateralRequired      ? '#f59e0b'
+    : '#f87171';
+
+  const curStr  = rbCollateralRatio !== null ? rbCollateralRatio.toFixed(1) + '%' : '—';
+  const newStr  = s.newRatio !== null ? s.newRatio.toFixed(1) + '%' : '담보 해소';
+  const curC    = ratioColor(rbCollateralRatio);
+  const newC    = ratioColor(s.newRatio);
+  const arrow   = (s.newRatio === null || s.newRatio > (rbCollateralRatio ?? 0))
+    ? '<span style="color:#4ade80">▲</span>' : '<span style="color:#f87171">▼</span>';
+
+  let withdrawHtml;
+  if (s.newRatio === null) {
+    // 대출 전액 상환 → 현금 전액 자유
+    withdrawHtml = `
+      <span style="margin:0 10px;color:#334155">·</span>
+      <span style="color:#64748b">인출 가능</span>
+      <strong style="color:#34d399;margin-left:5px">${s.withdrawable.toLocaleString()}원</strong>
+      <span style="font-size:10px;color:#475569;margin-left:4px">(대출 전액 상환 후 잔여 현금)</span>`;
+  } else if (s.withdrawable > 0) {
+    withdrawHtml = `
+      <span style="margin:0 10px;color:#334155">·</span>
+      <span style="color:#64748b">인출 가능</span>
+      <strong style="color:#34d399;margin-left:5px">${s.withdrawable.toLocaleString()}원</strong>
+      <span style="font-size:10px;color:#475569;margin-left:4px">(담보비율 ${rbCollateralRequired}% 유지 기준)</span>`;
+  } else {
+    withdrawHtml = `
+      <span style="margin:0 10px;color:#334155">·</span>
+      <span style="font-size:11px;color:#f87171">인출 불가</span>
+      <span style="font-size:10px;color:#475569;margin-left:4px">(담보비율 ${rbCollateralRequired}% 미충족)</span>`;
+  }
+
+  el.innerHTML = `
+    <div style="padding:9px 14px;background:#0a0f1a;border-radius:7px;border:1px solid #1e2535;
+                font-size:12px;display:flex;align-items:center;flex-wrap:wrap;gap:4px">
+      <span style="color:#64748b;font-size:11px">매도 후 담보비율</span>
+      <span style="color:${curC};font-weight:600;margin-left:4px">${curStr}</span>
+      <span style="color:#475569;margin:0 3px">→</span>
+      <span style="color:${newC};font-weight:700">${newStr}</span>
+      ${arrow}
+      <span style="font-size:10px;color:#475569;margin-left:2px">
+        (대출상환 ${s.loanRepay.toLocaleString()}원 · 잔여대출 ${s.newLoan.toLocaleString()}원)
+      </span>
+      ${withdrawHtml}
+    </div>`;
+}
+
 async function loadRebalance() {
   document.getElementById('rb-tbody').innerHTML =
     '<tr><td colspan="6" class="loading">로딩 중...</td></tr>';
@@ -7929,6 +8006,9 @@ function rbRenderTriggerPanel() {
         <td class="num" style="color:${fColor};font-weight:600">${finalRatio.toFixed(2)}%</td>
       </tr>`;
     }).join('');
+
+    rbRenderCollateralInfo(actualSellTotal, 'rb-trigger-collateral-info');
+
   } else {
     const margin = Math.round((rbStockCeiling - stockRatio) / 100 * rbPortfolioTotal);
     statusLabel.style.color = '#4ade80';
@@ -7938,6 +8018,7 @@ function rbRenderTriggerPanel() {
     actionEl.innerHTML      = `여유 <strong>${margin.toLocaleString()}원</strong> (상한까지 ${(rbStockCeiling - stockRatio).toFixed(1)}pp)`;
     actionEl.style.cssText  = 'padding:8px 16px;border-radius:7px;font-size:12px;font-weight:600;background:rgba(74,222,128,0.1);color:#4ade80';
     planEl.style.display    = 'none';
+    document.getElementById('rb-trigger-collateral-info').innerHTML = '';
   }
 }
 
@@ -7962,6 +8043,7 @@ function rbCalcCash() {
 
   if (targetFreeCash <= 0) {
     summaryEl.textContent = '확보할 현금을 입력하거나 목표 현금 비중을 설정하세요.';
+    document.getElementById('rb-calc-collateral-info').innerHTML = '';
     resultEl.style.display = 'block';
     tbody.innerHTML = '';
     return;
@@ -7970,6 +8052,7 @@ function rbCalcCash() {
   // 이미 충분한 순현금 보유 중이면 안내만
   if (freeCash >= targetFreeCash) {
     summaryEl.innerHTML = `현재 순현금 <strong style="color:#34d399">${freeCash.toLocaleString()}원</strong>으로 이미 목표(${targetFreeCash.toLocaleString()}원)를 충족합니다.`;
+    document.getElementById('rb-calc-collateral-info').innerHTML = '';
     resultEl.style.display = 'block';
     tbody.innerHTML = '';
     return;
@@ -8042,6 +8125,7 @@ function rbCalcCash() {
       </tr>`;
     }).join('');
   }
+  rbRenderCollateralInfo(actualSellTotal, 'rb-calc-collateral-info');
   resultEl.style.display = 'block';
 }
 
