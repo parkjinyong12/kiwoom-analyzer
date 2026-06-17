@@ -7722,8 +7722,8 @@ function rbRenderMarginPanel() {
     document.getElementById('rb-sc-deviation').style.color = '#64748b';
     scActionEl.innerHTML   = '현금 목표비율 미설정<br><span style="font-size:11px;font-weight:400">위 설정에서 현금 목표비율을 입력하세요</span>';
     scActionEl.style.cssText = 'padding:12px 14px;border-radius:8px;font-size:13px;font-weight:600;text-align:center;line-height:1.8;background:rgba(100,116,139,0.1);color:#64748b';
-    const planEl = document.getElementById('rb-cash-plan');
-    if (planEl) planEl.style.display = 'none';
+    // cashTgt=0이어도 담보비율 미달이면 정상화 매도 계획 표시
+    rbRenderCashPlan(null, total, cashRatio, 0);
   } else {
     document.getElementById('rb-sc-stock-tgt').textContent = stockTgt.toFixed(1) + '%  (' + Math.round(stockTgt / 100 * total).toLocaleString() + '원)';
     document.getElementById('rb-sc-cash-tgt').textContent  =
@@ -7758,23 +7758,51 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
   const planEl = document.getElementById('rb-cash-plan');
   if (!planEl) return;
 
-  const isBuy  = cashDevRel > rbAlertUp;
-  const isSell = cashDevRel < -rbAlertDown;
+  // 담보비율 미달 여부: (주식+현금)/대출 < 목표 담보비율
+  const curCollRatio = rbTotalLoan > 0 ? (rbStockTotal + rbTotalCash) / rbTotalLoan * 100 : null;
+  const needCollFix  = curCollRatio !== null && rbCollateralRequired > 0
+                       && curCollRatio < rbCollateralRequired;
+
+  const isBuy  = cashDevRel !== null && cashDevRel > rbAlertUp;
+  const isSell = (cashDevRel !== null && cashDevRel < -rbAlertDown) || needCollFix;
   if (!isBuy && !isSell) { planEl.style.display = 'none'; return; }
   planEl.style.display = 'block';
 
+  const r = rbLoanRepayRatio();
   let tradeTotal;
-  if (isSell && rbTotalLoan > 0) {
-    // 비례상환 방식: 매도 Y원 → 대출 Y×r 상환, 현금 Y×(1-r) 증가
-    // 포트폴리오 = total - Y×r (대출상환분만큼 줄어듦)
-    // 목표: (cash + Y×(1-r)) / (total - Y×r) = cashTgt/100
-    // 풀면: Y = (cashTgt/100 × total - cash) / [(1-r) + r × cashTgt/100]
-    const r    = rbLoanRepayRatio();
-    const t    = cashTgt / 100;
-    const num  = t * total - rbTotalCash;
-    const den  = (1 - r) + r * t;
-    tradeTotal = den > 0 ? Math.max(0, Math.round(num / den)) : 0;
+  let sellReason = '';
+
+  if (isSell) {
+    // ① 담보비율 정상화를 위한 최소 매도금액
+    //    매도 Y 후: (stock+cash - Y×r) / (loan - Y×r) = req/100
+    //    → Z = Y×r = (stock+cash - req/100×loan) / (1 - req/100)
+    let Y_collateral = 0;
+    if (needCollFix && r > 0) {
+      const numZ = (rbStockTotal + rbTotalCash) - rbCollateralRequired / 100 * rbTotalLoan;
+      const denZ = 1 - rbCollateralRequired / 100;
+      const Z    = denZ !== 0 ? numZ / denZ : 0;
+      Y_collateral = Z > 0 ? Math.round(Z / r) : 0;
+    }
+
+    // ② 현금 목표 달성을 위한 매도금액
+    //    CR 자동조정(effective target)을 무시하고 순수 현금목표(rbCashTargetRatio)만 사용
+    //    → 담보비율 연동 상향이 매도금액을 과도하게 부풀리는 문제 방지
+    let Y_cash = 0;
+    const rawTgt = rbCashTargetRatio;
+    if (rawTgt > 0 && r < 1) {
+      const t   = rawTgt / 100;
+      const num = t * total - rbTotalCash;
+      const den = (1 - r) + r * t;
+      Y_cash = den > 0 && num > 0 ? Math.round(num / den) : 0;
+    }
+
+    // ③ 담보비율 정상화 우선, 현금목표는 추가 조건
+    const collDriven = needCollFix && Y_collateral >= Y_cash;
+    tradeTotal = Math.max(Y_collateral, Y_cash);
     tradeTotal = Math.min(tradeTotal, Math.round(rbStockTotal));
+    sellReason = collDriven
+      ? `담보비율 ${(curCollRatio ?? 0).toFixed(1)}%→${rbCollateralRequired}% 정상화`
+      : `현금목표 ${rawTgt}% 달성`;
   } else {
     tradeTotal = Math.round(Math.abs(cashRatio - cashTgt) / 100 * total);
   }
@@ -7848,8 +7876,8 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
   items.sort((a, b) => b.tradeAmt - a.tradeAmt);
 
   const actualTotal = items.reduce((s, i) => s + i.tradeAmt, 0);
-  const label = isBuy ? '📈 주식 매수 계획' : '📉 주식 매도 계획';
-  const needLabel  = isBuy ? '현금 투입 목표' : '현금 확보 목표';
+  const label     = isBuy ? '📈 주식 매수 계획' : '📉 주식 매도 계획';
+  const needLabel = isBuy ? '현금 투입 목표' : (sellReason || '현금 확보 목표');
   const overUnder  = actualTotal >= tradeTotal ? '목표 소폭 초과' : '목표 소폭 미달';
   // 매도 시 신용 대출금 비례상환 및 확보 현금 안내
   let loanNote = '';
