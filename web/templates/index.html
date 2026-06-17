@@ -7722,6 +7722,8 @@ function rbRenderMarginPanel() {
     document.getElementById('rb-sc-deviation').style.color = '#64748b';
     scActionEl.innerHTML   = '현금 목표비율 미설정<br><span style="font-size:11px;font-weight:400">위 설정에서 현금 목표비율을 입력하세요</span>';
     scActionEl.style.cssText = 'padding:12px 14px;border-radius:8px;font-size:13px;font-weight:600;text-align:center;line-height:1.8;background:rgba(100,116,139,0.1);color:#64748b';
+    const planEl = document.getElementById('rb-cash-plan');
+    if (planEl) planEl.style.display = 'none';
   } else {
     document.getElementById('rb-sc-stock-tgt').textContent = stockTgt.toFixed(1) + '%  (' + Math.round(stockTgt / 100 * total).toLocaleString() + '원)';
     document.getElementById('rb-sc-cash-tgt').textContent  =
