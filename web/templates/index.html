@@ -2263,12 +2263,19 @@ canvas { max-height: 220px; }
         </div>
       </div>
       <!-- 담보비율 우선 상환 옵션 -->
-      <div style="border-top:1px solid #0f1117;padding:10px 16px 10px;display:flex;align-items:center;gap:8px">
+      <div style="border-top:1px solid #0f1117;padding:10px 16px 10px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
           <input type="checkbox" id="rb-coll-first" onchange="rbLiveUpdate()" style="accent-color:#34d399;width:14px;height:14px" checked/>
           <span style="font-size:12px;color:#34d399;font-weight:600">담보비율 정상화 우선</span>
         </label>
-        <span style="font-size:10px;color:#475569">매도 시 목표 담보비율(${rbCollateralRequired}%) 달성을 현금 확보보다 먼저 — 이후 현금목표 추가 반영</span>
+        <div style="display:flex;align-items:center;gap:4px">
+          <span style="font-size:11px;color:#64748b">목표 담보비율</span>
+          <input type="number" id="rb-coll-required" value="140" min="100" max="500" step="1"
+                 oninput="rbLiveUpdate()"
+                 style="width:52px;padding:3px 6px;border-radius:5px;border:1px solid #1e2535;background:#0f1117;color:#34d399;font-size:12px;text-align:center;outline:none"/>
+          <span style="font-size:11px;color:#64748b">%</span>
+        </div>
+        <span style="font-size:10px;color:#475569">매도 시 이 담보비율 달성을 현금 확보보다 먼저 — 이후 현금목표 추가 반영</span>
       </div>
       <!-- 주식 상한 트리거 -->
       <div style="border-top:1px solid #0f1117;padding:10px 16px 12px;display:flex;gap:12px;flex-wrap:wrap;align-items:center">
@@ -7531,6 +7538,9 @@ async function loadRebalance() {
     rbBuyStrategy       = json.rb_buy_strategy           || 'target';
     rbCollFirstEnabled  = json.rb_coll_first === undefined ? true
                           : (json.rb_coll_first === 'true' || json.rb_coll_first === true);
+    rbCollateralRequired = json.rb_coll_required !== undefined
+                          ? parseFloat(json.rb_coll_required) || 140
+                          : parseFloat(settings.collateral_required_ratio ?? 140);
     rbCrEnabled         = json.rb_cr_enabled === 'true'  || json.rb_cr_enabled === true;
     rbCrStep1           = json.rb_cr_step1               ?? 160;
     rbCrStep2           = json.rb_cr_step2               ?? 150;
@@ -7553,6 +7563,8 @@ async function loadRebalance() {
     if (stratEl) stratEl.value = rbBuyStrategy;
     const collFirstEl = document.getElementById('rb-coll-first');
     if (collFirstEl) collFirstEl.checked = rbCollFirstEnabled;
+    const collReqEl = document.getElementById('rb-coll-required');
+    if (collReqEl) collReqEl.value = rbCollateralRequired;
     const crEnabledEl = document.getElementById('rb-cr-enabled');
     if (crEnabledEl) crEnabledEl.checked = rbCrEnabled;
     const s1 = document.getElementById('rb-cr-step1'); if (s1) s1.value = rbCrStep1;
@@ -7984,6 +7996,7 @@ function rbLiveUpdate() {
   rbStockCeiling      = parseFloat(document.getElementById('rb-stock-ceiling')?.value)      || 0;
   rbBuyStrategy       = document.getElementById('rb-buy-strategy')?.value                  || 'target';
   rbCollFirstEnabled  = document.getElementById('rb-coll-first')?.checked                  ?? true;
+  rbCollateralRequired = parseFloat(document.getElementById('rb-coll-required')?.value)    || 140;
   rbCrEnabled         = document.getElementById('rb-cr-enabled')?.checked                  ?? false;
   rbCrStep1         = parseFloat(document.getElementById('rb-cr-step1')?.value)           || 160;
   rbCrStep2         = parseFloat(document.getElementById('rb-cr-step2')?.value)           || 150;
@@ -8600,7 +8613,8 @@ async function rbSaveThresholds() {
   rbCashTargetRatio = parseFloat(document.getElementById('rb-cash-target-input').value)  || 0;
   rbStockCeiling      = parseFloat(document.getElementById('rb-stock-ceiling')?.value)     || 0;
   rbBuyStrategy       = document.getElementById('rb-buy-strategy')?.value                 || 'target';
-  rbCollFirstEnabled  = document.getElementById('rb-coll-first')?.checked                 ?? true;
+  rbCollFirstEnabled   = document.getElementById('rb-coll-first')?.checked                ?? true;
+  rbCollateralRequired = parseFloat(document.getElementById('rb-coll-required')?.value)   || 140;
   rbCrEnabled         = document.getElementById('rb-cr-enabled')?.checked                 ?? false;
   rbCrStep1         = parseFloat(document.getElementById('rb-cr-step1')?.value)         || 160;
   rbCrStep2         = parseFloat(document.getElementById('rb-cr-step2')?.value)         || 150;
@@ -8620,6 +8634,7 @@ async function rbSaveThresholds() {
       rb_stock_ceiling:     String(rbStockCeiling),
       rb_buy_strategy:      rbBuyStrategy,
       rb_coll_first:        String(rbCollFirstEnabled),
+      rb_coll_required:     String(rbCollateralRequired),
       rb_cr_enabled:        String(rbCrEnabled),
       rb_cr_step1:          String(rbCrStep1),
       rb_cr_step2:          String(rbCrStep2),
