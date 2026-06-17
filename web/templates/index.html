@@ -7765,26 +7765,46 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
   const planEl = document.getElementById('rb-cash-plan');
   if (!planEl) return;
 
+  // 담보비율 미달 여부 (대출 있고, 현재 담보비율 < 목표)
+  const curCollRatio = rbTotalLoan > 0 ? (rbStockTotal + rbTotalCash) / rbTotalLoan * 100 : null;
+  const needCollFix  = curCollRatio !== null && rbCollateralRequired > 0
+                       && curCollRatio < rbCollateralRequired;
+
   const isBuy  = cashDevRel !== null && cashDevRel > rbAlertUp;
-  const isSell = cashDevRel !== null && cashDevRel < -rbAlertDown;
+  const isSell = (cashDevRel !== null && cashDevRel < -rbAlertDown) || needCollFix;
   if (!isBuy && !isSell) { planEl.style.display = 'none'; return; }
   planEl.style.display = 'block';
 
   const r = rbLoanRepayRatio();
   let tradeTotal;
 
-  if (isSell && r < 1) {
-    // 순자산 기준: 매도해도 순자산(netEquity=total) 불변 → 분모 고정
-    // 목표: (cash + Y×(1-r)) / netEquity = rawTgt/100
-    // → Y = (rawTgt/100 × netEquity − cash) / (1−r)
-    const rawTgt = rbCashTargetRatio;
-    const num = rawTgt / 100 * total - rbTotalCash;
-    tradeTotal = num > 0 ? Math.round(num / (1 - r)) : 0;
+  if (isSell) {
+    // ① 담보비율 정상화 최소 매도금액
+    //    매도 Y 후: (stock+cash − Y×r) / (loan − Y×r) = req/100
+    //    → Z = Y×r = (stock+cash − req/100×loan) / (1 − req/100)
+    let Y_collateral = 0;
+    if (needCollFix && r > 0) {
+      const numZ = (rbStockTotal + rbTotalCash) - rbCollateralRequired / 100 * rbTotalLoan;
+      const denZ = 1 - rbCollateralRequired / 100;
+      const Z    = denZ !== 0 ? numZ / denZ : 0;
+      Y_collateral = Z > 0 ? Math.round(Z / r) : 0;
+    }
+
+    // ② 현금 목표 달성 매도금액 (순자산 기준, 분모 고정)
+    //    (cash + Y×(1−r)) / netEquity = rawTgt/100
+    //    → Y = (rawTgt/100 × netEquity − cash) / (1−r)
+    let Y_cash = 0;
+    if (r < 1) {
+      const rawTgt = rbCashTargetRatio;
+      const num    = rawTgt / 100 * total - rbTotalCash;
+      Y_cash = num > 0 ? Math.round(num / (1 - r)) : 0;
+    }
+
+    // ③ 담보비율 정상화 우선, 현금 목표는 그 다음
+    tradeTotal = Math.max(Y_collateral, Y_cash);
     tradeTotal = Math.min(tradeTotal, Math.round(rbStockTotal));
-  } else if (isSell) {
-    tradeTotal = Math.round(Math.abs(cashRatio - cashTgt) / 100 * total);
   } else {
-    // 매수: 현금 과다 → (cash − rawTgt/100 × netEquity) 만큼 주식 매수
+    // 매수: 현금 과다 → 초과 현금으로 주식 매수
     tradeTotal = Math.round(Math.max(0, rbTotalCash - cashTgt / 100 * total));
   }
   const color      = isBuy ? '#60a5fa' : '#f87171';
@@ -7858,7 +7878,11 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
 
   const actualTotal = items.reduce((s, i) => s + i.tradeAmt, 0);
   const label     = isBuy ? '📈 주식 매수 계획' : '📉 주식 매도 계획';
-  const needLabel = isBuy ? '현금 투입 목표' : `현금목표 ${rbCashTargetRatio}% 달성`;
+  const needLabel = isBuy
+    ? '현금 투입 목표'
+    : needCollFix && tradeTotal > 0
+      ? `담보비율 ${(curCollRatio ?? 0).toFixed(0)}%→${rbCollateralRequired}% 우선 + 현금목표 ${rbCashTargetRatio}%`
+      : `현금목표 ${rbCashTargetRatio}% 달성`;
   const overUnder  = actualTotal >= tradeTotal ? '목표 소폭 초과' : '목표 소폭 미달';
   // 매도 시 신용 대출금 비례상환 및 확보 현금 안내
   let loanNote = '';
