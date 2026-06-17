@@ -1910,6 +1910,12 @@ def api_rebalance():
     _backfill_null_user_ids(uid)
     settings          = _get_user_settings(uid)
     total_cash        = _get_total_cash(uid)
+    # 신용 대출금 합계 (credit_positions)
+    loan_row = query_one(
+        "SELECT COALESCE(SUM(loan_amount), 0) AS total FROM credit_positions WHERE user_id = %s",
+        (uid,),
+    )
+    total_loan = int(loan_row["total"]) if loan_row else 0
     alert_up          = float(settings.get("rebalance_alert_up",   30))
     alert_down        = float(settings.get("rebalance_alert_down", 25))
     watch_up          = float(settings.get("rebalance_watch_up",   round(alert_up  * 0.5, 1)))
@@ -1985,6 +1991,7 @@ def api_rebalance():
         "rb_cr_adj2":                rb_cr_adj2,
         "rb_cr_adj3":                rb_cr_adj3,
         "current_collateral_ratio":  current_collateral_ratio,
+        "total_loan":                total_loan,
     })
 
 

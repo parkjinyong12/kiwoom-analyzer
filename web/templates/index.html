@@ -7339,6 +7339,7 @@ let rbTotalCash          = 0;
 let rbCashTargetRatio    = 0;
 let rbCollateralTarget   = 40;
 let rbCollateralRequired = 140;
+let rbTotalLoan          = 0;       // 신용 대출금 합계
 let rbStockCeiling       = 0;       // 주식 비중 상한 (0=미사용)
 let rbBuyStrategy        = 'target'; // 초과 현금 매수 전략
 let rbCrEnabled          = false;
@@ -7381,6 +7382,7 @@ async function loadRebalance() {
     rbStockTotal        = json.stock_total       || 0;
     rbTotalCash         = json.total_cash        || 0;
     rbCashTargetRatio   = json.cash_target_ratio || 0;
+    rbTotalLoan         = json.total_loan                || 0;
     rbStockCeiling      = json.rb_stock_ceiling          || 0;
     rbBuyStrategy       = json.rb_buy_strategy           || 'target';
     rbCrEnabled         = json.rb_cr_enabled === 'true'  || json.rb_cr_enabled === true;
@@ -7530,7 +7532,11 @@ function rbRenderMarginPanel() {
     rvStock.textContent = Math.round(stockEval).toLocaleString() + '원';
     document.getElementById('rb-rv-stock-ratio').textContent = stockRatio.toFixed(1) + '%';
     rvCash.textContent  = Math.round(cash).toLocaleString() + '원';
-    document.getElementById('rb-rv-cash-ratio').textContent  = cashRatio.toFixed(1) + '%';
+    const freeCash = Math.max(0, cash - rbTotalLoan);
+    document.getElementById('rb-rv-cash-ratio').textContent =
+      rbTotalLoan > 0
+        ? `${cashRatio.toFixed(1)}%  (대출 ${Math.round(rbTotalLoan).toLocaleString()}원 / 순현금 ${Math.round(freeCash).toLocaleString()}원)`
+        : cashRatio.toFixed(1) + '%';
     if (cashTgt > 0) {
       const devPP = cashRatio - cashTgt;
       const sign  = devPP >= 0 ? '+' : '';
@@ -7694,8 +7700,15 @@ function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
   const label = isBuy ? '📈 주식 매수 계획' : '📉 주식 매도 계획';
   const needLabel  = isBuy ? '현금 투입 목표' : '현금 확보 목표';
   const overUnder  = actualTotal >= tradeTotal ? '목표 소폭 초과' : '목표 소폭 미달';
+  // 매도 시 신용 대출금 상환 안내
+  let loanNote = '';
+  if (isSell && rbTotalLoan > 0) {
+    const loanRepay  = Math.min(rbTotalLoan, actualTotal);
+    const netCash    = Math.max(0, actualTotal - rbTotalLoan);
+    loanNote = `  ·  ⚠️ 대출 상환 ${loanRepay.toLocaleString()}원 / 실제 순현금 +${netCash.toLocaleString()}원`;
+  }
   document.getElementById('rb-cash-plan-header').textContent =
-    `${label}  ·  ${needLabel} ${tradeTotal.toLocaleString()}원  →  실행 ${actualTotal.toLocaleString()}원 (${overUnder}, 1주 단위)`;
+    `${label}  ·  ${needLabel} ${tradeTotal.toLocaleString()}원  →  실행 ${actualTotal.toLocaleString()}원 (${overUnder}, 1주 단위)${loanNote}`;
 
   const tbody = document.getElementById('rb-cash-plan-tbody');
   if (!items.length) {
@@ -7882,20 +7895,31 @@ function rbCalcCash() {
   const amountInput = parseFloat(document.getElementById('rb-calc-amount').value) || 0;
   const ratioInput  = parseFloat(document.getElementById('rb-calc-ratio').value)  || 0;
 
-  let targetCash = 0;
+  // 현재 순현금 (대출 차감)
+  const freeCash = Math.max(0, rbTotalCash - rbTotalLoan);
+
+  // 목표 순현금 (실제 손에 쥐는 현금)
+  let targetFreeCash = 0;
   if (ratioInput > 0 && rbPortfolioTotal > 0) {
-    // 목표 현금 비중으로부터 필요 현금 계산
-    targetCash = Math.round(ratioInput / 100 * rbPortfolioTotal - rbTotalCash);
+    targetFreeCash = Math.round(ratioInput / 100 * rbPortfolioTotal);
   } else {
-    targetCash = Math.round(amountInput);
+    targetFreeCash = Math.round(amountInput);
   }
 
-  const resultEl = document.getElementById('rb-calc-result');
+  const resultEl  = document.getElementById('rb-calc-result');
   const summaryEl = document.getElementById('rb-calc-summary');
-  const tbody = document.getElementById('rb-calc-tbody');
+  const tbody     = document.getElementById('rb-calc-tbody');
 
-  if (targetCash <= 0) {
+  if (targetFreeCash <= 0) {
     summaryEl.textContent = '확보할 현금을 입력하거나 목표 현금 비중을 설정하세요.';
+    resultEl.style.display = 'block';
+    tbody.innerHTML = '';
+    return;
+  }
+
+  // 이미 충분한 순현금 보유 중이면 안내만
+  if (freeCash >= targetFreeCash) {
+    summaryEl.innerHTML = `현재 순현금 <strong style="color:#34d399">${freeCash.toLocaleString()}원</strong>으로 이미 목표(${targetFreeCash.toLocaleString()}원)를 충족합니다.`;
     resultEl.style.display = 'block';
     tbody.innerHTML = '';
     return;
@@ -7909,12 +7933,15 @@ function rbCalcCash() {
     return;
   }
 
-  // 현재 보유비율 기준으로 매도 배분
-  const totalEval    = candidates.reduce((s, r) => s + r.eval_amt, 0);
-  const maxSellable  = totalEval;  // 전체 주식 평가금
-  const actualTarget = Math.min(targetCash, maxSellable);
-  const newStockAmt  = rbStockTotal - actualTarget;
-  const newPortTotal = rbPortfolioTotal - actualTarget + actualTarget; // 총자산은 변화 없음 (주식→현금)
+  // 신용 대출: 매도대금은 대출 상환에 먼저 사용됨
+  // 순현금 부족분 = targetFreeCash - freeCash
+  // 필요 매도금액 = 부족분 + 아직 대출로 묶인 금액(남은 순부채)
+  const netDebt     = Math.max(0, rbTotalLoan - rbTotalCash); // 현금으로 못 갚는 순부채
+  const shortfall   = targetFreeCash - freeCash;              // 추가로 필요한 순현금
+  const sellNeeded  = shortfall + netDebt;                    // 실제 매도해야 할 금액
+
+  const totalEval   = candidates.reduce((s, r) => s + r.eval_amt, 0);
+  const actualTarget = Math.min(sellNeeded, totalEval);
 
   const items = [];
   for (const r of candidates) {
@@ -7930,13 +7957,21 @@ function rbCalcCash() {
   items.sort((a, b) => b.tradeAmt - a.tradeAmt);
 
   const actualSellTotal = items.reduce((s, i) => s + i.tradeAmt, 0);
-  const newCash         = rbTotalCash + actualSellTotal;
-  const newCashRatio    = rbPortfolioTotal > 0 ? newCash / rbPortfolioTotal * 100 : 0;
+  const loanRepay       = Math.min(rbTotalLoan, actualSellTotal);  // 대출 상환분
+  const netCashGained   = Math.max(0, actualSellTotal - loanRepay); // 실제 순현금 증가
+  const finalFreeCash   = freeCash + netCashGained;
 
-  summaryEl.innerHTML =
-    `매도 목표 <strong style="color:#fff">${actualTarget.toLocaleString()}원</strong> &nbsp;·&nbsp; ` +
-    `실행 합계 <strong style="color:#f87171">${actualSellTotal.toLocaleString()}원</strong> &nbsp;·&nbsp; ` +
-    `매도 후 현금 <strong style="color:#34d399">${newCash.toLocaleString()}원 (${newCashRatio.toFixed(1)}%)</strong>`;
+  let summaryHtml =
+    `매도 합계 <strong style="color:#f87171">${actualSellTotal.toLocaleString()}원</strong>`;
+  if (rbTotalLoan > 0 && loanRepay > 0) {
+    summaryHtml +=
+      ` &nbsp;=&nbsp; 대출 상환 <strong style="color:#f59e0b">${loanRepay.toLocaleString()}원</strong>` +
+      ` + 실제 순현금 <strong style="color:#34d399">+${netCashGained.toLocaleString()}원</strong>` +
+      `&nbsp;·&nbsp; 확보 후 순현금 <strong style="color:#34d399">${finalFreeCash.toLocaleString()}원</strong>`;
+  } else {
+    summaryHtml += `&nbsp;·&nbsp; 확보 후 현금 <strong style="color:#34d399">${(rbTotalCash + actualSellTotal).toLocaleString()}원</strong>`;
+  }
+  summaryEl.innerHTML = summaryHtml;
 
   if (!items.length) {
     tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#475569;padding:20px">매도 가능 종목 없음</td></tr>';
