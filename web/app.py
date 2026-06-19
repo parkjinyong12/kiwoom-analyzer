@@ -2222,6 +2222,7 @@ def api_credit_positions_delete(pid: int):
 @app.route("/api/credit_snapshots", methods=["GET"])
 def api_credit_snapshots_list():
     """신용 일별 스냅샷 히스토리 조회 (최근 90일)."""
+    from datetime import date as _date
     uid  = _current_uid()
     days = min(int(request.args.get("days", 90)), 730)
     rows = query("""
@@ -2232,7 +2233,7 @@ def api_credit_snapshots_list():
         WHERE user_id = %s AND record_date >= CURRENT_DATE - %s
         ORDER BY record_date DESC
     """, (uid, days))
-    return jsonify([{
+    result = [{
         "record_date":      r["record_date"].strftime("%Y-%m-%d"),
         "stock_eval":       int(r["stock_eval"]),
         "cash_eval":        int(r["cash_eval"]),
@@ -2241,7 +2242,71 @@ def api_credit_snapshots_list():
         "collateral_ratio": float(r["collateral_ratio"]) if r["collateral_ratio"] is not None else None,
         "memo":             r["memo"] or "",
         "recorded_at":      r["recorded_at"],
-    } for r in rows])
+        "is_preview":       False,
+    } for r in rows]
+
+    # 오늘 날짜 확정 레코드가 없으면 실시간 계산한 미확정 행을 맨 앞에 추가
+    today_str = _date.today().strftime("%Y-%m-%d")
+    if not any(r["record_date"] == today_str for r in result):
+        try:
+            cp_rows = query(
+                "SELECT brokerage, COALESCE(loan_amount,0) AS loan_amount FROM credit_positions WHERE user_id=%s",
+                (uid,),
+            )
+            if cp_rows:
+                cp_brokerages = [r["brokerage"] for r in cp_rows]
+                loan_amount   = sum(int(r["loan_amount"]) for r in cp_rows)
+
+                bs_rows = query("""
+                    WITH latest_close AS (
+                        SELECT DISTINCT ON (stock_code) stock_code, close_price
+                        FROM supply_demand
+                        WHERE close_price IS NOT NULL AND close_price > 0
+                        ORDER BY stock_code, date DESC
+                    )
+                    SELECT mh.brokerage,
+                           COALESCE(SUM(mh.quantity * COALESCE(
+                               lc.close_price,
+                               CASE WHEN st.last_price ~ '^[0-9]+$' THEN st.last_price::BIGINT ELSE NULL END,
+                               mh.avg_price, 0
+                           )), 0) AS stock_eval
+                    FROM manual_holdings mh
+                    LEFT JOIN latest_close lc ON lc.stock_code = mh.stock_code
+                    LEFT JOIN stocks st ON st.stock_code = mh.stock_code
+                    WHERE mh.user_id = %s
+                    GROUP BY mh.brokerage
+                """, (uid,))
+                broker_stock = {(r["brokerage"] or ""): int(r["stock_eval"] or 0) for r in bs_rows}
+                stock_eval   = sum(broker_stock.get(b or "", 0) for b in cp_brokerages)
+
+                bc_rows = query("""
+                    SELECT brokerage, COALESCE(SUM(amount),0) AS cash_eval
+                    FROM cash_assets
+                    WHERE user_id=%s AND brokerage != '' AND asset_type_code != 'LAD'
+                    GROUP BY brokerage
+                """, (uid,))
+                broker_cash = {r["brokerage"]: int(r["cash_eval"] or 0) for r in bc_rows}
+                cash_eval   = sum(broker_cash.get(b, 0) for b in cp_brokerages if b)
+
+                collateral_asset = stock_eval + cash_eval
+                estimated_asset  = collateral_asset - loan_amount
+                collateral_ratio = round(collateral_asset / loan_amount * 100, 2) if loan_amount > 0 else None
+
+                result.insert(0, {
+                    "record_date":      today_str,
+                    "stock_eval":       stock_eval,
+                    "cash_eval":        cash_eval,
+                    "loan_amount":      loan_amount,
+                    "estimated_asset":  estimated_asset,
+                    "collateral_ratio": collateral_ratio,
+                    "memo":             "",
+                    "recorded_at":      None,
+                    "is_preview":       True,
+                })
+        except Exception:
+            pass
+
+    return jsonify(result)
 
 
 @app.route("/api/credit_snapshots", methods=["POST"])

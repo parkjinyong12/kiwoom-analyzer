@@ -11057,7 +11057,8 @@ async function csLoad() {
     const res  = await fetch(`/api/credit_snapshots?days=${_csDays}`);
     const rows = await res.json();
 
-    document.getElementById('cs-count').textContent = rows.length ? `(${rows.length}건)` : '';
+    const confirmedRows = rows.filter(r => !r.is_preview);
+    document.getElementById('cs-count').textContent = confirmedRows.length ? `(${confirmedRows.length}건)` : '';
 
     if (!rows.length) {
       tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:20px;color:#475569">기록 없음 — 매일 20:10에 자동 저장됩니다.</td></tr>';
@@ -11065,7 +11066,7 @@ async function csLoad() {
       return;
     }
 
-    csRenderChart(rows);
+    csRenderChart(confirmedRows);
 
     tbody.innerHTML = rows.map(r => {
       const estColor = r.estimated_asset >= 0 ? '#4ade80' : '#f87171';
@@ -11074,6 +11075,19 @@ async function csLoad() {
         : r.collateral_ratio >= (rbCollateralRequired + 10) ? '#4ade80'
         : r.collateral_ratio >= rbCollateralRequired        ? '#f59e0b'
         : '#f87171';
+      if (r.is_preview) {
+        return `<tr style="opacity:0.7;border-bottom:1px dashed #334155">
+          <td style="font-weight:600;color:#94a3b8">${r.record_date}
+            <span style="font-size:10px;background:#1e2535;color:#94a3b8;border:1px dashed #475569;border-radius:4px;padding:1px 5px;margin-left:5px;vertical-align:middle">미확정</span>
+          </td>
+          <td class="num" style="color:#60a5fa">${r.stock_eval.toLocaleString()}</td>
+          <td class="num" style="color:#34d399">${r.cash_eval > 0 ? r.cash_eval.toLocaleString() : '—'}</td>
+          <td class="num" style="color:#f87171">${r.loan_amount > 0 ? r.loan_amount.toLocaleString() : '—'}</td>
+          <td class="num" style="color:${estColor};font-weight:700">${r.estimated_asset.toLocaleString()}</td>
+          <td class="num" style="color:${crColor}">${crRatio}</td>
+          <td class="center"><span style="font-size:11px;color:#475569">배치 대기</span></td>
+        </tr>`;
+      }
       return `<tr>
         <td style="font-weight:600;color:#94a3b8">${r.record_date}</td>
         <td class="num" style="color:#60a5fa">${r.stock_eval.toLocaleString()}</td>
