@@ -2619,6 +2619,12 @@ canvas { max-height: 220px; }
                    style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
           </div>
           <div>
+            <div style="font-size:12px;color:#64748b;margin-bottom:4px">예수금(원)</div>
+            <input type="number" id="cp-modal-deposit" placeholder="예: 3000000" min="0" step="1"
+                   style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
+            <div style="font-size:11px;color:#475569;margin-top:3px">증권사별 1건 관리 — 0이면 항목 삭제</div>
+          </div>
+          <div>
             <div style="font-size:12px;color:#64748b;margin-bottom:4px">메모</div>
             <input type="text" id="cp-modal-note" placeholder="참고사항" maxlength="200"
                    style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"
@@ -2633,31 +2639,6 @@ canvas { max-height: 220px; }
       </div>
     </div>
 
-    <!-- 예수금 수정 모달 -->
-    <div class="modal-overlay" id="cp-deposit-modal" style="display:none">
-      <div class="modal" style="width:360px">
-        <h3>예수금 수정</h3>
-        <input type="hidden" id="cp-deposit-brokerage"/>
-        <div style="display:grid;gap:14px;margin-top:8px">
-          <div>
-            <div style="font-size:12px;color:#64748b;margin-bottom:4px">증권사</div>
-            <div id="cp-deposit-brokerage-label" style="font-size:14px;font-weight:600;color:#a78bfa;padding:6px 0"></div>
-          </div>
-          <div>
-            <div style="font-size:12px;color:#64748b;margin-bottom:4px">예수금 (원)</div>
-            <input type="number" id="cp-deposit-amount" placeholder="예: 3000000" min="0" step="1"
-                   style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"
-                   onkeydown="if(event.key==='Enter'&&!event.isComposing)cpDepositSave()"/>
-            <div style="font-size:11px;color:#475569;margin-top:4px">0 입력 시 예수금 항목 삭제</div>
-          </div>
-          <div id="cp-deposit-err" style="color:#f87171;font-size:12px;display:none"></div>
-        </div>
-        <div class="modal-actions">
-          <button class="btn btn-ghost" onclick="cpDepositClose()">취소</button>
-          <button class="btn btn-primary" onclick="cpDepositSave()">저장</button>
-        </div>
-      </div>
-    </div>
 
   </section>
 
@@ -11266,7 +11247,6 @@ function cpRenderTable(data) {
   const rows = positions.map(r => {
     const stockEval  = brokerEval[r.brokerage]     ?? 0;
     const cashEval   = brokerCashEval[r.brokerage] ?? 0;
-    const depositAmt = brokerDeposit[r.brokerage]  ?? 0;
     const 담보자산      = stockEval + cashEval;
     const 추정자산      = stockEval + cashEval - r.loan_amount;
     const 추정color    = 추정자산 >= 0 ? '#4ade80' : '#f87171';
@@ -11281,18 +11261,12 @@ function cpRenderTable(data) {
       : cur담보비율 >= rbCollateralRequired + 10 ? '#4ade80'
       : cur담보비율 >= rbCollateralRequired       ? '#f59e0b'
       : '#f87171';
-    const brokerAttr   = r.brokerage.replace(/"/g, '&quot;');
 
     totalLoan += r.loan_amount; totalEval += stockEval; totalCash += cashEval;
     return `<tr>
       <td style="font-weight:600">${r.brokerage || '공통/전체'}</td>
       <td class="num" style="color:#60a5fa;font-weight:600">${stockEval.toLocaleString()}</td>
-      <td class="num" style="color:#34d399">
-        ${cashEval > 0 ? cashEval.toLocaleString() : '—'}
-        <button class="btn btn-ghost" style="font-size:10px;padding:1px 5px;margin-left:4px;vertical-align:middle;opacity:0.7"
-                data-broker="${brokerAttr}" data-dep="${depositAmt}"
-                onclick="cpDepositOpen(this)" title="예수금 수정">✏</button>
-      </td>
+      <td class="num" style="color:#34d399">${cashEval > 0 ? cashEval.toLocaleString() : '—'}</td>
       <td class="num" style="color:#f87171">${r.loan_amount.toLocaleString()}</td>
       <td class="num" style="color:${추정color};font-weight:700">${추정자산.toLocaleString()}</td>
       <td class="num" style="color:${담보color};font-weight:600">${담보비율str}</td>
@@ -11344,38 +11318,6 @@ function cpRenderTable(data) {
   document.getElementById('cp-est-loan').textContent  = '-' + totalLoan.toLocaleString() + '원';
 }
 
-// ─── 예수금 수정 모달 ────────────────────────────────────
-function cpDepositOpen(btn) {
-  const brokerage = btn.dataset.broker;
-  const amount    = parseInt(btn.dataset.dep) || 0;
-  document.getElementById('cp-deposit-brokerage').value         = brokerage;
-  document.getElementById('cp-deposit-brokerage-label').textContent = brokerage;
-  document.getElementById('cp-deposit-amount').value            = amount || '';
-  document.getElementById('cp-deposit-err').style.display       = 'none';
-  document.getElementById('cp-deposit-modal').style.display     = 'flex';
-  setTimeout(() => document.getElementById('cp-deposit-amount').focus(), 50);
-}
-
-function cpDepositClose() {
-  document.getElementById('cp-deposit-modal').style.display = 'none';
-}
-
-async function cpDepositSave() {
-  const errEl     = document.getElementById('cp-deposit-err');
-  errEl.style.display = 'none';
-  const brokerage = document.getElementById('cp-deposit-brokerage').value;
-  const amount    = parseInt(document.getElementById('cp-deposit-amount').value) || 0;
-  const res = await fetch('/api/credit_deposit', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ brokerage, amount }),
-  });
-  const data = await res.json();
-  if (!res.ok) { errEl.textContent = data.error || '저장 실패'; errEl.style.display = 'block'; return; }
-  cpDepositClose();
-  await loadCredit();
-}
-
 async function cpLoadBrokerages(currentVal) {
   const sel = document.getElementById('cp-modal-brokerage');
   sel.innerHTML = '<option value="">-- 선택 --</option>';
@@ -11395,15 +11337,18 @@ function cpOpenModal(id) {
   document.getElementById('cp-modal-err').style.display = 'none';
   const item = id ? (cpLastData.positions || []).find(r => r.id === id) : null;
   if (item) {
-    document.getElementById('cp-modal-title').textContent = '신용 포지션 수정';
-    document.getElementById('cp-modal-id').value          = item.id;
-    document.getElementById('cp-modal-loan').value        = item.loan_amount;
-    document.getElementById('cp-modal-note').value        = item.note || '';
+    const dep = (cpLastData.broker_deposit || {})[item.brokerage] ?? 0;
+    document.getElementById('cp-modal-title').textContent   = '신용 포지션 수정';
+    document.getElementById('cp-modal-id').value            = item.id;
+    document.getElementById('cp-modal-loan').value          = item.loan_amount;
+    document.getElementById('cp-modal-deposit').value       = dep || '';
+    document.getElementById('cp-modal-note').value          = item.note || '';
     cpLoadBrokerages(item.brokerage);
   } else {
-    document.getElementById('cp-modal-title').textContent = '신용 포지션 추가';
+    document.getElementById('cp-modal-title').textContent   = '신용 포지션 추가';
     document.getElementById('cp-modal-id').value   = '';
     document.getElementById('cp-modal-loan').value  = '';
+    document.getElementById('cp-modal-deposit').value = '';
     document.getElementById('cp-modal-note').value  = '';
     cpLoadBrokerages('');
   }
@@ -11420,6 +11365,7 @@ async function cpSave() {
   const id        = document.getElementById('cp-modal-id').value;
   const brokerage = document.getElementById('cp-modal-brokerage').value;
   const loan      = parseInt(document.getElementById('cp-modal-loan').value) || 0;
+  const deposit   = parseInt(document.getElementById('cp-modal-deposit').value) || 0;
   const note      = document.getElementById('cp-modal-note').value.trim();
   if (!brokerage) { errEl.textContent = '증권사를 선택해주세요'; errEl.style.display = 'block'; return; }
   const url    = id ? `/api/credit_positions/${id}` : '/api/credit_positions';
@@ -11428,6 +11374,10 @@ async function cpSave() {
     body: JSON.stringify({ brokerage, purchase_amount: 0, loan_amount: loan, note }) });
   const data = await res.json();
   if (!res.ok) { errEl.textContent = data.error || '저장 실패'; errEl.style.display = 'block'; return; }
+  await fetch('/api/credit_deposit', {
+    method: 'PUT', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ brokerage, amount: deposit }),
+  });
   cpCloseModal();
   await loadCredit();
 }
