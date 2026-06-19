@@ -2161,7 +2161,20 @@ def api_credit_positions_list():
     """, (uid,))
     broker_cash_eval = {(r["brokerage"] or ""): round(float(r["cash_eval"] or 0)) for r in cash_rows}
 
-    return jsonify({"positions": positions, "broker_stock_eval": broker_stock_eval, "broker_cash_eval": broker_cash_eval})
+    dep_rows = query("""
+        SELECT brokerage, amount
+        FROM cash_assets
+        WHERE user_id = %s AND asset_type_code = 'DEP' AND brokerage != ''
+        ORDER BY id
+    """, (uid,))
+    broker_deposit = {r["brokerage"]: int(r["amount"] or 0) for r in dep_rows}
+
+    return jsonify({
+        "positions":         positions,
+        "broker_stock_eval": broker_stock_eval,
+        "broker_cash_eval":  broker_cash_eval,
+        "broker_deposit":    broker_deposit,
+    })
 
 
 @app.route("/api/credit_positions", methods=["POST"])
@@ -2216,6 +2229,51 @@ def api_credit_positions_delete(pid: int):
     uid = _current_uid()
     with get_conn() as conn:
         conn.cursor().execute("DELETE FROM credit_positions WHERE id=%s AND user_id=%s", (pid, uid))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/credit_deposit", methods=["PUT"])
+def api_credit_deposit_upsert():
+    """증권사별 예수금(DEP) upsert. 증권사당 1건만 유지."""
+    uid  = _current_uid()
+    data = request.get_json() or {}
+    brokerage = (data.get("brokerage") or "").strip()
+    if not brokerage:
+        return jsonify({"error": "증권사 필수"}), 400
+    try:
+        amount = int(data.get("amount") or 0)
+    except (ValueError, TypeError) as e:
+        return jsonify({"error": str(e)}), 400
+
+    with get_conn() as conn:
+        cur = conn.cursor()
+        if amount <= 0:
+            cur.execute(
+                "DELETE FROM cash_assets WHERE user_id=%s AND brokerage=%s AND asset_type_code='DEP'",
+                (uid, brokerage),
+            )
+        else:
+            cur.execute(
+                "SELECT id FROM cash_assets WHERE user_id=%s AND brokerage=%s AND asset_type_code='DEP' ORDER BY id LIMIT 1",
+                (uid, brokerage),
+            )
+            row = cur.fetchone()
+            if row:
+                cur.execute(
+                    "UPDATE cash_assets SET amount=%s, updated_at=NOW() WHERE user_id=%s AND brokerage=%s AND asset_type_code='DEP'",
+                    (amount, uid, brokerage),
+                )
+                cur.execute(
+                    "DELETE FROM cash_assets WHERE user_id=%s AND brokerage=%s AND asset_type_code='DEP' AND id != %s",
+                    (uid, brokerage, row["id"]),
+                )
+            else:
+                cur.execute(
+                    """INSERT INTO cash_assets
+                        (user_id, name, brokerage, asset_type_code, amount, link_type, link_key, updated_at)
+                       VALUES (%s, '예수금', %s, 'DEP', %s, 'none', '', NOW())""",
+                    (uid, brokerage, amount),
+                )
     return jsonify({"ok": True})
 
 
