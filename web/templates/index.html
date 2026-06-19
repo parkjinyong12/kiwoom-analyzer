@@ -2574,8 +2574,15 @@ canvas { max-height: 220px; }
           <button id="cs-btn-730" class="btn btn-ghost" style="font-size:12px;padding:3px 10px" onclick="csSetPeriod(730)">전체</button>
         </div>
       </div>
+      <!-- 차트 탭 -->
+      <div style="display:flex;gap:4px;padding:10px 16px 0;border-top:1px solid #1e2535">
+        <button id="cs-tab-ratio" class="btn btn-ghost" style="font-size:11px;padding:3px 10px;background:#334155;color:#e2e8f0;font-weight:600"
+                onclick="csSetTab('ratio')">담보비율</button>
+        <button id="cs-tab-comp"  class="btn btn-ghost" style="font-size:11px;padding:3px 10px"
+                onclick="csSetTab('comp')">주식평가금 · 대출금</button>
+      </div>
       <!-- 차트 -->
-      <div style="padding:14px 16px 8px;position:relative;height:240px">
+      <div style="padding:8px 16px 8px;position:relative;height:240px">
         <canvas id="cs-chart"></canvas>
         <div id="cs-chart-empty" style="display:none;position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#475569;font-size:13px">데이터 없음</div>
       </div>
@@ -11042,8 +11049,11 @@ async function loadCredit() {
 
 // ─── 신용 일별 스냅샷 히스토리 ───────────────────────────────
 let _csDays = 90;
+let _csTab  = 'ratio';   // 'ratio' | 'comp'
 let _csChart = null;
 let _csChart2 = null;
+let _csLastRows = [];
+let _csLastPreview = null;
 
 function csSetPeriod(days) {
   _csDays = days;
@@ -11070,11 +11080,13 @@ async function csLoad() {
 
     if (!rows.length) {
       tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:20px;color:#475569">기록 없음 — 매일 20:10에 자동 저장됩니다.</td></tr>';
-      csRenderChart([]);
+      _csLastRows = []; _csLastPreview = null;
+      csRenderChart([], null);
       return;
     }
 
     const previewRow = rows.find(r => r.is_preview) || null;
+    _csLastRows = confirmedRows; _csLastPreview = previewRow;
     csRenderChart(confirmedRows, previewRow);
 
     tbody.innerHTML = rows.map(r => {
@@ -11115,6 +11127,18 @@ async function csLoad() {
   }
 }
 
+function csSetTab(tab) {
+  _csTab = tab;
+  ['ratio','comp'].forEach(t => {
+    const btn = document.getElementById(`cs-tab-${t}`);
+    if (!btn) return;
+    btn.style.background  = t === tab ? '#334155' : '';
+    btn.style.color       = t === tab ? '#e2e8f0' : '';
+    btn.style.fontWeight  = t === tab ? '600'     : '';
+  });
+  csRenderChart(_csLastRows, _csLastPreview);
+}
+
 function csRenderChart(rows, previewRow) {
   const canvas  = document.getElementById('cs-chart');
   const emptyEl = document.getElementById('cs-chart-empty');
@@ -11130,6 +11154,8 @@ function csRenderChart(rows, previewRow) {
   }
   canvas.style.display = 'block';
   if (emptyEl) emptyEl.style.display = 'none';
+
+  if (_csTab === 'comp') { csRenderChartComp(rows, previewRow, canvas); return; }
 
   const asc        = [...rows].reverse();
   const hasPreview = !!previewRow;
@@ -11303,6 +11329,112 @@ function csRenderChart(rows, previewRow) {
             color: 'rgba(148,163,184,0.5)', font: { size: 9 },
             callback: v => v >= 10000 ? (v/10000).toFixed(0)+'억' : v.toLocaleString()+'만',
           },
+          grid: { drawOnChartArea: false },
+        },
+      },
+    },
+  });
+}
+
+// ── 주식평가금 · 대출금 차트 (좌축: 주식평가금, 우축: 대출금) ──
+function csRenderChartComp(rows, previewRow, canvas) {
+  const asc        = [...rows].reverse();
+  const hasPreview = !!previewRow;
+  const allPts     = hasPreview ? [...asc, previewRow] : asc;
+  const pvIdx      = hasPreview ? allPts.length - 1 : -1;
+
+  const labels = allPts.map((r, i) =>
+    i === pvIdx ? r.record_date.substring(5) + ' ✦' : r.record_date.substring(5));
+  const toM    = v => Math.round(v / 10000);
+  const showPt = asc.length <= 60;
+
+  const mkR  = base => allPts.map((_, i) => i === pvIdx ? 6 : (showPt ? base : 0));
+  const mkBg = col  => allPts.map((_, i) => i === pvIdx ? 'transparent' : col);
+  const pvSeg = (solid, faded) => hasPreview ? {
+    borderDash:  c => c.p1DataIndex === pvIdx ? [6, 5] : undefined,
+    borderColor: c => c.p1DataIndex === pvIdx ? faded  : solid,
+  } : undefined;
+
+  const ctx = canvas.getContext('2d');
+  const h   = canvas.offsetHeight || 240;
+
+  // 주식평가금 그라데이션 (좌축)
+  const gradStock = ctx.createLinearGradient(0, 0, 0, h);
+  gradStock.addColorStop(0,   'rgba(96,165,250,0.22)');
+  gradStock.addColorStop(0.7, 'rgba(96,165,250,0.04)');
+  gradStock.addColorStop(1,   'rgba(96,165,250,0)');
+
+  const stockVals = allPts.map(r => toM(r.stock_eval));
+  const loanVals  = allPts.map(r => toM(r.loan_amount));
+
+  const sMin = Math.min(...stockVals), sMax = Math.max(...stockVals);
+  const sPad = Math.max((sMax - sMin) * 0.15, 50);
+  const lMin = Math.min(...loanVals),  lMax = Math.max(...loanVals);
+  const lPad = Math.max((lMax - lMin) * 0.15, 50);
+
+  _csChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: '주식평가금',
+          data: stockVals,
+          borderColor: '#60a5fa', backgroundColor: gradStock,
+          borderWidth: 2.5, tension: 0.35, fill: true, yAxisID: 'y',
+          pointRadius: mkR(3), pointHoverRadius: 6,
+          pointBackgroundColor: mkBg('#60a5fa'), pointBorderWidth: mkBg(1),
+          segment: pvSeg('#60a5fa', 'rgba(96,165,250,0.4)'),
+        },
+        {
+          label: '대출금',
+          data: loanVals,
+          borderColor: '#f87171', backgroundColor: 'transparent',
+          borderWidth: 2, tension: 0.35, fill: false, yAxisID: 'y2',
+          pointRadius: mkR(3), pointHoverRadius: 6,
+          pointBackgroundColor: mkBg('#f87171'), pointBorderWidth: mkBg(1),
+          segment: pvSeg('#f87171', 'rgba(248,113,113,0.4)'),
+        },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 10,
+                            padding: 14, usePointStyle: true } },
+        tooltip: {
+          backgroundColor: 'rgba(15,17,23,0.92)', titleColor: '#94a3b8',
+          bodyColor: '#e2e8f0', borderColor: '#1e2535', borderWidth: 1,
+          callbacks: {
+            title: items => {
+              const raw = items[0]?.label || '';
+              return raw.endsWith('✦') ? raw + ' (미확정)' : raw;
+            },
+            label: ctx => {
+              const s = ctx.dataIndex === pvIdx ? ' (미확정)' : '';
+              return ` ${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y.toLocaleString() : '—'}만원${s}`;
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          ticks: { color: '#475569', font: { size: 10 }, maxTicksLimit: 10 },
+          grid:  { color: 'rgba(255,255,255,0.04)' },
+        },
+        y: {
+          position: 'left', min: sMin - sPad, max: sMax + sPad,
+          title: { display: true, text: '주식평가금', color: '#60a5fa', font: { size: 10 } },
+          ticks: { color: '#60a5fa', font: { size: 10 },
+            callback: v => v >= 10000 ? (v/10000).toFixed(1)+'억' : v.toLocaleString()+'만' },
+          grid: { color: 'rgba(255,255,255,0.05)' },
+        },
+        y2: {
+          position: 'right', min: lMin - lPad, max: lMax + lPad,
+          title: { display: true, text: '대출금', color: '#f87171', font: { size: 10 } },
+          ticks: { color: '#f87171', font: { size: 10 },
+            callback: v => v >= 10000 ? (v/10000).toFixed(1)+'억' : v.toLocaleString()+'만' },
           grid: { drawOnChartArea: false },
         },
       },
