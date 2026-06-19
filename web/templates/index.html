@@ -2574,16 +2574,10 @@ canvas { max-height: 220px; }
           <button id="cs-btn-730" class="btn btn-ghost" style="font-size:12px;padding:3px 10px" onclick="csSetPeriod(730)">전체</button>
         </div>
       </div>
-      <!-- 차트 상단: 추정자산 + 담보비율 -->
-      <div style="padding:14px 16px 0;position:relative;height:180px">
-        <div style="font-size:10px;color:#475569;margin-bottom:2px;letter-spacing:0.5px">추정자산 · 담보비율</div>
+      <!-- 차트 -->
+      <div style="padding:14px 16px 8px;position:relative;height:240px">
         <canvas id="cs-chart"></canvas>
         <div id="cs-chart-empty" style="display:none;position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#475569;font-size:13px">데이터 없음</div>
-      </div>
-      <!-- 차트 하단: 주식평가금 + 현금 + 대출금 -->
-      <div style="padding:10px 16px 8px;position:relative;height:150px;border-top:1px solid #1e2535">
-        <div style="font-size:10px;color:#475569;margin-bottom:2px;letter-spacing:0.5px">주식평가금 · 현금 · 대출금</div>
-        <canvas id="cs-chart2"></canvas>
       </div>
       <!-- 테이블 -->
       <div style="overflow-x:auto;border-top:1px solid #1e2535">
@@ -11123,7 +11117,6 @@ async function csLoad() {
 
 function csRenderChart(rows, previewRow) {
   const canvas  = document.getElementById('cs-chart');
-  const canvas2 = document.getElementById('cs-chart2');
   const emptyEl = document.getElementById('cs-chart-empty');
   if (!canvas) return;
 
@@ -11131,13 +11124,11 @@ function csRenderChart(rows, previewRow) {
   if (_csChart2) { _csChart2.destroy(); _csChart2 = null; }
 
   if (!rows.length && !previewRow) {
-    canvas.style.display  = 'none';
-    if (canvas2) canvas2.style.display = 'none';
+    canvas.style.display = 'none';
     if (emptyEl) emptyEl.style.display = 'flex';
     return;
   }
-  canvas.style.display  = 'block';
-  if (canvas2) canvas2.style.display = 'block';
+  canvas.style.display = 'block';
   if (emptyEl) emptyEl.style.display = 'none';
 
   const asc        = [...rows].reverse();
@@ -11145,85 +11136,128 @@ function csRenderChart(rows, previewRow) {
   const allPts     = hasPreview ? [...asc, previewRow] : asc;
   const pvIdx      = hasPreview ? allPts.length - 1 : -1;
 
-  const labels  = allPts.map((r, i) =>
+  const labels = allPts.map((r, i) =>
     i === pvIdx ? r.record_date.substring(5) + ' ✦' : r.record_date.substring(5));
-  const toM     = v => Math.round(v / 10000);
-  const showPt  = asc.length <= 60;
+  const toM    = v => Math.round(v / 10000);
+  const showPt = asc.length <= 60;
 
-  const mkR   = base => allPts.map((_, i) => i === pvIdx ? 6 : (showPt ? base : 0));
-  const mkBg  = col  => allPts.map((_, i) => i === pvIdx ? 'transparent' : col);
-  const mkBw  = base => allPts.map((_, i) => i === pvIdx ? 2.5 : base);
+  // ── 담보비율 구간별 색상 ─────────────────────────────────
+  const zoneColor = v => {
+    if (v == null)                             return 'rgba(148,163,184,0.8)';
+    if (v < rbCollateralRequired)              return '#f87171';
+    if (v < rbCollateralRequired + 10)        return '#f59e0b';
+    return '#4ade80';
+  };
+
+  // ── 배경 위험 구간 + 기준선 플러그인 ──────────────────────
+  const zonePlugin = {
+    id: 'csZones',
+    beforeDatasetsDraw(chart) {
+      const {ctx, chartArea, scales} = chart;
+      const y = scales.y;
+      if (!y || rbCollateralRequired == null) return;
+      const {left, right, top, bottom} = chartArea;
+      const yDanger = Math.min(Math.max(y.getPixelForValue(rbCollateralRequired),      top), bottom);
+      const yWarn   = Math.min(Math.max(y.getPixelForValue(rbCollateralRequired + 10), top), bottom);
+      ctx.save();
+      // 위험 구간 (threshold 아래)
+      if (yDanger < bottom) {
+        ctx.fillStyle = 'rgba(248,113,113,0.07)';
+        ctx.fillRect(left, yDanger, right - left, bottom - yDanger);
+      }
+      // 경고 구간 (threshold ~ threshold+10)
+      if (yWarn < bottom) {
+        ctx.fillStyle = 'rgba(245,158,11,0.06)';
+        ctx.fillRect(left, yWarn, right - left, Math.min(yDanger, bottom) - yWarn);
+      }
+      ctx.restore();
+    },
+    afterDatasetsDraw(chart) {
+      const {ctx, chartArea, scales} = chart;
+      const y = scales.y;
+      if (!y || rbCollateralRequired == null) return;
+      const drawLine = (val, color, lbl) => {
+        const px = y.getPixelForValue(val);
+        if (px < chartArea.top || px > chartArea.bottom) return;
+        ctx.save();
+        ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.setLineDash([5, 4]);
+        ctx.beginPath(); ctx.moveTo(chartArea.left, px); ctx.lineTo(chartArea.right, px); ctx.stroke();
+        ctx.fillStyle = color; ctx.font = 'bold 10px sans-serif';
+        ctx.fillText(lbl, chartArea.left + 4, px - 4);
+        ctx.restore();
+      };
+      drawLine(rbCollateralRequired,      'rgba(248,113,113,0.85)', `위험선 ${rbCollateralRequired}%`);
+      drawLine(rbCollateralRequired + 10, 'rgba(245,158,11,0.75)',  `경고선 ${rbCollateralRequired + 10}%`);
+    },
+  };
+
+  // ── 미확정 구간 헬퍼 ──────────────────────────────────────
   const pvSeg = (solid, faded) => hasPreview ? {
     borderDash:  c => c.p1DataIndex === pvIdx ? [6, 5] : undefined,
     borderColor: c => c.p1DataIndex === pvIdx ? faded  : solid,
   } : undefined;
+  const mkR  = base => allPts.map((_, i) => i === pvIdx ? 6 : (showPt ? base : 0));
+  const mkBg = col  => allPts.map((_, i) => i === pvIdx ? 'transparent' : col);
 
-  const commonTitle = items => {
-    const raw = items[0]?.label || '';
-    return raw.endsWith('✦') ? raw + ' (미확정)' : raw;
-  };
-  const wonTick = { color: '#64748b', font: { size: 10 },
-    callback: v => v >= 10000 ? (v/10000).toFixed(1)+'억' : v.toLocaleString()+'만' };
-  const commonX = {
-    ticks: { color: '#475569', font: { size: 10 }, maxTicksLimit: 10 },
-    grid:  { color: 'rgba(255,255,255,0.04)' },
-  };
+  // ── 담보비율 데이터 ────────────────────────────────────────
+  const crVals  = allPts.map(r => r.collateral_ratio);
+  const crValid = crVals.filter(v => v != null);
+  const crMin   = crValid.length ? Math.min(...crValid) : 0;
+  const crMax   = crValid.length ? Math.max(...crValid) : 200;
+  // Y축은 위험선보다 아래, 최댓값보다 위를 여유 있게
+  const yMin = Math.min(crMin, rbCollateralRequired ?? 140) - 10;
+  const yMax = crMax + 15;
 
-  // ── 차트 1: 추정자산 + 담보비율 ───────────────────────────
-  const ctx1  = canvas.getContext('2d');
-  const h1    = canvas.offsetHeight || 160;
-  const gradG = ctx1.createLinearGradient(0, 0, 0, h1);
-  gradG.addColorStop(0,    'rgba(74,222,128,0.32)');
-  gradG.addColorStop(0.65, 'rgba(74,222,128,0.06)');
-  gradG.addColorStop(1,    'rgba(74,222,128,0)');
+  // 담보비율 포인트 색 (구간별)
+  const crPtBg = allPts.map((r, i) =>
+    i === pvIdx ? 'transparent' : zoneColor(r.collateral_ratio));
+  const crPtBorder = allPts.map(r => zoneColor(r.collateral_ratio));
+
+  // ── 추정자산 그라데이션 ────────────────────────────────────
+  const ctx2d  = canvas.getContext('2d');
+  const h      = canvas.offsetHeight || 240;
+  const gradEst = ctx2d.createLinearGradient(0, 0, 0, h);
+  gradEst.addColorStop(0,   'rgba(148,163,184,0.15)');
+  gradEst.addColorStop(1,   'rgba(148,163,184,0)');
 
   const estVals = allPts.map(r => toM(r.estimated_asset));
   const eMin = Math.min(...estVals), eMax = Math.max(...estVals);
   const ePad = Math.max((eMax - eMin) * 0.2, 50);
 
-  const thresholdPlugin = {
-    id: 'crThreshold',
-    beforeDraw(chart) {
-      const y2 = chart.scales.y2;
-      if (!y2 || rbCollateralRequired == null) return;
-      const yPx = y2.getPixelForValue(rbCollateralRequired);
-      if (yPx < chart.chartArea.top || yPx > chart.chartArea.bottom) return;
-      const c = chart.ctx;
-      c.save();
-      c.strokeStyle = 'rgba(167,139,250,0.5)';
-      c.lineWidth = 1.2; c.setLineDash([6, 5]);
-      c.beginPath();
-      c.moveTo(chart.chartArea.left, yPx); c.lineTo(chart.chartArea.right, yPx);
-      c.stroke();
-      c.fillStyle = 'rgba(167,139,250,0.75)';
-      c.font = '10px sans-serif';
-      c.fillText(`기준 ${rbCollateralRequired}%`, chart.chartArea.right - 62, yPx - 4);
-      c.restore();
-    },
-  };
-
-  _csChart = new Chart(ctx1, {
-    type: 'line', plugins: [thresholdPlugin],
+  _csChart = new Chart(ctx2d, {
+    type: 'line',
+    plugins: [zonePlugin],
     data: {
       labels,
       datasets: [
         {
-          label: '추정자산',
-          data: estVals,
-          borderColor: '#4ade80', backgroundColor: gradG,
-          borderWidth: 2.5, tension: 0.4, fill: true, yAxisID: 'y',
+          label: '담보비율(%)',
+          data: crVals,
+          borderColor: '#4ade80',   // segment로 덮어씀
+          backgroundColor: 'transparent',
+          borderWidth: 2.5, tension: 0.35, fill: false, yAxisID: 'y',
           pointRadius: mkR(3), pointHoverRadius: 6,
-          pointBackgroundColor: mkBg('#4ade80'), pointBorderWidth: mkBw(1),
-          segment: pvSeg('#4ade80', 'rgba(74,222,128,0.4)'),
+          pointBackgroundColor: crPtBg,
+          pointBorderColor: crPtBorder,
+          pointBorderWidth: allPts.map((_, i) => i === pvIdx ? 2.5 : 1.5),
+          segment: hasPreview ? {
+            borderDash:  c => c.p1DataIndex === pvIdx ? [6, 5] : undefined,
+            borderColor: c => {
+              if (c.p1DataIndex === pvIdx) return 'rgba(148,163,184,0.5)';
+              return zoneColor(c.p1.parsed.y);
+            },
+          } : {
+            borderColor: c => zoneColor(c.p1.parsed.y),
+          },
         },
         {
-          label: '담보비율(%)',
-          data: allPts.map(r => r.collateral_ratio),
-          borderColor: '#a78bfa', backgroundColor: 'transparent',
-          borderWidth: 2, tension: 0.4, fill: false, yAxisID: 'y2',
-          pointRadius: mkR(2), pointHoverRadius: 4,
-          pointBackgroundColor: mkBg('#a78bfa'), pointBorderWidth: mkBw(1),
-          segment: pvSeg('#a78bfa', 'rgba(167,139,250,0.4)'),
+          label: '추정자산',
+          data: estVals,
+          borderColor: 'rgba(148,163,184,0.5)', backgroundColor: gradEst,
+          borderWidth: 1.5, tension: 0.35, fill: true, yAxisID: 'y2',
+          pointRadius: mkR(0), pointHoverRadius: 4,
+          pointBackgroundColor: mkBg('rgba(148,163,184,0.6)'),
+          segment: pvSeg('rgba(148,163,184,0.5)', 'rgba(148,163,184,0.25)'),
         },
       ],
     },
@@ -11231,16 +11265,21 @@ function csRenderChart(rows, previewRow) {
       responsive: true, maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
       plugins: {
-        legend: { labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 10,
-                            padding: 12, usePointStyle: true } },
+        legend: {
+          labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 10,
+                    padding: 14, usePointStyle: true },
+        },
         tooltip: {
           backgroundColor: 'rgba(15,17,23,0.92)', titleColor: '#94a3b8',
           bodyColor: '#e2e8f0', borderColor: '#1e2535', borderWidth: 1,
           callbacks: {
-            title: commonTitle,
+            title: items => {
+              const raw = items[0]?.label || '';
+              return raw.endsWith('✦') ? raw + ' (미확정)' : raw;
+            },
             label: ctx => {
               const s = ctx.dataIndex === pvIdx ? ' (미확정)' : '';
-              if (ctx.dataset.yAxisID === 'y2')
+              if (ctx.dataset.yAxisID === 'y')
                 return ` 담보비율: ${ctx.parsed.y != null ? ctx.parsed.y.toFixed(1) : '—'}%${s}`;
               return ` 추정자산: ${ctx.parsed.y != null ? ctx.parsed.y.toLocaleString() : '—'}만원${s}`;
             },
@@ -11248,81 +11287,24 @@ function csRenderChart(rows, previewRow) {
         },
       },
       scales: {
-        x: { ...commonX, display: false },
-        y: { position: 'left', min: eMin - ePad, max: eMax + ePad, ticks: wonTick,
-             grid: { color: 'rgba(255,255,255,0.05)' } },
-        y2: { position: 'right', ticks: { color: '#a78bfa', font: { size: 10 },
-              callback: v => v + '%' }, grid: { drawOnChartArea: false } },
-      },
-    },
-  });
-
-  // ── 차트 2: 주식평가금 + 현금 + 대출금 ──────────────────────
-  if (!canvas2) return;
-  const ctx2  = canvas2.getContext('2d');
-  const h2    = canvas2.offsetHeight || 120;
-  const gradB = ctx2.createLinearGradient(0, 0, 0, h2);
-  gradB.addColorStop(0,   'rgba(96,165,250,0.22)');
-  gradB.addColorStop(0.7, 'rgba(96,165,250,0.03)');
-  gradB.addColorStop(1,   'rgba(96,165,250,0)');
-
-  const compVals = allPts.flatMap(r => [toM(r.stock_eval), toM(r.cash_eval || 0), toM(r.loan_amount)]);
-  const cMin = Math.min(...compVals), cMax = Math.max(...compVals);
-  const cPad = Math.max((cMax - cMin) * 0.15, 50);
-
-  _csChart2 = new Chart(ctx2, {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [
-        {
-          label: '주식평가금',
-          data: allPts.map(r => toM(r.stock_eval)),
-          borderColor: '#60a5fa', backgroundColor: gradB,
-          borderWidth: 2, tension: 0.4, fill: true, yAxisID: 'y',
-          pointRadius: mkR(0), pointHoverRadius: 4,
-          pointBackgroundColor: mkBg('#60a5fa'), pointBorderWidth: mkBw(1),
-          segment: pvSeg('#60a5fa', 'rgba(96,165,250,0.4)'),
+        x: {
+          ticks: { color: '#475569', font: { size: 10 }, maxTicksLimit: 10 },
+          grid:  { color: 'rgba(255,255,255,0.04)' },
         },
-        {
-          label: '현금성자산',
-          data: allPts.map(r => toM(r.cash_eval || 0)),
-          borderColor: '#34d399', backgroundColor: 'transparent',
-          borderWidth: 1.5, tension: 0.4, fill: false, yAxisID: 'y',
-          pointRadius: 0, pointHoverRadius: 3,
-          segment: pvSeg('#34d399', 'rgba(52,211,153,0.4)'),
+        y: {
+          position: 'left', min: yMin, max: yMax,
+          ticks: { color: '#64748b', font: { size: 10 }, callback: v => v + '%' },
+          grid:  { color: 'rgba(255,255,255,0.05)' },
         },
-        {
-          label: '대출금',
-          data: allPts.map(r => toM(r.loan_amount)),
-          borderColor: 'rgba(248,113,113,0.8)', backgroundColor: 'transparent',
-          borderWidth: 1.5, borderDash: [5, 4], tension: 0.2, fill: false, yAxisID: 'y',
-          pointRadius: 0, pointHoverRadius: 3,
-        },
-      ],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: { labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 10,
-                            padding: 12, usePointStyle: true } },
-        tooltip: {
-          backgroundColor: 'rgba(15,17,23,0.92)', titleColor: '#94a3b8',
-          bodyColor: '#e2e8f0', borderColor: '#1e2535', borderWidth: 1,
-          callbacks: {
-            title: commonTitle,
-            label: ctx => {
-              const s = ctx.dataIndex === pvIdx ? ' (미확정)' : '';
-              return ` ${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y.toLocaleString() : '—'}만원${s}`;
-            },
+        y2: {
+          position: 'right',
+          min: eMin - ePad, max: eMax + ePad,
+          ticks: {
+            color: 'rgba(148,163,184,0.5)', font: { size: 9 },
+            callback: v => v >= 10000 ? (v/10000).toFixed(0)+'억' : v.toLocaleString()+'만',
           },
+          grid: { drawOnChartArea: false },
         },
-      },
-      scales: {
-        x: commonX,
-        y: { position: 'left', min: cMin - cPad, max: cMax + cPad, ticks: wonTick,
-             grid: { color: 'rgba(255,255,255,0.05)' } },
       },
     },
   });
