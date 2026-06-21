@@ -804,6 +804,35 @@ canvas { max-height: 220px; }
   </div>
 </div>
 
+<!-- 거래 이력 편집 모달 -->
+<div class="modal-overlay" id="th-edit-modal" onclick="event.target===this && thCloseEdit()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center">
+  <div class="modal" style="width:360px" onclick="event.stopPropagation()">
+    <h3 style="margin:0 0 16px;font-size:15px;color:#e2e8f0">거래 이력 편집</h3>
+    <input type="hidden" id="th-edit-id"/>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:13px;color:#94a3b8;min-width:60px">체결일시</span>
+        <input type="datetime-local" id="th-edit-datetime"
+          style="flex:1;padding:7px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:13px;color:#94a3b8;min-width:60px">출처</span>
+        <select id="th-edit-source"
+          style="flex:1;padding:7px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none">
+          <option value="manual">직접</option>
+          <option value="stock_rebalance">주식리밸</option>
+          <option value="theme_rebalance">테마리밸</option>
+        </select>
+      </div>
+      <div id="th-edit-msg" style="font-size:12px;color:#f87171;display:none"></div>
+    </div>
+    <div class="modal-actions" style="margin-top:18px">
+      <button class="btn btn-ghost" onclick="thCloseEdit()">취소</button>
+      <button class="btn btn-primary" onclick="thSubmitEdit()">저장</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="user-modal" onclick="e => e.target===this && closeUserModal()">
   <div class="modal" style="width:400px" onclick="event.stopPropagation()">
     <h3>다른 사용자로 보기</h3>
@@ -9895,7 +9924,10 @@ function _thRenderHistory(data, append) {
          <button onclick="thCancelTrade(${r.id})" title="취소"
            style="background:none;border:1px solid #334155;color:#64748b;cursor:pointer;font-size:11px;padding:3px 7px;border-radius:4px"
            onmouseover="this.style.color='#f87171';this.style.borderColor='#f87171'" onmouseout="this.style.color='#64748b';this.style.borderColor='#334155'">취소</button>`
-      : `<button onclick="thDeleteTrade(${r.id})" title="삭제"
+      : `<button onclick="thEditTrade(${r.id},'${(r.executed_at||'').replace('T',' ').slice(0,19)}','${r.source||'manual'}')" title="편집"
+           style="background:none;border:none;color:#475569;cursor:pointer;font-size:12px;padding:2px 4px;line-height:1;margin-right:2px"
+           onmouseover="this.style.color='#60a5fa'" onmouseout="this.style.color='#475569'">✎</button>
+         <button onclick="thDeleteTrade(${r.id})" title="삭제"
            style="background:none;border:none;color:#475569;cursor:pointer;font-size:14px;padding:2px 4px;line-height:1"
            onmouseover="this.style.color='#f87171'" onmouseout="this.style.color='#475569'">✕</button>`;
     const rowBg = isPending ? 'background:#1a1407;' : isCancelled ? 'opacity:0.5;' : '';
@@ -10213,6 +10245,39 @@ function _trbRecalcFromStocks() {
       theme.deviation_rel = parseFloat((theme.deviation_pp / tgt * 100).toFixed(1));
     }
   }
+}
+
+function thEditTrade(id, executedAt, source) {
+  document.getElementById('th-edit-id').value = id;
+  // datetime-local 형식: "2026-06-18T13:45:21"
+  document.getElementById('th-edit-datetime').value = executedAt ? executedAt.slice(0,16).replace(' ','T') : '';
+  document.getElementById('th-edit-source').value = source || 'manual';
+  document.getElementById('th-edit-msg').style.display = 'none';
+  document.getElementById('th-edit-modal').style.display = 'flex';
+}
+
+function thCloseEdit() {
+  document.getElementById('th-edit-modal').style.display = 'none';
+}
+
+async function thSubmitEdit() {
+  const id  = document.getElementById('th-edit-id').value;
+  const dt  = document.getElementById('th-edit-datetime').value;  // "2026-06-18T13:45"
+  const src = document.getElementById('th-edit-source').value;
+  const msgEl = document.getElementById('th-edit-msg');
+  msgEl.style.display = 'none';
+
+  const body = { source: src };
+  if (dt) body.executed_at = dt.replace('T', ' ') + ':00';  // → "2026-06-18 13:45:00"
+
+  const res = await fetch(`/api/trade_history/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) { msgEl.textContent = '저장 실패'; msgEl.style.display = ''; return; }
+  thCloseEdit();
+  loadTradeHistory();
 }
 
 async function thDeleteTrade(id) {

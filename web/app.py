@@ -1751,6 +1751,34 @@ def api_trade_history():
     return jsonify({"total": total, "rows": [dict(r) for r in rows]})
 
 
+@app.route("/api/trade_history/<int:tid>", methods=["PATCH"])
+def api_trade_history_patch(tid: int):
+    """거래 이력 비파괴 필드 수정 (보유종목 변경 없음).
+    수정 가능: executed_at, source, memo
+    """
+    uid  = _current_uid()
+    data = request.get_json() or {}
+    sets, params = [], []
+    if "executed_at" in data:
+        val = (data["executed_at"] or "").strip() or None
+        if val and len(val) == 10:
+            val = val + " " + datetime.now().strftime("%H:%M:%S")
+        sets.append("executed_at = COALESCE(%s::timestamp, executed_at)")
+        params.append(val)
+    if "source" in data:
+        sets.append("source = %s")
+        params.append((data["source"] or "manual").strip())
+    if not sets:
+        return jsonify({"error": "수정할 항목 없음"}), 400
+    params += [tid, uid]
+    with get_conn() as conn:
+        conn.cursor().execute(
+            f"UPDATE trade_history SET {', '.join(sets)} WHERE id=%s AND user_id=%s",
+            params,
+        )
+    return jsonify({"ok": True})
+
+
 @app.route("/api/trade_history/<int:tid>", methods=["DELETE"])
 def api_trade_history_delete(tid: int):
     """거래 이력 단건 삭제 (보유종목 수량은 변경하지 않음)."""
