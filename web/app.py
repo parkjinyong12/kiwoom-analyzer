@@ -1932,13 +1932,6 @@ def api_rebalance():
     rb_cr_adj1        = float(settings.get("rb_cr_adj1",           5))
     rb_cr_adj2        = float(settings.get("rb_cr_adj2",           10))
     rb_cr_adj3        = float(settings.get("rb_cr_adj3",           15))
-    # 최신 담보비율 (credit_snapshots 가장 최근 레코드)
-    cr_snap = query_one(
-        "SELECT collateral_ratio FROM credit_snapshots WHERE user_id = %s ORDER BY record_date DESC LIMIT 1",
-        (uid,),
-    )
-    current_collateral_ratio = float(cr_snap["collateral_ratio"]) if cr_snap and cr_snap["collateral_ratio"] else None
-
     result = []
     stock_total = 0
     for r in rows:
@@ -1963,6 +1956,9 @@ def api_rebalance():
         })
 
     portfolio_total = stock_total + total_cash
+
+    # 담보비율 실시간 계산 (credit_snapshots 스냅샷 대신 현재 평가금 기준)
+    current_collateral_ratio = round((stock_total + total_cash) / total_loan * 100, 2) if total_loan > 0 else None
 
     for r in result:
         current_ratio = r["eval_amt"] / portfolio_total * 100 if portfolio_total > 0 else 0
