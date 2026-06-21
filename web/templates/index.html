@@ -2198,6 +2198,18 @@ canvas { max-height: 220px; }
             </div>
           </div>
         </div>
+        <div style="width:1px;height:40px;background:#334155;flex-shrink:0;margin-top:6px"></div>
+        <!-- 총 자산 상한 -->
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <span style="font-size:10px;color:#64748b">이 금액 초과 시 매도 계획 자동 생성 (0 = 비활성)</span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:12px;color:#f59e0b;font-weight:600">총 자산 상한</span>
+            <input type="number" id="rb-asset-ceiling-input" value="0" min="0" step="1000000"
+                   oninput="rbLiveUpdate()"
+                   style="width:100px;padding:5px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#f59e0b;font-size:13px;text-align:center;outline:none"/>
+            <span style="font-size:12px;color:#64748b">원</span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -2429,6 +2441,31 @@ canvas { max-height: 220px; }
               </tr>
             </thead>
             <tbody id="rb-cash-plan-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 총 자산 상한 초과 매도 계획 -->
+    <div id="rb-ceiling-plan" style="display:none;margin-bottom:12px">
+      <div class="panel">
+        <div class="panel-header" style="cursor:default;flex-direction:column;align-items:flex-start;gap:8px">
+          <div id="rb-ceiling-plan-header" style="width:100%">총 자산 상한 초과 매도 계획</div>
+          <span style="font-size:11px;color:#64748b">총 자산 상한 초과분 · 매도 전략에 따라 배분</span>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>종목명</th>
+                <th style="text-align:right">현재가</th>
+                <th style="text-align:right">추천수량</th>
+                <th style="text-align:right">거래금액</th>
+                <th style="text-align:right">현재 비중<br><span style="font-weight:400;color:#64748b;font-size:10px">주식총액 대비</span></th>
+                <th style="text-align:right">거래 후 비중<br><span style="font-weight:400;color:#64748b;font-size:10px">주식총액 대비</span></th>
+              </tr>
+            </thead>
+            <tbody id="rb-ceiling-plan-tbody"></tbody>
           </table>
         </div>
       </div>
@@ -7369,6 +7406,7 @@ let rbStockCeiling       = 0;       // 주식 비중 상한 (0=미사용)
 let rbBuyStrategy        = 'target';
 let rbSellStrategy       = 'target';
 let rbCrEnabled          = false;
+let rbAssetCeiling       = 0;        // 총 자산 상한 (0 = 비활성)
 let rbCrStep1            = 160;
 let rbCrStep2            = 150;
 let rbCrStep3            = 140;
@@ -7495,6 +7533,7 @@ async function loadRebalance() {
     rbStockCeiling      = json.rb_stock_ceiling          || 0;
     rbBuyStrategy       = json.rb_buy_strategy           || 'target';
     rbSellStrategy      = json.rb_sell_strategy          || 'target';
+    rbAssetCeiling      = parseFloat(json.rb_asset_ceiling) || 0;
     rbCollateralRequired = json.rb_coll_required !== undefined
                           ? parseFloat(json.rb_coll_required) || 140
                           : parseFloat(settings.collateral_required_ratio ?? 140);
@@ -7535,6 +7574,8 @@ async function loadRebalance() {
     }
     const stratSellEl = document.getElementById('rb-sell-strategy');
     if (stratSellEl) stratSellEl.value = rbSellStrategy;
+    const ceilingEl = document.getElementById('rb-asset-ceiling-input');
+    if (ceilingEl) ceilingEl.value = rbAssetCeiling || 0;
     const crEnabledEl = document.getElementById('rb-cr-enabled');
     if (crEnabledEl) crEnabledEl.checked = rbCrEnabled;
     const s1 = document.getElementById('rb-cr-step1'); if (s1) s1.value = rbCrStep1;
@@ -7753,6 +7794,7 @@ function rbRenderMarginPanel() {
     }
     rbRenderCashPlan(cashDevRel, netEquity, cashRatio, cashTgt);
   }
+  rbRenderCeilingPlan();
 }
 
 function rbRenderCashPlan(cashDevRel, total, cashRatio, cashTgt) {
@@ -7968,6 +8010,7 @@ function rbLiveUpdate() {
   rbWatchDown       = parseFloat(document.getElementById('rb-watch-down')?.value)         || Math.round(rbAlertDown * 0.5 * 10) / 10;
   rbBuyStrategy     = document.getElementById('rb-buy-strategy')?.value                   || 'target';
   rbSellStrategy    = document.getElementById('rb-sell-strategy')?.value                  || 'target';
+  rbAssetCeiling    = parseFloat(document.getElementById('rb-asset-ceiling-input')?.value) || 0;
   // 화면 갱신은 debounce (300ms 대기 후 실행)
   clearTimeout(_rbLiveTimer);
   _rbLiveTimer = setTimeout(() => {
@@ -7984,6 +8027,124 @@ function rbToggleAdvanced() {
   const open  = panel.style.display === 'none';
   panel.style.display = open ? 'block' : 'none';
   arrow.textContent   = open ? '▴' : '▾';
+}
+
+function rbRenderCeilingPlan() {
+  const planEl = document.getElementById('rb-ceiling-plan');
+  if (!planEl) return;
+
+  // 비활성 또는 초과 없으면 숨김
+  if (rbAssetCeiling <= 0 || rbPortfolioTotal <= rbAssetCeiling) {
+    planEl.style.display = 'none';
+    return;
+  }
+
+  const excess = Math.round(rbPortfolioTotal - rbAssetCeiling);
+  const candidates = rbData.filter(r => r.current_price != null && r.eval_amt > 0);
+  if (!candidates.length) { planEl.style.display = 'none'; return; }
+
+  // 매도 전략으로 종목별 비중 계산 (rbSellStrategy 재사용)
+  const tradeTotal = Math.min(excess, Math.round(rbStockTotal));
+  const newStockEst = rbStockTotal - tradeTotal;
+  const stockTargetSum = candidates.reduce((s, r) => s + (r.target_ratio || 0), 0);
+
+  const tradeWeightMap = new Map();
+  let totalWeight = 0;
+
+  if (rbSellStrategy !== 'target') {
+    for (const r of candidates) {
+      const w = rbSellStrategy === 'equal' ? 1 : r.eval_amt;
+      tradeWeightMap.set(r.stock_code, w);
+      totalWeight += w;
+    }
+  } else {
+    const idealMap = new Map();
+    let idealTotal = 0;
+    for (const r of candidates) {
+      if (r.target_ratio > 0 && newStockEst > 0) {
+        const targetEval = r.target_ratio / 100 * newStockEst;
+        const ideal = Math.max(0, r.eval_amt - targetEval);
+        idealMap.set(r.stock_code, ideal);
+        idealTotal += ideal;
+      } else {
+        idealMap.set(r.stock_code, 0);
+      }
+    }
+    const remainder = Math.max(0, tradeTotal - idealTotal);
+    for (const r of candidates) {
+      const phase1 = idealMap.get(r.stock_code) || 0;
+      const phase2 = stockTargetSum > 0 ? (r.target_ratio || 0) / stockTargetSum * remainder : 0;
+      const w = phase1 + phase2;
+      tradeWeightMap.set(r.stock_code, w);
+      totalWeight += w;
+    }
+  }
+  if (totalWeight <= 0) {
+    for (const r of candidates) {
+      const fb = rbStockTotal > 0 ? r.eval_amt / rbStockTotal : 0;
+      tradeWeightMap.set(r.stock_code, fb);
+      totalWeight += fb;
+    }
+  }
+
+  const items = [];
+  for (const r of candidates) {
+    const share   = totalWeight > 0 ? (tradeWeightMap.get(r.stock_code) || 0) / totalWeight : 0;
+    const alloc   = Math.round(tradeTotal * share);
+    const rawQty  = alloc / r.current_price;
+    const baseQty = Math.floor(rawQty);
+    const qty     = baseQty >= 1 ? Math.round(rawQty) : baseQty;
+    if (qty <= 0) continue;
+    const tradeAmt  = qty * r.current_price;
+    const finalEval = r.eval_amt - tradeAmt;
+    items.push({ r, qty, tradeAmt, finalEval });
+  }
+  items.sort((a, b) => b.tradeAmt - a.tradeAmt);
+
+  const actualTotal   = items.reduce((s, i) => s + i.tradeAmt, 0);
+  const overUnder     = actualTotal >= tradeTotal ? '목표 소폭 초과' : '목표 소폭 미달';
+  const matchIcon     = actualTotal >= tradeTotal ? '✓' : '~';
+  const matchColor    = actualTotal >= tradeTotal ? '#94a3b8' : '#f59e0b';
+  const newStockTotal = rbStockTotal - actualTotal;
+
+  document.getElementById('rb-ceiling-plan-header').innerHTML = `
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span style="font-size:14px;font-weight:700;color:#f59e0b">⚠ 총 자산 상한 초과 매도</span>
+      <span style="color:#334155;font-size:12px">│</span>
+      <span style="font-size:11px;color:#64748b">상한 ${rbAssetCeiling.toLocaleString()}원 · 현재 ${rbPortfolioTotal.toLocaleString()}원</span>
+      <span style="font-size:11px;color:#475569">→ 초과</span>
+      <span style="font-size:13px;font-weight:700;color:#f59e0b">${excess.toLocaleString()}원</span>
+      <span style="color:#334155;font-size:12px">│</span>
+      <span style="font-size:11px;color:#475569">실행</span>
+      <span style="font-size:13px;font-weight:700;color:#f87171">${actualTotal.toLocaleString()}원</span>
+      <span style="font-size:11px;color:${matchColor}">${matchIcon} 1주 단위 ${overUnder}</span>
+    </div>`;
+
+  const tbody = document.getElementById('rb-ceiling-plan-tbody');
+  if (!items.length) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#475569;padding:20px">현재가 있는 종목 없음</td></tr>`;
+    planEl.style.display = 'block';
+    return;
+  }
+
+  tbody.innerHTML = items.map(({ r, qty, tradeAmt, finalEval }) => {
+    const curStockRatio   = rbStockTotal  > 0 ? r.eval_amt / rbStockTotal  * 100 : 0;
+    const finalStockRatio = newStockTotal > 0 ? finalEval  / newStockTotal  * 100 : 0;
+    const ratioDiff    = finalStockRatio - curStockRatio;
+    const fColor       = Math.abs(ratioDiff) < 0.3 ? '#94a3b8' : ratioDiff > 0 ? '#4ade80' : '#f87171';
+    return `<tr>
+      <td style="font-weight:500">${r.stock_name}</td>
+      <td class="num">${r.current_price.toLocaleString()}원</td>
+      <td class="num" style="color:#f87171;font-weight:600">-${qty.toLocaleString()}주</td>
+      <td class="num" style="color:#f87171">${tradeAmt.toLocaleString()}원</td>
+      <td class="num" style="color:#94a3b8">${curStockRatio.toFixed(1)}%</td>
+      <td class="num" style="color:${fColor}">${finalStockRatio.toFixed(1)}%
+        <span style="font-size:10px;color:${fColor}">(${ratioDiff >= 0 ? '+' : ''}${ratioDiff.toFixed(1)}%p)</span>
+      </td>
+    </tr>`;
+  }).join('');
+
+  planEl.style.display = 'block';
 }
 
 function rbToggleCalc() {
@@ -8553,6 +8714,7 @@ async function rbSaveThresholds() {
   rbCashTargetRatio = parseFloat(document.getElementById('rb-cash-target-input').value)  || 0;
   rbBuyStrategy     = document.getElementById('rb-buy-strategy')?.value                  || 'target';
   rbSellStrategy    = document.getElementById('rb-sell-strategy')?.value                 || 'target';
+  rbAssetCeiling    = parseFloat(document.getElementById('rb-asset-ceiling-input')?.value) || 0;
   await fetch('/api/settings', {
     method: 'PUT',
     headers: {'Content-Type':'application/json'},
@@ -8564,6 +8726,7 @@ async function rbSaveThresholds() {
       cash_target_ratio:    String(rbCashTargetRatio),
       rb_buy_strategy:      rbBuyStrategy,
       rb_sell_strategy:     rbSellStrategy,
+      rb_asset_ceiling:     String(rbAssetCeiling),
     }),
   });
   await loadRebalance();
