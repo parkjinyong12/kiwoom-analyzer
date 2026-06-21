@@ -2161,9 +2161,15 @@ canvas { max-height: 220px; }
 
     <!-- 1. 목표 설정 -->
     <div class="panel" style="margin-bottom:12px">
-      <div class="panel-header" style="cursor:default;display:flex;align-items:baseline;gap:10px">
-        <span>목표 설정</span>
-        <span style="font-size:11px;color:#475569;font-weight:400">현금 비율 목표와 리밸런싱 발동 기준</span>
+      <div class="panel-header" style="cursor:default;display:flex;align-items:center;justify-content:space-between">
+        <div style="display:flex;align-items:baseline;gap:10px">
+          <span>목표 설정</span>
+          <span style="font-size:11px;color:#475569;font-weight:400">현금 비율 목표와 리밸런싱 발동 기준</span>
+        </div>
+        <button id="rb-goal-save-btn" onclick="rbSaveThresholds()"
+                style="padding:5px 14px;border-radius:6px;border:1px solid #334155;background:#1e2535;color:#94a3b8;font-size:12px;cursor:pointer;transition:all 0.2s">
+          저장
+        </button>
       </div>
       <div style="padding:12px 16px;display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap">
         <!-- 현금 목표 -->
@@ -2172,7 +2178,7 @@ canvas { max-height: 220px; }
           <div style="display:flex;align-items:center;gap:6px">
             <span style="font-size:12px;color:#34d399;font-weight:600">현금 목표</span>
             <input type="number" id="rb-cash-target-input" value="30" min="0" max="100" step="0.1"
-                   oninput="rbLiveUpdate()"
+                   oninput="rbLiveUpdate()" onblur="rbSaveThresholds()"
                    style="width:60px;padding:5px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#34d399;font-size:13px;text-align:center;outline:none"/>
             <span style="font-size:12px;color:#64748b">%</span>
           </div>
@@ -2185,14 +2191,14 @@ canvas { max-height: 220px; }
             <div style="display:flex;align-items:center;gap:6px">
               <span style="font-size:12px;color:#f87171;font-weight:600">과다 기준</span>
               <input type="number" id="rb-threshold-up" value="30" min="1" max="500" step="1"
-                     oninput="rbLiveUpdate()"
+                     oninput="rbLiveUpdate()" onblur="rbSaveThresholds()"
                      style="width:52px;padding:5px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#f87171;font-size:13px;text-align:center;outline:none"/>
               <span style="font-size:11px;color:#64748b">%p → 매도 신호</span>
             </div>
             <div style="display:flex;align-items:center;gap:6px">
               <span style="font-size:12px;color:#60a5fa;font-weight:600">부족 기준</span>
               <input type="number" id="rb-threshold-down" value="25" min="1" max="500" step="1"
-                     oninput="rbLiveUpdate()"
+                     oninput="rbLiveUpdate()" onblur="rbSaveThresholds()"
                      style="width:52px;padding:5px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#60a5fa;font-size:13px;text-align:center;outline:none"/>
               <span style="font-size:11px;color:#64748b">%p → 매수 신호</span>
             </div>
@@ -2205,7 +2211,7 @@ canvas { max-height: 220px; }
           <div style="display:flex;align-items:center;gap:6px">
             <span style="font-size:12px;color:#f59e0b;font-weight:600">총 자산 상한</span>
             <input type="number" id="rb-asset-ceiling-input" value="0" min="0" step="1000000"
-                   oninput="rbLiveUpdate()"
+                   oninput="rbLiveUpdate()" onblur="rbSaveThresholds()"
                    style="width:100px;padding:5px 8px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#f59e0b;font-size:13px;text-align:center;outline:none"/>
             <span style="font-size:12px;color:#64748b">원</span>
           </div>
@@ -8729,6 +8735,26 @@ async function rbSaveThresholds() {
       rb_asset_ceiling:     String(rbAssetCeiling),
     }),
   });
+  // 저장 피드백
+  const btn = document.getElementById('rb-goal-save-btn');
+  if (btn) {
+    btn.textContent = '✓ 저장됨';
+    btn.style.color = '#4ade80';
+    btn.style.borderColor = '#4ade80';
+    setTimeout(() => {
+      btn.textContent = '저장';
+      btn.style.color = '#94a3b8';
+      btn.style.borderColor = '#334155';
+    }, 1800);
+  }
+  // 상단 저장 버튼에도 피드백
+  const topBtn = document.querySelector('.page-header .btn-primary');
+  if (topBtn && topBtn !== btn) {
+    const orig = topBtn.textContent;
+    topBtn.textContent = '✓ 저장됨';
+    topBtn.style.background = '#166534';
+    setTimeout(() => { topBtn.textContent = orig; topBtn.style.background = ''; }, 1800);
+  }
   await loadRebalance();
 }
 
