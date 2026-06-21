@@ -9867,8 +9867,10 @@ function _thRenderHistory(data, append) {
     const evalColor = evalPnl != null ? (evalPnl > 0 ? '#4ade80' : evalPnl < 0 ? '#f87171' : '#94a3b8') : '';
     const evalStr  = evalPnl != null ? (evalPnl >= 0 ? '+' : '') + evalPnl.toLocaleString() + '원' : '-';
     const avgBefore = r.avg_price_before != null ? parseInt(r.avg_price_before).toLocaleString() + '원' : '-';
-    const _days = ['일','월','화','수','목','금','토'];
-    const dt = r.executed_at ? (() => { const d = new Date(r.executed_at); return r.executed_at.slice(0,10).replace(/-/g,'') + '(' + _days[d.getDay()] + ')'; })() : '-';
+    const dt = r.executed_at ? (() => {
+      const s = r.executed_at.replace('T', ' ').slice(0, 19);
+      return s.endsWith('00:00:00') ? s.slice(0, 10) : s;
+    })() : '-';
     const src = _thSourceLabel[r.source] || r.source || '-';
     const statusBadge = isPending
       ? `<span style="background:#292207;color:#f59e0b;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:600;border:1px solid #78350f">승인대기</span>`
