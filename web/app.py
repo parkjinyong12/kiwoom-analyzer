@@ -1922,7 +1922,9 @@ def api_rebalance():
     watch_down        = float(settings.get("rebalance_watch_down", round(alert_down * 0.5, 1)))
     cash_target_ratio = float(settings.get("cash_target_ratio",    0))
     rb_stock_ceiling  = float(settings.get("rb_stock_ceiling",     0))
+    rb_asset_ceiling  = float(settings.get("rb_asset_ceiling",     0))
     rb_buy_strategy   = settings.get("rb_buy_strategy",            "target")
+    rb_sell_strategy  = settings.get("rb_sell_strategy",           "target")
     rb_cr_enabled     = settings.get("rb_cr_enabled",              "false")
     rb_cr_step1       = float(settings.get("rb_cr_step1",          160))
     rb_cr_step2       = float(settings.get("rb_cr_step2",          150))
@@ -1982,7 +1984,9 @@ def api_rebalance():
         "watch_down":        watch_down,
         "cash_target_ratio": cash_target_ratio,
         "rb_stock_ceiling":          rb_stock_ceiling,
+        "rb_asset_ceiling":          rb_asset_ceiling,
         "rb_buy_strategy":           rb_buy_strategy,
+        "rb_sell_strategy":          rb_sell_strategy,
         "rb_cr_enabled":             rb_cr_enabled,
         "rb_cr_step1":               rb_cr_step1,
         "rb_cr_step2":               rb_cr_step2,
@@ -4567,7 +4571,9 @@ _USER_PREF_KEYS = {
     "rebalance_watch_up",
     "rebalance_watch_down",
     "rb_stock_ceiling",
+    "rb_asset_ceiling",
     "rb_buy_strategy",
+    "rb_sell_strategy",
     "rb_cr_enabled",
     "rb_cr_step1",
     "rb_cr_step2",
