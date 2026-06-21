@@ -783,6 +783,17 @@ canvas { max-height: 220px; }
           style="flex:1;padding:7px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none"/>
       </div>
 
+      <!-- 출처 -->
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:13px;color:#94a3b8;min-width:60px">출처</span>
+        <select id="trade-source"
+          style="flex:1;padding:7px 10px;border-radius:6px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;outline:none">
+          <option value="manual">직접</option>
+          <option value="stock_rebalance">주식리밸</option>
+          <option value="theme_rebalance">테마리밸</option>
+        </select>
+      </div>
+
       <div id="trade-total-line" style="font-size:12px;color:#64748b;text-align:right"></div>
       <div id="trade-msg" style="font-size:12px;color:#f87171;display:none"></div>
     </div>
@@ -9943,6 +9954,8 @@ async function openTradeModal(stockCode, stockName, direction, qty, price, sourc
   document.getElementById('trade-preset-stock-row').style.display = '';
   document.getElementById('trade-dir-row').style.display = 'none';
   document.getElementById('trade-date').value = kstDateStr();
+  const srcEl = document.getElementById('trade-source');
+  if (srcEl) srcEl.value = source || 'manual';
   updateTradeTotalLine();
 
   await _tradeLoadBrokerages();
@@ -9966,6 +9979,8 @@ async function openTradeModalNew() {
   document.getElementById('trade-date').value  = kstDateStr();
   document.getElementById('trade-msg').style.display = 'none';
   document.getElementById('trade-total-line').textContent = '';
+  const srcElNew = document.getElementById('trade-source');
+  if (srcElNew) srcElNew.value = 'manual';
   tradeSetDir('buy');
 
   await _tradeLoadBrokerages();
@@ -10079,7 +10094,8 @@ async function submitTrade() {
   btn.disabled = true;
   btn.textContent = '저장 중...';
 
-  const body = { stock_code: stockCode, stock_name: stockName, direction, quantity: qty, price, brokerage, source: _tradeCtx.source || 'manual' };
+  const source = document.getElementById('trade-source')?.value || _tradeCtx.source || 'manual';
+  const body = { stock_code: stockCode, stock_name: stockName, direction, quantity: qty, price, brokerage, source };
   if (dateVal) body.executed_at = dateVal;
 
   const res = await fetch('/api/manual_holdings/trade', {
