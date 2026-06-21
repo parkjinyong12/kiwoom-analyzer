@@ -1763,6 +1763,113 @@ def api_trade_history_delete(tid: int):
     return jsonify({"ok": True})
 
 
+@app.route("/api/trade_history/reroute_brokerage", methods=["POST"])
+def api_trade_history_reroute_brokerage():
+    """승인완료 거래의 증권사를 일괄 변경하고 보유종목도 재반영.
+    body: { stock_name, old_brokerage, new_brokerage, direction(optional), dry_run(bool) }
+    """
+    uid  = _current_uid()
+    data = request.get_json() or {}
+    stock_name    = (data.get("stock_name")    or "").strip()
+    old_brokerage = (data.get("old_brokerage") or "").strip()
+    new_brokerage = (data.get("new_brokerage") or "").strip()
+    direction     = (data.get("direction")     or "buy").strip()
+    dry_run       = data.get("dry_run", True)
+
+    if not stock_name or not old_brokerage or not new_brokerage:
+        return jsonify({"error": "stock_name, old_brokerage, new_brokerage 필수"}), 400
+
+    # 대상 거래 이력 조회
+    trades = query("""
+        SELECT id, stock_code, stock_name, direction, quantity, price, avg_price_before
+        FROM trade_history
+        WHERE user_id=%s AND stock_name=%s AND brokerage=%s AND direction=%s AND status='approved'
+        ORDER BY executed_at ASC
+    """, (uid, stock_name, old_brokerage, direction))
+
+    if not trades:
+        return jsonify({"error": f"'{stock_name}' {old_brokerage} {direction} 승인완료 거래 없음"}), 404
+
+    stock_code = trades[0]["stock_code"]
+    total_qty  = sum(int(t["quantity"]) for t in trades)
+
+    # 현재 보유종목 조회
+    hold_old = query_one(
+        "SELECT id, quantity, avg_price FROM manual_holdings WHERE user_id=%s AND brokerage=%s AND stock_code=%s",
+        (uid, old_brokerage, stock_code),
+    )
+    hold_new = query_one(
+        "SELECT id, quantity, avg_price FROM manual_holdings WHERE user_id=%s AND brokerage=%s AND stock_code=%s",
+        (uid, new_brokerage, stock_code),
+    )
+
+    old_qty = int(hold_old["quantity"]) if hold_old else 0
+    old_avg = float(hold_old["avg_price"]) if hold_old else 0
+    new_qty = int(hold_new["quantity"]) if hold_new else 0
+    new_avg = float(hold_new["avg_price"]) if hold_new else 0
+
+    # 이동할 수량: 메리츠 보유 전체 (매수건 총합과 같아야 정상)
+    move_qty = old_qty  # 현재 보유 전량 이동
+    if direction == "buy":
+        merged_qty = new_qty + move_qty
+        merged_avg = round((new_qty * new_avg + move_qty * old_avg) / merged_qty, 2) if merged_qty > 0 else 0
+    else:
+        merged_qty = max(0, new_qty - move_qty)
+        merged_avg = new_avg
+
+    preview = {
+        "trades_count":   len(trades),
+        "trade_ids":      [t["id"] for t in trades],
+        "stock_code":     stock_code,
+        "stock_name":     stock_name,
+        "total_qty_in_trades": total_qty,
+        "old_brokerage":  {
+            "name": old_brokerage,
+            "before": {"qty": old_qty, "avg": old_avg},
+            "after":  {"qty": 0, "avg": 0, "action": "전량 제거"},
+        },
+        "new_brokerage":  {
+            "name": new_brokerage,
+            "before": {"qty": new_qty, "avg": new_avg},
+            "after":  {"qty": merged_qty, "avg": merged_avg, "action": "수량 합산"},
+        },
+    }
+
+    if dry_run:
+        return jsonify({"dry_run": True, "preview": preview})
+
+    # 실제 실행
+    with get_conn() as conn:
+        cur = conn.cursor()
+        # 1. trade_history 증권사 변경
+        cur.execute("""
+            UPDATE trade_history SET brokerage=%s
+            WHERE user_id=%s AND stock_name=%s AND brokerage=%s AND direction=%s AND status='approved'
+        """, (new_brokerage, uid, stock_name, old_brokerage, direction))
+
+        # 2. 기존 증권사 보유 제거
+        if hold_old:
+            cur.execute("DELETE FROM manual_holdings WHERE id=%s", (hold_old["id"],))
+
+        # 3. 새 증권사 보유 반영
+        if hold_new:
+            if merged_qty > 0:
+                cur.execute(
+                    "UPDATE manual_holdings SET quantity=%s, avg_price=%s WHERE id=%s",
+                    (merged_qty, merged_avg, hold_new["id"]),
+                )
+            else:
+                cur.execute("DELETE FROM manual_holdings WHERE id=%s", (hold_new["id"],))
+        else:
+            if merged_qty > 0:
+                cur.execute(
+                    "INSERT INTO manual_holdings (user_id, brokerage, stock_code, stock_name, quantity, avg_price) VALUES (%s,%s,%s,%s,%s,%s)",
+                    (uid, new_brokerage, stock_code, stock_name, merged_qty, merged_avg),
+                )
+
+    return jsonify({"ok": True, "preview": preview})
+
+
 @app.route("/api/trade_history/stats")
 def api_trade_history_stats():
     """거래 이력 종목별·전체 집계 통계."""
