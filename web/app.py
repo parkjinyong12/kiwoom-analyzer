@@ -1573,6 +1573,9 @@ def api_manual_holdings_trade():
     brokerage       = (data.get("brokerage")   or "").strip()
     source          = (data.get("source")      or "manual").strip()
     executed_at_str = (data.get("executed_at") or "").strip() or None
+    # 날짜만 입력된 경우(YYYY-MM-DD) 입력 시각을 시간 부분으로 채움
+    if executed_at_str and len(executed_at_str) == 10:
+        executed_at_str = executed_at_str + ' ' + datetime.now().strftime('%H:%M:%S')
     try:
         quantity = int(data.get("quantity") or 0)
         price    = float(data.get("price")  or 0)
