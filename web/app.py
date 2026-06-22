@@ -2337,7 +2337,7 @@ def api_rebalance_per():
                 LEFT JOIN latest l ON l.stock_code = s.stock_code
                 WHERE s.stock_code = ANY(%s)
             """, (codes, codes))
-            price_map = {row[0]: row[1] for row in cur.fetchall()}
+            price_map = {row["stock_code"]: row["price"] for row in cur.fetchall()}
 
         # 최신 EPS 히스토리 일괄 조회 (listed_shares, current_eps)
         with conn.cursor() as cur:
@@ -2347,7 +2347,7 @@ def api_rebalance_per():
                 WHERE stock_code = ANY(%s)
                 ORDER BY stock_code, recorded_date DESC
             """, (codes,))
-            eps_hist = {row[0]: {"eps": row[1], "listed_shares": row[2]} for row in cur.fetchall()}
+            eps_hist = {row["stock_code"]: {"eps": row["eps"], "listed_shares": row["listed_shares"]} for row in cur.fetchall()}
 
         with conn.cursor() as cur:
             for item in items:
