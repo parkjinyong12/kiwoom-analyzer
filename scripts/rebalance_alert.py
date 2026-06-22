@@ -188,6 +188,7 @@ def get_stock_signals(conn, uid: int) -> tuple[list[dict], list[dict]]:
             )                                            AS current_price,
             COALESCE(rt.target_ratio, 0)                AS target_ratio,
             rt.forward_per, rt.fair_per,
+            rt.forward_eps, rt.eps_growth_rate,
             rt.alert_up, rt.alert_down, rt.watch_up, rt.watch_down
         FROM holdings_agg ha
         LEFT JOIN latest_close lc ON lc.stock_code = ha.stock_code
@@ -218,7 +219,11 @@ def get_stock_signals(conn, uid: int) -> tuple[list[dict], list[dict]]:
             "current_price": int(cur_price) if cur_price is not None else None,
             "eval_amt":      round(eval_amt),
             "target_ratio":  float(r["target_ratio"] or 0),
-            "forward_per":   float(r["forward_per"]) if r["forward_per"] is not None else None,
+            "forward_eps":      float(r["forward_eps"])     if r["forward_eps"]     is not None else None,
+            "eps_growth_rate":  float(r["eps_growth_rate"]) if r["eps_growth_rate"] is not None else None,
+            # forward_per: 저장값 우선, 없으면 현재가/선행EPS로 대체
+            "forward_per":   float(r["forward_per"]) if r["forward_per"] is not None
+                             else None,  # _apply_per_adjustment 에서 fallback 처리
             "fair_per":      float(r["fair_per"])    if r["fair_per"]    is not None else None,
             "alert_up":      float(r["alert_up"])   if r["alert_up"]   is not None else None,
             "alert_down":    float(r["alert_down"]) if r["alert_down"] is not None else None,
@@ -228,10 +233,14 @@ def get_stock_signals(conn, uid: int) -> tuple[list[dict], list[dict]]:
 
     # PER 기반 목표비율 조정 ─────────────────────────────────────────────────
     # per_ratio = fair_per / forward_per: >1 저평가(비중 확대), <1 고평가(비중 축소)
-    # 목표비율 합계를 유지하면서 종목 간 비중을 재배분한다.
+    # forward_per 미저장 시 현재가/선행EPS로 대체; fair_per 미저장 시 eps_growth_rate 사용
     for h in holdings:
-        fwd  = h["forward_per"]
+        fwd = h["forward_per"]
+        if fwd is None and h["forward_eps"] and h["forward_eps"] > 0 and h["current_price"]:
+            fwd = h["current_price"] / h["forward_eps"]
         fair = h["fair_per"]
+        if fair is None and h["eps_growth_rate"] and h["eps_growth_rate"] > 0:
+            fair = h["eps_growth_rate"]
         h["per_ratio"] = (fair / fwd) if (fwd and fair and fwd > 0) else 1.0
 
     tgt_base = sum(h["target_ratio"] for h in holdings if h["target_ratio"] > 0)

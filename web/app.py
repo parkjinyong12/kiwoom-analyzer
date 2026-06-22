@@ -592,8 +592,10 @@ def _ensure_rebalance_targets_table():
         cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS portfolio_role_score        SMALLINT     DEFAULT 0")
         cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS role_score                 SMALLINT     DEFAULT 0")
         cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS role_weight                DECIMAL(4,2) DEFAULT 1.00")
-        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS forward_per  DECIMAL(6,2) DEFAULT NULL")
-        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS fair_per     DECIMAL(6,2) DEFAULT NULL")
+        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS forward_per      DECIMAL(6,2)  DEFAULT NULL")
+        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS fair_per         DECIMAL(6,2)  DEFAULT NULL")
+        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS forward_eps      DECIMAL(12,2) DEFAULT NULL")
+        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS eps_growth_rate  DECIMAL(6,2)  DEFAULT NULL")
 
 
 def _role_weight_from_score(score: int) -> float:
@@ -2040,6 +2042,7 @@ def api_rebalance():
             ) AS current_price,
             COALESCE(rt.target_ratio, 0) AS target_ratio,
             rt.forward_per, rt.fair_per,
+            rt.forward_eps, rt.eps_growth_rate,
             rt.alert_up, rt.alert_down, rt.watch_up, rt.watch_down
         FROM holdings_agg ha
         LEFT JOIN latest_close lc ON lc.stock_code = ha.stock_code
@@ -2090,8 +2093,10 @@ def api_rebalance():
             "eval_amt":     round(eval_amt),
             "has_price":    cur_price is not None,
             "target_ratio": float(r["target_ratio"] or 0),
-            "forward_per":  float(r["forward_per"]) if r["forward_per"] is not None else None,
-            "fair_per":     float(r["fair_per"])    if r["fair_per"]    is not None else None,
+            "forward_per":     float(r["forward_per"])     if r["forward_per"]     is not None else None,
+            "fair_per":        float(r["fair_per"])        if r["fair_per"]        is not None else None,
+            "forward_eps":     float(r["forward_eps"])     if r["forward_eps"]     is not None else None,
+            "eps_growth_rate": float(r["eps_growth_rate"]) if r["eps_growth_rate"] is not None else None,
             "alert_up":     float(r["alert_up"])   if r["alert_up"]   is not None else None,
             "alert_down":   float(r["alert_down"]) if r["alert_down"] is not None else None,
             "watch_up":     float(r["watch_up"])   if r["watch_up"]   is not None else None,
@@ -2256,33 +2261,75 @@ def api_rebalance_targets_batch():
 
 @app.route("/api/rebalance/per", methods=["PUT"])
 def api_rebalance_per():
-    """종목별 PER 정보 저장. body: {stock_code, forward_per, fair_per} 또는 배열."""
+    """종목별 PER 구성 요소 저장 및 자동 계산.
+
+    body: {stock_code, forward_eps, eps_growth_rate} 단건 또는 배열.
+    - forward_per  = 현재가(DB 자동 조회) / forward_eps
+    - fair_per     = eps_growth_rate  (PEG=1 룰: Lynch 공식)
+    """
     uid = _current_uid()
     payload = request.get_json() or []
     items = payload if isinstance(payload, list) else [payload]
 
-    def _safe_float(v):
+    def _sf(v):
         try:
             return float(v) if v not in (None, "") else None
         except (ValueError, TypeError):
             return None
 
+    codes = [item.get("stock_code", "").strip() for item in items if item.get("stock_code", "").strip()]
+    if not codes:
+        return jsonify({"ok": True})
+
     with get_conn() as conn:
-        cur = conn.cursor()
-        for item in items:
-            stock_code = (item.get("stock_code") or "").strip()
-            if not stock_code:
-                continue
-            forward_per = _safe_float(item.get("forward_per"))
-            fair_per    = _safe_float(item.get("fair_per"))
+        # 현재가 일괄 조회
+        with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO rebalance_targets (user_id, stock_code, target_ratio, forward_per, fair_per, updated_at)
-                VALUES (%s, %s, 0, %s, %s, NOW())
-                ON CONFLICT (user_id, stock_code) DO UPDATE SET
-                    forward_per = COALESCE(EXCLUDED.forward_per, rebalance_targets.forward_per),
-                    fair_per    = COALESCE(EXCLUDED.fair_per,    rebalance_targets.fair_per),
-                    updated_at  = NOW()
-            """, (uid, stock_code, forward_per, fair_per))
+                WITH latest AS (
+                    SELECT DISTINCT ON (stock_code) stock_code, close_price
+                    FROM supply_demand
+                    WHERE close_price > 0 AND stock_code = ANY(%s)
+                    ORDER BY stock_code, date DESC
+                )
+                SELECT s.stock_code,
+                       COALESCE(l.close_price,
+                           CASE WHEN s.last_price ~ '^[0-9]+$' THEN s.last_price::BIGINT END
+                       ) AS price
+                FROM stocks s
+                LEFT JOIN latest l ON l.stock_code = s.stock_code
+                WHERE s.stock_code = ANY(%s)
+            """, (codes, codes))
+            price_map = {row[0]: row[1] for row in cur.fetchall()}
+
+        with conn.cursor() as cur:
+            for item in items:
+                stock_code      = (item.get("stock_code") or "").strip()
+                if not stock_code:
+                    continue
+                forward_eps     = _sf(item.get("forward_eps"))
+                eps_growth_rate = _sf(item.get("eps_growth_rate"))
+                current_price   = price_map.get(stock_code)
+
+                # 선행 PER = 현재가 / 선행 EPS
+                forward_per = None
+                if forward_eps and forward_eps > 0 and current_price and current_price > 0:
+                    forward_per = round(float(current_price) / forward_eps, 2)
+
+                # 적정 PER = EPS 성장률 (PEG = 1 룰)
+                fair_per = round(eps_growth_rate, 2) if eps_growth_rate else None
+
+                cur.execute("""
+                    INSERT INTO rebalance_targets
+                        (user_id, stock_code, target_ratio,
+                         forward_eps, eps_growth_rate, forward_per, fair_per, updated_at)
+                    VALUES (%s, %s, 0, %s, %s, %s, %s, NOW())
+                    ON CONFLICT (user_id, stock_code) DO UPDATE SET
+                        forward_eps     = EXCLUDED.forward_eps,
+                        eps_growth_rate = EXCLUDED.eps_growth_rate,
+                        forward_per     = COALESCE(EXCLUDED.forward_per, rebalance_targets.forward_per),
+                        fair_per        = COALESCE(EXCLUDED.fair_per,    rebalance_targets.fair_per),
+                        updated_at      = NOW()
+                """, (uid, stock_code, forward_eps, eps_growth_rate, forward_per, fair_per))
     return jsonify({"ok": True})
 
 
