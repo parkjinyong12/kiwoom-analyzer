@@ -3193,6 +3193,36 @@ canvas { max-height: 220px; }
       </div>
     </div>
 
+    <!-- PER 조정 기준 예상 거래 패널 -->
+    <div id="per-trade-panel" style="display:none;margin-top:16px">
+      <div class="panel">
+        <div class="panel-header">
+          <span>PER 조정 기준 예상 거래</span>
+          <span style="font-size:11px;color:#64748b">PER 조정 목표비율 기준 · 현재 보유 대비 필요 거래량</span>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>종목명</th>
+                <th style="text-align:right">현재비율</th>
+                <th style="text-align:right">원래목표</th>
+                <th style="text-align:right">PER조정목표</th>
+                <th style="text-align:right">목표변화</th>
+                <th style="text-align:right">현재가</th>
+                <th style="text-align:right">현재수량</th>
+                <th style="text-align:right">거래금액</th>
+                <th style="text-align:right">거래수량</th>
+                <th style="text-align:center">액션</th>
+              </tr>
+            </thead>
+            <tbody id="per-trade-tbody"></tbody>
+            <tfoot id="per-trade-tfoot"></tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+
     <!-- EPS 히스토리 패널 (종목 클릭 시 표시) -->
     <div id="per-history-panel" style="display:none;margin-top:16px">
       <div class="panel">
@@ -9152,8 +9182,9 @@ const TRB_WATCH_ADJ = 0.20;  // 주의 시 편차의 20% 조정
 const TRB_MIN_AMT   = 50000; // 관망 최소금액 5만원
 
 // ─── PER 관리 ─────────────────────────────────────────
-let perData     = [];          // 종목별 데이터 캐시
-let perDirtySet = new Set();   // 변경된 종목코드
+let perData          = [];   // 종목별 데이터 캐시
+let perDirtySet      = new Set();
+let perPortfolioTotal = 0;   // 전체 포트폴리오 평가액 (주식+현금)
 
 async function loadPerManage() {
   document.getElementById('per-tbody').innerHTML =
@@ -9162,6 +9193,7 @@ async function loadPerManage() {
     const res  = await fetch('/api/rebalance');
     const json = await res.json();
     perData = (json.holdings || []).filter(h => h.target_ratio > 0);
+    perPortfolioTotal = json.portfolio_total || 0;
     perDirtySet.clear();
     document.getElementById('per-batch-save-btn').disabled = true;
     document.getElementById('per-dirty-hint').style.display = 'none';
@@ -9215,6 +9247,7 @@ function perRender() {
   const tbody = document.getElementById('per-tbody');
   tbody.innerHTML = perData.map(h => perRowHtml(h)).join('');
   perUpdateSummary();
+  perRenderTrades();
 }
 
 function perRowHtml(h) {
@@ -9314,6 +9347,67 @@ function perUpdateSummary() {
   }
 }
 
+function perRenderTrades() {
+  const panel = document.getElementById('per-trade-panel');
+  if (!perData.length || !perPortfolioTotal) { panel.style.display = 'none'; return; }
+
+  const rows = perData
+    .filter(h => h.current_price && h.total_qty !== undefined)
+    .map(h => {
+      const eff        = h._effTarget ?? h.target_ratio;
+      const curRatio   = perPortfolioTotal > 0 ? h.eval_amt / perPortfolioTotal * 100 : 0;
+      const targetAmt  = perPortfolioTotal * eff / 100;
+      const diffAmt    = targetAmt - h.eval_amt;
+      const tradeQty   = Math.round(diffAmt / h.current_price);
+      const effDiff    = eff - h.target_ratio;
+      return { ...h, eff, curRatio, diffAmt, tradeQty, effDiff };
+    })
+    .filter(h => Math.abs(h.tradeQty) > 0)
+    .sort((a, b) => Math.abs(b.diffAmt) - Math.abs(a.diffAmt));
+
+  if (!rows.length) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+
+  const fmt  = n => Math.abs(n).toLocaleString();
+  const sign = n => n > 0 ? '+' : '-';
+
+  document.getElementById('per-trade-tbody').innerHTML = rows.map(h => {
+    const isBuy  = h.tradeQty > 0;
+    const col    = isBuy ? '#4ade80' : '#f87171';
+    const effCol = h.effDiff > 0.005 ? '#4ade80' : h.effDiff < -0.005 ? '#f87171' : '#94a3b8';
+    return `<tr>
+      <td style="font-weight:600">${h.stock_name}
+        <span style="font-size:11px;color:#475569;margin-left:4px">${h.stock_code}</span></td>
+      <td class="num">${h.curRatio.toFixed(1)}%</td>
+      <td class="num" style="color:#64748b">${h.target_ratio.toFixed(1)}%</td>
+      <td class="num" style="color:#93c5fd;font-weight:600">${h.eff.toFixed(2)}%</td>
+      <td class="num" style="color:${effCol}">${h.effDiff >= 0 ? '+' : ''}${h.effDiff.toFixed(2)}pp</td>
+      <td class="num">${h.current_price.toLocaleString()}원</td>
+      <td class="num" style="color:#64748b">${h.total_qty.toLocaleString()}주</td>
+      <td class="num" style="color:${col};font-weight:600">${sign(h.diffAmt)}${fmt(Math.round(h.diffAmt))}원</td>
+      <td class="num" style="color:${col};font-weight:700;font-size:15px">${sign(h.tradeQty)}${fmt(h.tradeQty)}주</td>
+      <td style="text-align:center">
+        <span style="background:${col}22;color:${col};padding:3px 12px;border-radius:4px;font-size:12px;font-weight:700">${isBuy ? '매수' : '매도'}</span>
+      </td>
+    </tr>`;
+  }).join('');
+
+  const totalBuy  = rows.filter(h => h.tradeQty > 0).reduce((s, h) => s + h.diffAmt, 0);
+  const totalSell = rows.filter(h => h.tradeQty < 0).reduce((s, h) => s + Math.abs(h.diffAmt), 0);
+  document.getElementById('per-trade-tfoot').innerHTML = `
+    <tr style="border-top:2px solid #334155;background:#0c1117">
+      <td colspan="7" style="padding:8px 12px;font-size:12px;color:#64748b">합계</td>
+      <td class="num" style="padding:8px 12px;font-size:12px">
+        <span style="color:#4ade80">+${Math.round(totalBuy).toLocaleString()}원</span>
+        <span style="color:#64748b;margin:0 4px">/</span>
+        <span style="color:#f87171">-${Math.round(totalSell).toLocaleString()}원</span>
+      </td>
+      <td colspan="2" style="padding:8px 12px;font-size:11px;color:#64748b">
+        매수 ${rows.filter(h=>h.tradeQty>0).length}종목 / 매도 ${rows.filter(h=>h.tradeQty<0).length}종목
+      </td>
+    </tr>`;
+}
+
 function perMarkDirty(stockCode) {
   perDirtySet.add(stockCode);
   [`per-ni-${stockCode}`, `per-fairper-input-${stockCode}`].forEach(id => {
@@ -9364,6 +9458,7 @@ function perRefreshRow(stockCode) {
     }
   });
   perUpdateSummary();
+  perRenderTrades();
 }
 
 async function perSaveAll() {
