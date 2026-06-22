@@ -3990,7 +3990,7 @@ def api_market_power_suggestions():
             s["step_trade_value"]= None
 
     stocks.sort(key=lambda x: (x["theme"] or "zzz", -(x["allocation_score"] or 0)))
-    return jsonify(stocks)
+    return jsonify({"items": stocks, "portfolio_total": total_eval})
 
 
 @app.route("/api/market_power/suggestions/apply", methods=["POST"])
