@@ -597,6 +597,7 @@ def _ensure_rebalance_targets_table():
         cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS forward_eps        DECIMAL(12,2)  DEFAULT NULL")
         cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS eps_growth_rate    DECIMAL(6,2)   DEFAULT NULL")
         cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS forward_net_income BIGINT         DEFAULT NULL")
+        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS plan_target_ratio  DECIMAL(6,2)   DEFAULT NULL")
 
 
 def _ensure_stock_eps_history_table():
@@ -2069,6 +2070,7 @@ def api_rebalance():
                 CASE WHEN st.last_price ~ '^[0-9]+$' THEN st.last_price::BIGINT ELSE NULL END
             ) AS current_price,
             COALESCE(rt.target_ratio, 0) AS target_ratio,
+            rt.plan_target_ratio,
             rt.forward_net_income,
             rt.forward_per, rt.fair_per,
             rt.forward_eps, rt.eps_growth_rate,
@@ -2123,7 +2125,8 @@ def api_rebalance():
             "current_price": int(cur_price) if cur_price is not None else None,
             "eval_amt":     round(eval_amt),
             "has_price":    cur_price is not None,
-            "target_ratio": float(r["target_ratio"] or 0),
+            "target_ratio":       float(r["target_ratio"] or 0),
+            "plan_target_ratio":  float(r["plan_target_ratio"]) if r["plan_target_ratio"] is not None else None,
             "forward_net_income": int(r["forward_net_income"]) if r["forward_net_income"] is not None else None,
             "forward_per":     float(r["forward_per"])     if r["forward_per"]     is not None else None,
             "fair_per":        float(r["fair_per"])        if r["fair_per"]        is not None else None,
@@ -2291,6 +2294,32 @@ def api_rebalance_targets_batch():
                 ON CONFLICT (user_id, stock_code)
                 DO UPDATE SET target_ratio = EXCLUDED.target_ratio, updated_at = NOW()
             """, (uid, stock_code, target_ratio))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/rebalance/plan", methods=["PUT"])
+def api_rebalance_plan():
+    """단계별 실행 계획의 최종 목표비율 저장. body: [{stock_code, plan_target_ratio}]"""
+    uid   = _current_uid()
+    items = request.get_json() or []
+    with get_conn() as conn:
+        cur = conn.cursor()
+        for item in items:
+            stock_code = (item.get("stock_code") or "").strip()
+            if not stock_code:
+                continue
+            try:
+                plan_ratio = float(item.get("plan_target_ratio") or 0)
+                if not (0 <= plan_ratio <= 100):
+                    continue
+            except (ValueError, TypeError):
+                continue
+            cur.execute("""
+                INSERT INTO rebalance_targets (user_id, stock_code, target_ratio, plan_target_ratio, updated_at)
+                VALUES (%s, %s, 0, %s, NOW())
+                ON CONFLICT (user_id, stock_code)
+                DO UPDATE SET plan_target_ratio = EXCLUDED.plan_target_ratio, updated_at = NOW()
+            """, (uid, stock_code, plan_ratio))
     return jsonify({"ok": True})
 
 

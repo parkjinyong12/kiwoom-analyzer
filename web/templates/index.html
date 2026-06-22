@@ -14169,14 +14169,11 @@ let _rpPhaseData      = [];
 let _rpDirty          = new Set();
 let _rpActiveTab      = 'target';
 
-const _RP_PLAN_KEY = 'rp_plan_targets';
-
-function _rpLoadPlanTargets() {
-  try { return JSON.parse(localStorage.getItem(_RP_PLAN_KEY) || '{}'); }
-  catch { return {}; }
-}
-function _rpSavePlanTargets(obj) {
-  localStorage.setItem(_RP_PLAN_KEY, JSON.stringify(obj));
+function _rpGetPlanTarget(code) {
+  const el = document.getElementById(`rp-plan-${code}`);
+  if (!el) return null;
+  const v = parseFloat(el.value);
+  return isNaN(v) ? null : v;
 }
 
 function rpSwitchTab(tab) {
@@ -14201,12 +14198,11 @@ async function rpLoad() {
     // 보유 종목 + 목표비율 설정된 종목 모두 포함
     const rawData = (json.holdings || []).filter(h => h.target_ratio > 0 || (h.total_qty > 0 && h.current_price > 0));
     _rpPortfolioTotal = json.portfolio_total || 0;
-    // DB 실제 목표비율 보존 + 로컬스토리지 계획 목표비율로 오버라이드
-    const planTargets = _rpLoadPlanTargets();
+    // target_ratio = 현재 단계 목표 (DB), plan_target_ratio = 최종 목표 (DB)
     _rpData = rawData.map(h => ({
       ...h,
-      _db_target: h.target_ratio,  // DB 원본 보존
-      target_ratio: planTargets[h.stock_code] != null ? planTargets[h.stock_code] : h.target_ratio,
+      // plan_target_ratio 없으면 target_ratio로 초기화 (처음 쓰는 경우)
+      plan_target_ratio: h.plan_target_ratio ?? h.target_ratio,
     }));
     _rpDirty.clear();
     document.getElementById('rp-save-btn').disabled = true;
@@ -14230,12 +14226,13 @@ function rpRenderTable() {
 
   tbody.innerHTML = _rpData.map(h => {
     const price    = h.current_price || 0;
-    const qty      = h.total_qty     || 0;      // API 필드명 total_qty
-    const evalAmt  = h.eval_amt      || 0;      // API가 직접 계산해서 줌
+    const qty      = h.total_qty     || 0;
+    const evalAmt  = h.eval_amt      || 0;
     const curRatio = h.current_ratio ?? (_rpPortfolioTotal > 0 ? evalAmt / _rpPortfolioTotal * 100 : 0);
-    const tgt      = _rpGetTarget(h.stock_code) ?? h.target_ratio ?? 0;
-    const tgtAmt   = _rpPortfolioTotal * tgt / 100;
-    const diff     = tgt - curRatio;
+    // Tab 1에서 편집하는 값 = plan_target_ratio (최종 목표)
+    const planTgt  = _rpGetPlanTarget(h.stock_code) ?? h.plan_target_ratio ?? h.target_ratio ?? 0;
+    const tgtAmt   = _rpPortfolioTotal * planTgt / 100;
+    const diff     = planTgt - curRatio;
     const tradeAmt = tgtAmt - evalAmt;
     const tradeQty = price > 0 ? Math.round(tradeAmt / price) : 0;
     const diffColor  = Math.abs(diff) < 0.5 ? '#64748b' : diff > 0 ? '#4ade80' : '#f87171';
@@ -14247,6 +14244,9 @@ function rpRenderTable() {
 
     const isDirty = _rpDirty.has(h.stock_code);
     const bord    = isDirty ? '#f59e0b' : '#1e2535';
+    // 현재 단계 목표(target_ratio)와 최종 목표(plan_target_ratio)가 다를 때 참고 표시
+    const stepNote = h.target_ratio > 0 && Math.abs(h.target_ratio - planTgt) > 0.01
+      ? `<div style="font-size:10px;color:#475569;margin-top:2px">현단계: ${h.target_ratio.toFixed(1)}%</div>` : '';
 
     return `<tr>
       <td style="font-weight:600;color:#f1f5f9;white-space:nowrap">
@@ -14257,13 +14257,12 @@ function rpRenderTable() {
       <td class="num">${evalAmt ? evalAmt.toLocaleString()+'원' : '—'}</td>
       <td class="num">${curRatio.toFixed(2)}%</td>
       <td class="num">
-        <input type="number" id="rp-tgt-${h.stock_code}" min="0" max="100" step="0.1"
-          value="${tgt || ''}" placeholder="0.00"
+        <input type="number" id="rp-plan-${h.stock_code}" min="0" max="100" step="0.1"
+          value="${planTgt || ''}" placeholder="0.00"
           style="width:70px;padding:4px 6px;border-radius:4px;border:1px solid ${bord};background:#0f1117;color:#fbbf24;font-size:13px;text-align:right;outline:none"
           oninput="rpMarkDirty('${h.stock_code}')"/>
         <span style="font-size:11px;color:#475569">%</span>
-        ${h._db_target != null && Math.abs((h._db_target||0) - tgt) > 0.01
-          ? `<div style="font-size:10px;color:#475569;margin-top:2px">실제: ${h._db_target.toFixed(1)}%</div>` : ''}
+        ${stepNote}
       </td>
       <td class="num" style="color:${diffColor};font-weight:600">${diff >= 0?'+':''}${diff.toFixed(2)}pp</td>
       <td class="num" style="color:${tradeColor}">${tradeQty !== 0 ? (tradeAmt > 0?'+':'')+Math.round(tradeAmt).toLocaleString()+'원' : '—'}</td>
@@ -14272,7 +14271,7 @@ function rpRenderTable() {
   }).join('');
 
   // 합계 행
-  const tgtSum = _rpData.reduce((s,h) => s + (_rpGetTarget(h.stock_code) ?? h.target_ratio ?? 0), 0);
+  const tgtSum = _rpData.reduce((s,h) => s + (_rpGetPlanTarget(h.stock_code) ?? h.plan_target_ratio ?? h.target_ratio ?? 0), 0);
   const tgtColor = Math.abs(tgtSum - 100) < 0.5 ? '#4ade80' : Math.abs(tgtSum - 100) < 2 ? '#fbbf24' : '#f87171';
   tfoot.innerHTML = `<tr style="border-top:2px solid #1e2535;background:#0c1117">
     <td colspan="4" style="padding:8px 12px;font-size:12px;color:#64748b">합계</td>
@@ -14296,45 +14295,53 @@ function rpRenderTable() {
   document.getElementById('rp-tgt-note').textContent  = Math.abs(tgtSum-100)<0.5 ? '✓ 균형' : `100% 기준 ${(tgtSum-100).toFixed(1)}pp 차이`;
 }
 
-function _rpGetTarget(code) {
-  const el = document.getElementById(`rp-tgt-${code}`);
-  if (!el) return null;
-  const v = parseFloat(el.value);
-  return isNaN(v) ? null : v;
-}
-
 function rpMarkDirty(code) {
   _rpDirty.add(code);
-  const el = document.getElementById(`rp-tgt-${code}`);
+  const el = document.getElementById(`rp-plan-${code}`);
   if (el) el.style.borderColor = '#f59e0b';
   document.getElementById('rp-save-btn').disabled = false;
-  rpRenderPhases();
 }
 
-function rpSaveTargets() {
-  // DB가 아닌 로컬스토리지에만 저장 — 다른 화면의 목표비율에 영향 없음
-  const saved = _rpLoadPlanTargets();
-  _rpData.forEach(h => {
-    const v = _rpGetTarget(h.stock_code);
-    if (v !== null && v >= 0) {
-      saved[h.stock_code] = v;
-      h.target_ratio = v;  // 메모리 갱신
+async function rpSaveTargets() {
+  const btn = document.getElementById('rp-save-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '저장 중...'; }
+
+  const payload = _rpData
+    .filter(h => _rpDirty.has(h.stock_code) || _rpGetPlanTarget(h.stock_code) !== null)
+    .map(h => ({
+      stock_code: h.stock_code,
+      plan_target_ratio: _rpGetPlanTarget(h.stock_code) ?? h.plan_target_ratio ?? h.target_ratio ?? 0,
+    }));
+
+  try {
+    const res = await fetch('/api/rebalance/plan', {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      _rpDirty.clear();
+      if (btn) { btn.textContent = '계획 저장'; }
+      _rpData.forEach(h => {
+        const el = document.getElementById(`rp-plan-${h.stock_code}`);
+        if (el) el.style.borderColor = '#1e2535';
+        const v = _rpGetPlanTarget(h.stock_code);
+        if (v !== null) h.plan_target_ratio = v;
+      });
+      rpRenderTable();
+      if (_rpActiveTab === 'plan') rpRenderPhases();
+    } else {
+      alert('저장 실패: ' + res.status);
+      if (btn) { btn.disabled = false; btn.textContent = '계획 저장'; }
     }
-  });
-  _rpSavePlanTargets(saved);
-  _rpDirty.clear();
-  document.getElementById('rp-save-btn').disabled = true;
-  _rpData.forEach(h => {
-    const el = document.getElementById(`rp-tgt-${h.stock_code}`);
-    if (el) el.style.borderColor = '#1e2535';
-  });
-  rpRenderTable();
-  if (_rpActiveTab === 'plan') rpRenderPhases();
+  } catch(e) {
+    alert('오류: ' + e);
+    if (btn) { btn.disabled = false; btn.textContent = '계획 저장'; }
+  }
 }
 
 function rpResetToDb() {
-  if (!confirm('실제 목표비율(DB)로 초기화합니다.\n브라우저에 저장된 계획 목표비율이 삭제됩니다.\n진행하시겠습니까?')) return;
-  localStorage.removeItem(_RP_PLAN_KEY);
+  if (!confirm('DB에 저장된 최종 목표비율로 초기화합니다.\n현재 편집 중인 내용이 사라집니다.\n진행하시겠습니까?')) return;
+  _rpDirty.clear();
   rpLoad();
 }
 
@@ -14350,8 +14357,9 @@ function rpRenderPhases() {
   const all = _rpData
     .filter(h => h.current_price > 0)
     .map(h => {
-      const tgt      = _rpGetTarget(h.stock_code) ?? h.target_ratio ?? 0;
-      const qty      = h.total_qty  || 0;       // API 필드명 total_qty
+      // 최종 목표 = 입력 중인 값 우선, 없으면 DB의 plan_target_ratio, 없으면 target_ratio
+      const tgt      = _rpGetPlanTarget(h.stock_code) ?? h.plan_target_ratio ?? h.target_ratio ?? 0;
+      const qty      = h.total_qty  || 0;
       const price    = h.current_price;
       const evalAmt  = h.eval_amt   || qty * price;
       const tgtAmt   = _rpPortfolioTotal * tgt / 100;
@@ -14497,8 +14505,8 @@ async function rpApplyPhase(phaseIdx) {
 
   const lines = phase.targets.map(t => {
     const h    = _rpData.find(x => x.stock_code === t.stock_code);
-    const orig = (h?._db_target ?? h?.target_ratio ?? 0).toFixed(2);
-    const diff = (t.target_ratio - (h?._db_target ?? h?.target_ratio ?? 0)).toFixed(2);
+    const orig = (h?.target_ratio ?? 0).toFixed(2);
+    const diff = (t.target_ratio - (h?.target_ratio ?? 0)).toFixed(2);
     const sign = parseFloat(diff) >= 0 ? '+' : '';
     return `${h?.stock_name ?? t.stock_code}: ${orig}% → ${t.target_ratio.toFixed(2)}% (${sign}${diff}pp)`;
   }).join('\n');
