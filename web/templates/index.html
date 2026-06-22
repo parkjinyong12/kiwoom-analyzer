@@ -3182,6 +3182,13 @@ canvas { max-height: 220px; }
           <tbody id="per-tbody">
             <tr><td colspan="12" class="loading">로딩 중...</td></tr>
           </tbody>
+          <tfoot id="per-tfoot" style="display:none">
+            <tr style="border-top:2px solid #334155;background:#0c1117">
+              <td colspan="10" style="padding:8px 12px;font-size:12px;color:#64748b">합계</td>
+              <td class="num" style="padding:8px 12px;font-weight:700" id="per-total-row">—</td>
+              <td></td>
+            </tr>
+          </tfoot>
         </table>
       </div>
     </div>
@@ -9270,13 +9277,19 @@ function perRowHtml(h) {
 }
 
 function perRecomputeEff() {
-  const tgtBase = perData.reduce((s, h) => s + h.target_ratio, 0);
-  const tgtAdj  = perData.reduce((s, h) => s + h.target_ratio * h._c.ratio, 0);
-  perData.forEach(h => {
-    h._effTarget = tgtAdj > 0
-      ? Math.round(h.target_ratio * h._c.ratio / tgtAdj * tgtBase * 100) / 100
+  // PER 입력 완료 종목끼리만 그룹 내 재분배 → 미입력 종목은 원래 비율 유지
+  const perSet    = perData.filter(h => h._c.fwdPer && h._c.fairPer);
+  const perNotSet = perData.filter(h => !(h._c.fwdPer && h._c.fairPer));
+
+  const groupBase = perSet.reduce((s, h) => s + h.target_ratio, 0);
+  const groupAdj  = perSet.reduce((s, h) => s + h.target_ratio * h._c.ratio, 0);
+
+  perSet.forEach(h => {
+    h._effTarget = groupAdj > 0
+      ? Math.round(h.target_ratio * h._c.ratio / groupAdj * groupBase * 100) / 100
       : h.target_ratio;
   });
+  perNotSet.forEach(h => { h._effTarget = h.target_ratio; });
 }
 
 function perUpdateSummary() {
@@ -9288,6 +9301,17 @@ function perUpdateSummary() {
   document.getElementById('per-set-cnt').textContent   = synced;
   document.getElementById('per-cheap-cnt').textContent = cheap;
   document.getElementById('per-exp-cnt').textContent   = exp;
+
+  // 합계 행
+  if (perData.length) {
+    const sumOrig = perData.reduce((s, h) => s + h.target_ratio, 0);
+    const sumEff  = perData.reduce((s, h) => s + (h._effTarget ?? h.target_ratio), 0);
+    const diff    = Math.round((sumEff - sumOrig) * 100) / 100;
+    const diffStr = diff === 0 ? '' : ` <span style="color:${diff > 0 ? '#4ade80' : '#f87171'};font-size:11px">(${diff > 0 ? '+' : ''}${diff})</span>`;
+    document.getElementById('per-total-row').innerHTML =
+      `<span style="color:#94a3b8">${sumOrig.toFixed(1)}%</span> → <span style="color:#e2e8f0;font-weight:700">${sumEff.toFixed(1)}%</span>${diffStr}`;
+    document.getElementById('per-tfoot').style.display = '';
+  }
 }
 
 function perMarkDirty(stockCode) {

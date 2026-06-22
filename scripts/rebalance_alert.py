@@ -243,12 +243,20 @@ def get_stock_signals(conn, uid: int) -> tuple[list[dict], list[dict]]:
             fair = h["eps_growth_rate"]
         h["per_ratio"] = (fair / fwd) if (fwd and fair and fwd > 0) else 1.0
 
-    tgt_base = sum(h["target_ratio"] for h in holdings if h["target_ratio"] > 0)
-    tgt_adj  = sum(h["target_ratio"] * h["per_ratio"] for h in holdings if h["target_ratio"] > 0)
+    # PER 입력 종목끼리만 그룹 내 재분배 → 미입력 종목은 원래 비율 유지
+    per_set     = [h for h in holdings if h["target_ratio"] > 0 and h["per_ratio"] != 1.0]
+    per_not_set = [h for h in holdings if h["target_ratio"] > 0 and h["per_ratio"] == 1.0]
+    group_base  = sum(h["target_ratio"] for h in per_set)
+    group_adj   = sum(h["target_ratio"] * h["per_ratio"] for h in per_set)
+    for h in per_set:
+        h["eff_target_ratio"] = (
+            h["target_ratio"] * h["per_ratio"] / group_adj * group_base
+            if group_adj > 0 else h["target_ratio"]
+        )
+    for h in per_not_set:
+        h["eff_target_ratio"] = h["target_ratio"]
     for h in holdings:
-        if h["target_ratio"] > 0 and tgt_adj > 0:
-            h["eff_target_ratio"] = h["target_ratio"] * h["per_ratio"] / tgt_adj * tgt_base
-        else:
+        if h["target_ratio"] <= 0:
             h["eff_target_ratio"] = h["target_ratio"]
     # ─────────────────────────────────────────────────────────────────────────
 
