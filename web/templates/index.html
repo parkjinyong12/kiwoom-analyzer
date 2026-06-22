@@ -3406,86 +3406,132 @@ canvas { max-height: 220px; }
         <div class="page-title">단계별 실행 계획</div>
         <div class="page-sub">목표비율 설정 → 현재 보유 대비 단계별 매수·매도 수량 계획</div>
       </div>
-      <div style="display:flex;gap:8px;align-items:center">
-        <button class="btn btn-ghost" style="font-size:12px" onclick="rpLoad()">새로고침</button>
-        <button class="btn btn-ghost" style="font-size:12px;color:#fbbf24;border-color:#444" onclick="rpSaveTargets()" id="rp-save-btn" disabled>목표비율 저장</button>
-      </div>
+      <button class="btn btn-ghost" style="font-size:12px" onclick="rpLoad()">새로고침</button>
     </div>
 
-    <!-- 요약 카드 -->
-    <div class="cards" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
-      <div class="card">
-        <div class="card-label">총 포트폴리오</div>
-        <div class="card-value blue" id="rp-total" style="font-size:18px">-</div>
-        <div class="card-note" id="rp-total-note">주식 평가액 합계</div>
-      </div>
-      <div class="card">
-        <div class="card-label">목표비율 합계</div>
-        <div class="card-value" id="rp-tgt-sum" style="font-size:22px">-</div>
-        <div class="card-note" id="rp-tgt-note">100%에 가까울수록 좋음</div>
-      </div>
-      <div class="card">
-        <div class="card-label">조정 필요 종목</div>
-        <div class="card-value orange" id="rp-need-cnt" style="font-size:22px">-</div>
-        <div class="card-note">현재비율 ≠ 목표비율</div>
-      </div>
-      <div class="card">
-        <div class="card-label">총 거래 규모</div>
-        <div class="card-value" id="rp-trade-total" style="font-size:18px">-</div>
-        <div class="card-note" id="rp-trade-note">매수+매도 합계</div>
-      </div>
+    <!-- 탭 -->
+    <div style="display:flex;gap:0;border-bottom:2px solid #1e2535;margin-bottom:20px">
+      <button id="rp-tab-target" onclick="rpSwitchTab('target')"
+        style="padding:10px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:3px solid #60a5fa;margin-bottom:-2px;color:#60a5fa">
+        목표 설정
+      </button>
+      <button id="rp-tab-plan" onclick="rpSwitchTab('plan')"
+        style="padding:10px 20px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px;color:#475569">
+        단계별 계획
+      </button>
     </div>
 
-    <!-- 종목별 목표비율 테이블 -->
-    <div style="background:#111827;border:1px solid #1e2535;border-radius:10px;padding:16px 20px;margin-bottom:16px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <span style="font-size:13px;font-weight:600;color:#94a3b8">종목별 목표비율</span>
-        <span style="font-size:11px;color:#475569">목표비율 수정 후 저장 버튼을 눌러야 반영됩니다</span>
-      </div>
-      <div style="overflow-x:auto">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>종목명</th>
-              <th style="text-align:right">현재가</th>
-              <th style="text-align:right">보유수량</th>
-              <th style="text-align:right">평가금액</th>
-              <th style="text-align:right">현재비율</th>
-              <th style="text-align:right;color:#fbbf24">목표비율</th>
-              <th style="text-align:right">차이(pp)</th>
-              <th style="text-align:right">필요거래금액</th>
-              <th style="text-align:right">필요거래수량</th>
-            </tr>
-          </thead>
-          <tbody id="rp-tbody">
-            <tr><td colspan="9" class="loading">로딩 중...</td></tr>
-          </tbody>
-          <tfoot id="rp-tfoot"></tfoot>
-        </table>
-      </div>
-    </div>
-
-    <!-- 단계별 조정 계획 -->
-    <div style="background:#111827;border:1px solid #1e2535;border-radius:10px;padding:16px 20px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
-        <span style="font-size:13px;font-weight:600;color:#94a3b8">단계별 조정 계획</span>
-        <div style="display:flex;align-items:center;gap:16px">
-          <label style="font-size:12px;color:#94a3b8;display:flex;align-items:center;gap:6px">
-            단계 수
-            <input type="number" id="rp-phase-count" min="2" max="10" value="3"
-              style="width:52px;padding:4px 6px;border-radius:4px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;text-align:center;outline:none"
-              oninput="rpRenderPhases()"/>
-          </label>
-          <label style="font-size:12px;color:#94a3b8;display:flex;align-items:center;gap:6px">
-            단계별 한도
-            <input type="number" id="rp-phase-budget" min="0" step="100" placeholder="무제한"
-              style="width:120px;padding:4px 8px;border-radius:4px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;text-align:right;outline:none"
-              oninput="rpRenderPhases()"/>
-            <span style="font-size:11px;color:#475569">만원</span>
-          </label>
+    <!-- ── Tab 1: 목표 설정 ── -->
+    <div id="rp-pane-target">
+      <!-- 요약 카드 -->
+      <div class="cards" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+        <div class="card">
+          <div class="card-label">총 포트폴리오</div>
+          <div class="card-value blue" id="rp-total" style="font-size:18px">-</div>
+          <div class="card-note">주식 평가액 합계</div>
+        </div>
+        <div class="card">
+          <div class="card-label">목표비율 합계</div>
+          <div class="card-value" id="rp-tgt-sum" style="font-size:22px">-</div>
+          <div class="card-note" id="rp-tgt-note">100%에 가까울수록 좋음</div>
+        </div>
+        <div class="card">
+          <div class="card-label">조정 필요 종목</div>
+          <div class="card-value orange" id="rp-need-cnt" style="font-size:22px">-</div>
+          <div class="card-note">현재비율 ≠ 목표비율</div>
+        </div>
+        <div class="card">
+          <div class="card-label">총 거래 규모</div>
+          <div class="card-value" id="rp-trade-total" style="font-size:18px">-</div>
+          <div class="card-note">매수+매도 합계</div>
         </div>
       </div>
-      <div id="rp-phase-content"></div>
+
+      <!-- 목표비율 테이블 -->
+      <div style="background:#111827;border:1px solid #1e2535;border-radius:10px;padding:16px 20px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <div>
+            <span style="font-size:13px;font-weight:600;color:#94a3b8">종목별 목표비율</span>
+            <span style="font-size:11px;color:#475569;margin-left:10px">이 계획은 브라우저에만 저장되며 다른 화면의 목표비율에 영향을 주지 않습니다</span>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-ghost" style="font-size:12px;color:#64748b" onclick="rpResetToDb()" title="실제 목표비율(DB)로 초기화">DB 목표로 초기화</button>
+            <button class="btn btn-ghost" style="font-size:12px;color:#fbbf24;border-color:#444" onclick="rpSaveTargets()" id="rp-save-btn" disabled>계획 저장</button>
+          </div>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>종목명</th>
+                <th style="text-align:right">현재가</th>
+                <th style="text-align:right">보유수량</th>
+                <th style="text-align:right">평가금액</th>
+                <th style="text-align:right">현재비율</th>
+                <th style="text-align:right;color:#fbbf24">목표비율</th>
+                <th style="text-align:right">차이(pp)</th>
+                <th style="text-align:right">필요거래금액</th>
+                <th style="text-align:right">필요거래수량</th>
+              </tr>
+            </thead>
+            <tbody id="rp-tbody">
+              <tr><td colspan="9" class="loading">로딩 중...</td></tr>
+            </tbody>
+            <tfoot id="rp-tfoot"></tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Tab 2: 단계별 계획 ── -->
+    <div id="rp-pane-plan" style="display:none">
+      <div style="background:#0c1a2e;border:1px solid #1e3a5f;border-radius:8px;padding:12px 16px;margin-bottom:16px;font-size:12px;color:#64748b;line-height:1.6">
+        현재 보유 → 목표비율(Tab 1)까지의 단계별 계획입니다.
+        각 단계 거래를 실행한 뒤 <strong style="color:#94a3b8">보유종목을 업데이트</strong>하고 새로고침하면 남은 단계가 자동 재계산됩니다.
+        목표비율 자체는 변경되지 않습니다.
+      </div>
+
+      <!-- 요약 카드 (plan용) -->
+      <div class="cards" style="grid-template-columns:repeat(3,1fr);margin-bottom:16px">
+        <div class="card">
+          <div class="card-label">조정 필요 종목</div>
+          <div class="card-value orange" id="rp-plan-need-cnt" style="font-size:22px">-</div>
+          <div class="card-note">목표 미달/초과 종목</div>
+        </div>
+        <div class="card">
+          <div class="card-label">총 매수 필요</div>
+          <div class="card-value blue" id="rp-plan-buy" style="font-size:18px">-</div>
+          <div class="card-note" id="rp-plan-buy-note">-</div>
+        </div>
+        <div class="card">
+          <div class="card-label">총 매도 필요</div>
+          <div class="card-value" style="color:#f87171;font-size:18px" id="rp-plan-sell">-</div>
+          <div class="card-note" id="rp-plan-sell-note">-</div>
+        </div>
+      </div>
+
+      <!-- 단계별 조정 계획 -->
+      <div style="background:#111827;border:1px solid #1e2535;border-radius:10px;padding:16px 20px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+          <span style="font-size:13px;font-weight:600;color:#94a3b8">단계별 조정 계획</span>
+          <div style="display:flex;align-items:center;gap:16px">
+            <label style="font-size:12px;color:#94a3b8;display:flex;align-items:center;gap:6px">
+              단계 수
+              <input type="number" id="rp-phase-count" min="2" max="10" value="3"
+                style="width:52px;padding:4px 6px;border-radius:4px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;text-align:center;outline:none"
+                oninput="rpRenderPhases()"/>
+            </label>
+            <label style="font-size:12px;color:#94a3b8;display:flex;align-items:center;gap:6px">
+              단계별 한도
+              <input type="number" id="rp-phase-budget" min="0" step="100" placeholder="무제한"
+                style="width:120px;padding:4px 8px;border-radius:4px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;text-align:right;outline:none"
+                oninput="rpRenderPhases()"/>
+              <span style="font-size:11px;color:#475569">만원</span>
+            </label>
+          </div>
+        </div>
+        <div id="rp-phase-content"></div>
+      </div>
     </div>
   </section>
 
@@ -14117,10 +14163,34 @@ function mpRenderPhases() {
 }
 
 // ── 단계별 실행 계획 ──────────────────────────────────────────────────────────
-let _rpData         = [];  // 종목별 데이터 [{stock_code, stock_name, current_price, qty, eval_amt, cur_ratio, target_ratio}]
+let _rpData           = [];
 let _rpPortfolioTotal = 0;
-let _rpPhaseData    = [];  // [{p, targets:[{stock_code,target_ratio}]}]
-let _rpDirty        = new Set();
+let _rpPhaseData      = [];
+let _rpDirty          = new Set();
+let _rpActiveTab      = 'target';
+
+const _RP_PLAN_KEY = 'rp_plan_targets';
+
+function _rpLoadPlanTargets() {
+  try { return JSON.parse(localStorage.getItem(_RP_PLAN_KEY) || '{}'); }
+  catch { return {}; }
+}
+function _rpSavePlanTargets(obj) {
+  localStorage.setItem(_RP_PLAN_KEY, JSON.stringify(obj));
+}
+
+function rpSwitchTab(tab) {
+  _rpActiveTab = tab;
+  document.getElementById('rp-pane-target').style.display = tab === 'target' ? '' : 'none';
+  document.getElementById('rp-pane-plan').style.display   = tab === 'plan'   ? '' : 'none';
+  const tTarget = document.getElementById('rp-tab-target');
+  const tPlan   = document.getElementById('rp-tab-plan');
+  tTarget.style.borderBottomColor = tab === 'target' ? '#60a5fa' : 'transparent';
+  tTarget.style.color             = tab === 'target' ? '#60a5fa' : '#475569';
+  tPlan.style.borderBottomColor   = tab === 'plan'   ? '#60a5fa' : 'transparent';
+  tPlan.style.color               = tab === 'plan'   ? '#60a5fa' : '#475569';
+  if (tab === 'plan') rpRenderPhases();
+}
 
 async function rpLoad() {
   document.getElementById('rp-tbody').innerHTML =
@@ -14129,12 +14199,19 @@ async function rpLoad() {
     const res  = await fetch('/api/rebalance');
     const json = await res.json();
     // 보유 종목 + 목표비율 설정된 종목 모두 포함
-    _rpData = (json.holdings || []).filter(h => h.target_ratio > 0 || (h.total_qty > 0 && h.current_price > 0));
+    const rawData = (json.holdings || []).filter(h => h.target_ratio > 0 || (h.total_qty > 0 && h.current_price > 0));
     _rpPortfolioTotal = json.portfolio_total || 0;
+    // DB 실제 목표비율 보존 + 로컬스토리지 계획 목표비율로 오버라이드
+    const planTargets = _rpLoadPlanTargets();
+    _rpData = rawData.map(h => ({
+      ...h,
+      _db_target: h.target_ratio,  // DB 원본 보존
+      target_ratio: planTargets[h.stock_code] != null ? planTargets[h.stock_code] : h.target_ratio,
+    }));
     _rpDirty.clear();
     document.getElementById('rp-save-btn').disabled = true;
     rpRenderTable();
-    rpRenderPhases();
+    if (_rpActiveTab === 'plan') rpRenderPhases();
   } catch(e) {
     document.getElementById('rp-tbody').innerHTML =
       `<tr><td colspan="9" style="color:#f87171;text-align:center;padding:20px">로드 실패: ${e}</td></tr>`;
@@ -14185,6 +14262,8 @@ function rpRenderTable() {
           style="width:70px;padding:4px 6px;border-radius:4px;border:1px solid ${bord};background:#0f1117;color:#fbbf24;font-size:13px;text-align:right;outline:none"
           oninput="rpMarkDirty('${h.stock_code}')"/>
         <span style="font-size:11px;color:#475569">%</span>
+        ${h._db_target != null && Math.abs((h._db_target||0) - tgt) > 0.01
+          ? `<div style="font-size:10px;color:#475569;margin-top:2px">실제: ${h._db_target.toFixed(1)}%</div>` : ''}
       </td>
       <td class="num" style="color:${diffColor};font-weight:600">${diff >= 0?'+':''}${diff.toFixed(2)}pp</td>
       <td class="num" style="color:${tradeColor}">${tradeQty !== 0 ? (tradeAmt > 0?'+':'')+Math.round(tradeAmt).toLocaleString()+'원' : '—'}</td>
@@ -14232,27 +14311,31 @@ function rpMarkDirty(code) {
   rpRenderPhases();
 }
 
-async function rpSaveTargets() {
-  const items = [];
-  _rpDirty.forEach(code => {
-    const v = _rpGetTarget(code);
-    if (v !== null && v >= 0) items.push({ stock_code: code, target_ratio: v });
+function rpSaveTargets() {
+  // DB가 아닌 로컬스토리지에만 저장 — 다른 화면의 목표비율에 영향 없음
+  const saved = _rpLoadPlanTargets();
+  _rpData.forEach(h => {
+    const v = _rpGetTarget(h.stock_code);
+    if (v !== null && v >= 0) {
+      saved[h.stock_code] = v;
+      h.target_ratio = v;  // 메모리 갱신
+    }
   });
-  if (!items.length) return;
-  const res = await fetch('/api/rebalance/targets', {
-    method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(items),
+  _rpSavePlanTargets(saved);
+  _rpDirty.clear();
+  document.getElementById('rp-save-btn').disabled = true;
+  _rpData.forEach(h => {
+    const el = document.getElementById(`rp-tgt-${h.stock_code}`);
+    if (el) el.style.borderColor = '#1e2535';
   });
-  if (res.ok) {
-    _rpDirty.clear();
-    document.getElementById('rp-save-btn').disabled = true;
-    _rpData.forEach(h => {
-      const el = document.getElementById(`rp-tgt-${h.stock_code}`);
-      if (el) el.style.borderColor = '#1e2535';
-    });
-    await rpLoad();
-  } else {
-    alert('저장 실패: ' + res.status);
-  }
+  rpRenderTable();
+  if (_rpActiveTab === 'plan') rpRenderPhases();
+}
+
+function rpResetToDb() {
+  if (!confirm('실제 목표비율(DB)로 초기화합니다.\n브라우저에 저장된 계획 목표비율이 삭제됩니다.\n진행하시겠습니까?')) return;
+  localStorage.removeItem(_RP_PLAN_KEY);
+  rpLoad();
 }
 
 function rpRenderPhases() {
@@ -14374,8 +14457,8 @@ function rpRenderPhases() {
           <span style="color:#475569;font-size:12px">▾</span>
         </div>
         <button onclick="rpApplyPhase(${pIdx})" id="rp-phase-apply-${pIdx}"
-          style="background:none;border:1px solid #1e3a5f;color:#fbbf24;cursor:pointer;font-size:11px;padding:3px 10px;border-radius:4px;white-space:nowrap;flex-shrink:0"
-          title="${p}단계 거래 완료 후 중간 목표비율로 업데이트">${p}단계 완료</button>
+          style="background:none;border:1px solid #1e3a5f;color:#4ade80;cursor:pointer;font-size:11px;padding:3px 10px;border-radius:4px;white-space:nowrap;flex-shrink:0"
+          title="이 단계 거래를 완료했으면 클릭 → 보유종목 업데이트 후 새로고침">${p}단계 거래 완료</button>
       </div>
       <div style="border:1px solid #1e3a5f;border-top:none;border-radius:0 0 6px 6px;overflow-x:auto">
         <table class="data-table" style="margin:0">
@@ -14392,39 +14475,29 @@ function rpRenderPhases() {
       </div>
     </div>`;
   }).join('');
+
+  // plan 탭 요약 카드 업데이트
+  const totalBuy  = all.filter(h=>h.totalQty>0).reduce((s,h)=>s+h.tgtAmt-h.evalAmt,0);
+  const totalSell = all.filter(h=>h.totalQty<0).reduce((s,h)=>s+Math.abs(h.tgtAmt-h.evalAmt),0);
+  const elNeed = document.getElementById('rp-plan-need-cnt');
+  const elBuy  = document.getElementById('rp-plan-buy');
+  const elSell = document.getElementById('rp-plan-sell');
+  const elBuyN = document.getElementById('rp-plan-buy-note');
+  const elSellN= document.getElementById('rp-plan-sell-note');
+  if (elNeed) elNeed.textContent = all.length;
+  if (elBuy)  elBuy.textContent  = (totalBuy/1e4).toFixed(0)+'만원';
+  if (elSell) elSell.textContent = (totalSell/1e4).toFixed(0)+'만원';
+  if (elBuyN) elBuyN.textContent = `${all.filter(h=>h.totalQty>0).length}종목`;
+  if (elSellN)elSellN.textContent= `${all.filter(h=>h.totalQty<0).length}종목`;
 }
 
 async function rpApplyPhase(phaseIdx) {
   const phase = _rpPhaseData[phaseIdx];
   if (!phase) return;
-
-  const lines = phase.targets
-    .filter(t => {
-      const h = _rpData.find(x => x.stock_code === t.stock_code);
-      return Math.abs(t.target_ratio - (h?.target_ratio ?? 0)) > 0.01;
-    })
-    .map(t => {
-      const h    = _rpData.find(x => x.stock_code === t.stock_code);
-      const orig = (h?.target_ratio ?? 0).toFixed(2);
-      const diff = (t.target_ratio - (h?.target_ratio ?? 0)).toFixed(2);
-      return `${h?.stock_name ?? t.stock_code}: ${orig}% → ${t.target_ratio.toFixed(2)}% (${diff > 0?'+':''}${diff}pp)`;
-    }).join('\n');
-
-  if (!confirm(`${phase.p}단계 거래 완료 후 목표비율을 중간값으로 업데이트합니다.\n\n${lines}\n\n진행하시겠습니까?`)) return;
-
-  const btn = document.getElementById(`rp-phase-apply-${phaseIdx}`);
-  if (btn) { btn.disabled = true; btn.textContent = '적용 중...'; }
-
-  const res = await fetch('/api/rebalance/targets', {
-    method: 'PUT', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify(phase.targets.map(t => ({ stock_code: t.stock_code, target_ratio: t.target_ratio }))),
-  });
-  if (res.ok) {
-    await rpLoad();
-  } else {
-    alert('적용 실패: ' + res.status);
-    if (btn) { btn.disabled = false; btn.textContent = `${phase.p}단계 완료`; }
-  }
+  // DB 쓰기 없음 — 실제 거래 후 보유종목을 업데이트하면 자연히 다음 단계가 재계산됨
+  if (!confirm(`${phase.p}단계 거래를 완료했습니까?\n보유종목이 업데이트되어 있으면 새로고침 후 남은 단계가 자동 재계산됩니다.`)) return;
+  await rpLoad();
+  rpSwitchTab('plan');
 }
 // ──────────────────────────────────────────────────────────────────────────────
 
