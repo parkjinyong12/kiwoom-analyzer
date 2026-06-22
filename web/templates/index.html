@@ -3104,6 +3104,8 @@ canvas { max-height: 220px; }
       <div style="display:flex;gap:8px">
         <button class="btn btn-ghost" style="font-size:12px" onclick="perSyncEps()" id="per-sync-btn">EPS 동기화</button>
         <button class="btn btn-ghost" style="font-size:12px" onclick="loadPerManage()">새로고침</button>
+        <button class="btn btn-ghost" style="font-size:12px;color:#fbbf24;border-color:#444" onclick="perApplyTargets()" id="per-apply-btn" disabled
+          title="PER 조정 목표비율(eff_target)을 리밸런싱 목표비율에 반영">PER 목표 적용</button>
         <button class="btn btn-primary" style="font-size:12px" id="per-batch-save-btn" onclick="perSaveAll()" disabled>일괄 저장</button>
       </div>
     </div>
@@ -9353,6 +9355,7 @@ const TRB_MIN_AMT   = 50000; // 관망 최소금액 5만원
 let perData          = [];   // 종목별 데이터 캐시
 let perDirtySet      = new Set();
 let perPortfolioTotal = 0;   // 전체 포트폴리오 평가액 (주식+현금)
+let _perPhaseData    = [];   // 단계별 조정 계획 캐시 [{p, stocks:[{stock_code,newRatio}]}]
 
 async function loadPerManage() {
   document.getElementById('per-tbody').innerHTML =
@@ -9416,6 +9419,9 @@ function perRender() {
   tbody.innerHTML = perData.map(h => perRowHtml(h)).join('');
   perUpdateSummary();
   perRenderTrades();
+  // PER 목표 적용 버튼: eff_target이 있는 종목이 있으면 활성화
+  const applyBtn = document.getElementById('per-apply-btn');
+  if (applyBtn) applyBtn.disabled = !perData.some(h => h._effTarget != null && h._effTarget !== h.target_ratio);
 }
 
 function perRowHtml(h) {
@@ -9651,8 +9657,9 @@ function perRenderPhases() {
     }
   }
 
-  // 누적 수량 추적용
+  // 누적 수량 추적 + 단계별 목표비율 계산용
   const cumQty = Object.fromEntries(all.map(h => [h.stock_code, 0]));
+  _perPhaseData = [];
 
   const content = document.getElementById('per-phase-content');
   content.innerHTML = phasesList.map(({ p, rows }) => {
@@ -9661,8 +9668,17 @@ function perRenderPhases() {
     const buyCnt  = rows.filter(r=>r.phaseQty>0).length;
     const sellCnt = rows.filter(r=>r.phaseQty<0).length;
 
-    // 이 단계 반영 후 누적 수량
+    // 이 단계 반영 후 누적 수량 → 적용할 중간 목표비율 계산
     rows.forEach(r => { cumQty[r.stock_code] = (cumQty[r.stock_code]||0) + r.phaseQty; });
+
+    // 전체 종목 기준 이 단계 이후 목표비율 (거래 없는 종목은 현재 target 유지)
+    const phaseTargets = all.map(h => {
+      const cum     = cumQty[h.stock_code] || 0;
+      const newQty  = h.total_qty + cum;
+      const newRatio= perPortfolioTotal > 0 ? Math.round((newQty * h.current_price / perPortfolioTotal * 100) * 100) / 100 : h.eff;
+      return { stock_code: h.stock_code, stock_name: h.stock_name, target_ratio: newRatio, eff: h.eff };
+    });
+    _perPhaseData.push({ p, targets: phaseTargets });
 
     const rowsHtml = [...rows]
       .sort((a,b)=>Math.abs(b.phaseAmt)-Math.abs(a.phaseAmt))
@@ -9688,15 +9704,23 @@ function perRenderPhases() {
         </tr>`;
       }).join('');
 
+    const pIdx = _perPhaseData.length - 1;
     return `<div style="margin:8px 16px 0">
-      <div onclick="const b=this.nextElementSibling;b.style.display=b.style.display==='none'?'':'none'"
-           style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:#0c1a2e;border:1px solid #1e3a5f;border-radius:6px 6px 0 0;cursor:pointer;user-select:none">
-        <span style="font-weight:700;color:#93c5fd;font-size:14px">${p}단계</span>
-        <div style="display:flex;gap:20px;font-size:12px">
-          ${buyCnt>0?`<span style="color:#4ade80">↑ 매수 ${buyCnt}종목 &nbsp;${(buyAmt/1e4).toFixed(0)}만원</span>`:''}
-          ${sellCnt>0?`<span style="color:#f87171">↓ 매도 ${sellCnt}종목 &nbsp;${(sellAmt/1e4).toFixed(0)}만원</span>`:''}
-          <span style="color:#475569">▾</span>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:#0c1a2e;border:1px solid #1e3a5f;border-radius:6px 6px 0 0">
+        <div style="display:flex;align-items:center;gap:12px;cursor:pointer;flex:1"
+             onclick="const b=this.parentElement.nextElementSibling;b.style.display=b.style.display==='none'?'':'none'">
+          <span style="font-weight:700;color:#93c5fd;font-size:14px">${p}단계</span>
+          <div style="display:flex;gap:16px;font-size:12px">
+            ${buyCnt>0?`<span style="color:#4ade80">↑ 매수 ${buyCnt}종목 &nbsp;${(buyAmt/1e4).toFixed(0)}만원</span>`:''}
+            ${sellCnt>0?`<span style="color:#f87171">↓ 매도 ${sellCnt}종목 &nbsp;${(sellAmt/1e4).toFixed(0)}만원</span>`:''}
+          </div>
+          <span style="color:#475569;font-size:12px">▾</span>
         </div>
+        <button onclick="perApplyPhase(${pIdx})" id="per-phase-apply-${pIdx}"
+          style="background:none;border:1px solid #1e3a5f;color:#fbbf24;cursor:pointer;font-size:11px;padding:3px 10px;border-radius:4px;white-space:nowrap;flex-shrink:0"
+          title="${p}단계 거래 후 중간 목표비율로 리밸런싱 목표 업데이트">
+          ${p}단계 목표 적용
+        </button>
       </div>
       <div style="border:1px solid #1e3a5f;border-top:none;border-radius:0 0 6px 6px;overflow-x:auto">
         <table class="data-table" style="margin:0">
@@ -9713,6 +9737,41 @@ function perRenderPhases() {
       </div>
     </div>`;
   }).join('') + '<div style="height:8px"></div>';
+}
+
+async function perApplyPhase(phaseIdx) {
+  const phase = _perPhaseData[phaseIdx];
+  if (!phase) return;
+
+  const lines = phase.targets.map(t => {
+    const h    = perData.find(x => x.stock_code === t.stock_code);
+    const orig = h?.target_ratio?.toFixed(2) ?? '-';
+    const diff = (t.target_ratio - (h?.target_ratio ?? t.target_ratio)).toFixed(2);
+    const sign = diff > 0 ? '+' : '';
+    return `${h?.stock_name ?? t.stock_code}: ${orig}% → ${t.target_ratio.toFixed(2)}% (${sign}${diff}pp)`;
+  }).join('\n');
+
+  if (!confirm(`${phase.p}단계 거래 완료 후 목표비율을 아래와 같이 업데이트합니다.\n\n${lines}\n\n진행하시겠습니까?`)) return;
+
+  const btn = document.getElementById(`per-phase-apply-${phaseIdx}`);
+  if (btn) { btn.disabled = true; btn.textContent = '적용 중...'; }
+
+  try {
+    const res = await fetch('/api/rebalance/targets', {
+      method:  'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(phase.targets.map(t => ({ stock_code: t.stock_code, target_ratio: t.target_ratio }))),
+    });
+    if (res.ok) {
+      await loadPerManage();
+    } else {
+      alert('적용 실패: ' + res.status);
+      if (btn) { btn.disabled = false; btn.textContent = `${phase.p}단계 목표 적용`; }
+    }
+  } catch (e) {
+    alert('오류: ' + e);
+    if (btn) { btn.disabled = false; btn.textContent = `${phase.p}단계 목표 적용`; }
+  }
 }
 
 // ── 예상순이익 계산기 ──────────────────────────────────────────────────────
@@ -9901,6 +9960,55 @@ function perRefreshRow(stockCode) {
   });
   perUpdateSummary();
   perRenderTrades();
+}
+
+async function perApplyTargets() {
+  // PER 조정 목표비율(eff_target)을 실제 리밸런싱 목표비율에 반영
+  const targets = perData
+    .filter(h => h._effTarget != null && h.target_ratio > 0)
+    .map(h => ({ stock_code: h.stock_code, target_ratio: h._effTarget }));
+
+  if (!targets.length) {
+    alert('적용할 PER 조정 목표비율이 없습니다.\n예상순이익과 적정PER을 먼저 입력하세요.');
+    return;
+  }
+
+  const lines = targets.map(t => {
+    const h = perData.find(x => x.stock_code === t.stock_code);
+    const orig = h?.target_ratio?.toFixed(2) ?? '-';
+    const adj  = t.target_ratio.toFixed(2);
+    const diff = h ? (t.target_ratio - h.target_ratio).toFixed(2) : '-';
+    const sign = diff > 0 ? '+' : '';
+    return `${h?.stock_name ?? t.stock_code}: ${orig}% → ${adj}% (${sign}${diff}pp)`;
+  }).join('\n');
+
+  if (!confirm(`PER 조정 목표비율을 아래와 같이 적용합니다.\n\n${lines}\n\n진행하시겠습니까?`)) return;
+
+  const btn = document.getElementById('per-apply-btn');
+  btn.disabled = true;
+  btn.textContent = '적용 중...';
+
+  try {
+    const res = await fetch('/api/rebalance/targets', {
+      method:  'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(targets),
+    });
+    if (res.ok) {
+      btn.textContent = '적용 완료';
+      await loadPerManage();
+    } else {
+      alert('적용 실패: ' + res.status);
+      btn.textContent = 'PER 목표 적용';
+      btn.disabled = false;
+    }
+  } catch (e) {
+    alert('오류: ' + e);
+    btn.textContent = 'PER 목표 적용';
+    btn.disabled = false;
+  } finally {
+    setTimeout(() => { btn.textContent = 'PER 목표 적용'; btn.disabled = !perData.some(h => h._effTarget != null); }, 3000);
+  }
 }
 
 async function perSaveAll() {
