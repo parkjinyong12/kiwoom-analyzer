@@ -9325,7 +9325,7 @@ function perRowHtml(h) {
     </td>
     <td class="num" style="color:#4ade80">${h.current_price ? h.current_price.toLocaleString() + '원' : '—'}</td>
     <td class="num" style="color:#60a5fa">${h.current_eps ? h.current_eps.toLocaleString() : '—'}${syncDate}</td>
-    <td class="num" style="color:#60a5fa">${h.listed_shares ? (h.listed_shares / 1e4).toFixed(0) + '만주' : '—'}</td>
+    <td class="num" style="color:#60a5fa">${h.listed_shares ? h.listed_shares.toLocaleString() + '주' : '—'}</td>
     <td class="num">
       <input type="number" id="per-ni-${h.stock_code}" min="0" step="1"
         value="${h.forward_net_income ?? ''}" placeholder="억원 (백만원÷100)"
@@ -9708,7 +9708,7 @@ async function perShowHistory(stockCode, stockName) {
       <td>${r.recorded_date}</td>
       <td class="num" style="color:#60a5fa">${r.eps ? r.eps.toLocaleString() : '—'}</td>
       <td class="num">${r.per ? r.per.toFixed(1) + '배' : '—'}</td>
-      <td class="num">${r.listed_shares ? (r.listed_shares / 1e4).toFixed(0) + '만주' : '—'}</td>
+      <td class="num">${r.listed_shares ? r.listed_shares.toLocaleString() + '주' : '—'}</td>
       <td class="num">${r.net_income ? (r.net_income / 1e8).toFixed(0) + '억' : '—'}</td>
       <td class="num">${r.mac ? (r.mac / 1e8).toFixed(0) + '억' : '—'}</td>
     </tr>`).join('');
