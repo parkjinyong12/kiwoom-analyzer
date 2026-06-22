@@ -2375,8 +2375,9 @@ def api_rebalance_per():
                 if forward_eps and forward_eps > 0 and current_price and current_price > 0:
                     forward_per = round(float(current_price) / forward_eps, 2)
 
-                # 적정 PER = EPS 성장률 (PEG = 1 룰)
-                fair_per = round(eps_growth_rate, 2) if eps_growth_rate else None
+                # 적정 PER = 직접 입력값 우선, 없으면 기존 유지
+                fair_per_input = _sf(item.get("fair_per"))
+                fair_per = round(fair_per_input, 2) if fair_per_input else None
 
                 cur.execute("""
                     INSERT INTO rebalance_targets

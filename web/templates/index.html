@@ -3147,10 +3147,10 @@ canvas { max-height: 220px; }
           <span style="color:#64748b">상장주식수 · 현재EPS는 EPS 동기화(ka10001) 버튼으로 가져옵니다.</span>
         </div>
         <div>
-          <strong style="color:#86efac">③ 자동 — 적정 PER / per_ratio (PEG=1)</strong><br>
-          <code style="background:#1e3a5f;padding:2px 6px;border-radius:3px;font-size:11px">성장률 = (선행EPS÷현재EPS−1)×100</code><br>
-          <code style="background:#1e3a5f;padding:2px 6px;border-radius:3px;font-size:11px">적정PER = 성장률 · per_ratio = 적정÷선행</code><br>
-          <span style="color:#64748b">per_ratio &gt; 1 → 저평가 → 목표비율 상향. Peter Lynch 공식.</span>
+          <strong style="color:#86efac">③ 입력 — 적정 PER / 자동 — per_ratio</strong><br>
+          <code style="background:#1e3a5f;padding:2px 6px;border-radius:3px;font-size:11px">적정PER = 직접 입력 (업종 평균·목표 PER 등)</code><br>
+          <code style="background:#1e3a5f;padding:2px 6px;border-radius:3px;font-size:11px">per_ratio = 적정PER ÷ 선행PER</code><br>
+          <span style="color:#64748b">per_ratio &gt; 1 → 저평가 → 목표비율 상향. EPS 성장률은 참고용.</span>
         </div>
       </div>
     </div>
@@ -3173,7 +3173,7 @@ canvas { max-height: 220px; }
               <th style="text-align:right">선행 EPS<br><span style="font-size:10px;color:#4ade80">자동</span></th>
               <th style="text-align:right">EPS 성장률<br><span style="font-size:10px;color:#4ade80">자동</span></th>
               <th style="text-align:right">선행 PER<br><span style="font-size:10px;color:#4ade80">자동</span></th>
-              <th style="text-align:right">적정 PER<br><span style="font-size:10px;color:#4ade80">자동(PEG)</span></th>
+              <th style="text-align:right;min-width:110px">적정 PER<br><span style="font-size:10px;color:#fbbf24">직접 입력</span></th>
               <th style="text-align:right">per_ratio</th>
               <th style="text-align:right">목표→조정</th>
               <th style="text-align:center">평가</th>
@@ -9165,9 +9165,10 @@ async function loadPerManage() {
   }
 }
 
-// 예상순이익 입력값으로 모든 파생지표 계산
+// 예상순이익 + 적정PER 입력값으로 모든 파생지표 계산
 function perCalc(h) {
-  const ni = parseFloat(document.getElementById(`per-ni-${h.stock_code}`)?.value) || h.forward_net_income || null;
+  const ni          = parseFloat(document.getElementById(`per-ni-${h.stock_code}`)?.value)       || h.forward_net_income || null;
+  const fairPerInput= parseFloat(document.getElementById(`per-fairper-input-${h.stock_code}`)?.value) || null;
   const price       = h.current_price   || null;
   const curEps      = h.current_eps     || null;
   const listedShares= h.listed_shares   || null;
@@ -9178,7 +9179,7 @@ function perCalc(h) {
     fwdEps = Math.round(ni * 1e8 / listedShares);
   }
 
-  // EPS 성장률 = (선행EPS / 현재EPS - 1) × 100
+  // EPS 성장률 (참고용)
   let grow = null;
   if (fwdEps && curEps && curEps > 0) {
     grow = Math.round((fwdEps / curEps - 1) * 100 * 10) / 10;
@@ -9186,8 +9187,8 @@ function perCalc(h) {
 
   // 선행 PER = 현재가 / 선행EPS
   const fwdPer  = (fwdEps && fwdEps > 0 && price && price > 0) ? Math.round(price / fwdEps * 10) / 10 : null;
-  // 적정 PER = 성장률 (PEG=1)
-  const fairPer = (grow && grow > 0) ? grow : null;
+  // 적정 PER = 직접 입력값 우선, 없으면 저장된 값
+  const fairPer = fairPerInput || h.fair_per || null;
   const ratio   = (fwdPer && fairPer && fwdPer > 0) ? Math.round(fairPer / fwdPer * 100) / 100 : 1.0;
 
   return { ni, fwdEps, grow, fwdPer, fairPer, ratio };
@@ -9247,10 +9248,12 @@ function perRowHtml(h) {
       ${c.grow !== null ? c.grow.toFixed(1) + '%' : '—'}
     </td>
     <td class="num" style="color:#60a5fa;font-weight:600" id="per-fwdper-${h.stock_code}">
-      ${c.fwdPer ? c.fwdPer.toFixed(1) + 'x' : '—'}
+      ${c.fwdPer ? c.fwdPer.toFixed(1) + '배' : '—'}
     </td>
-    <td class="num" style="color:#86efac;font-weight:600" id="per-fairper-${h.stock_code}">
-      ${c.fairPer ? c.fairPer.toFixed(1) + 'x' : '—'}
+    <td class="num">
+      <input type="number" id="per-fairper-input-${h.stock_code}" min="0" step="0.1"
+        value="${h.fair_per ?? ''}" placeholder="적정PER"
+        style="${inp}" oninput="perMarkDirty('${h.stock_code}')"/>
     </td>
     <td class="num" style="color:${ratioColor};font-weight:700" id="per-ratio-${h.stock_code}">
       ${(c.fwdPer && c.fairPer) ? c.ratio.toFixed(2) : '—'}
@@ -9289,8 +9292,10 @@ function perUpdateSummary() {
 
 function perMarkDirty(stockCode) {
   perDirtySet.add(stockCode);
-  const el = document.getElementById(`per-ni-${stockCode}`);
-  if (el) el.style.borderColor = '#f59e0b';
+  [`per-ni-${stockCode}`, `per-fairper-input-${stockCode}`].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.borderColor = '#f59e0b';
+  });
   document.getElementById('per-dirty-hint').style.display = '';
   document.getElementById('per-batch-save-btn').disabled  = false;
   perRefreshRow(stockCode);
@@ -9318,8 +9323,7 @@ function perRefreshRow(stockCode) {
 
     set(`per-fwdeps-${d.stock_code}`,  c.fwdEps !== null ? c.fwdEps.toLocaleString() : '—');
     set(`per-grow-${d.stock_code}`,    c.grow   !== null ? c.grow.toFixed(1) + '%'   : '—');
-    set(`per-fwdper-${d.stock_code}`,  c.fwdPer  ? c.fwdPer.toFixed(1)  + 'x' : '—');
-    set(`per-fairper-${d.stock_code}`, c.fairPer ? c.fairPer.toFixed(1) + 'x' : '—');
+    set(`per-fwdper-${d.stock_code}`, c.fwdPer ? c.fwdPer.toFixed(1) + '배' : '—');
     set(`per-ratio-${d.stock_code}`,   (c.fwdPer && c.fairPer) ? c.ratio.toFixed(2) : '—');
     sty(`per-ratio-${d.stock_code}`, 'color', ratioColor);
 
@@ -9342,8 +9346,9 @@ async function perSaveAll() {
   if (!perDirtySet.size) return;
   const payload = [];
   perDirtySet.forEach(code => {
-    const ni = parseFloat(document.getElementById(`per-ni-${code}`)?.value) || null;
-    payload.push({ stock_code: code, forward_net_income: ni });
+    const ni      = parseFloat(document.getElementById(`per-ni-${code}`)?.value)            || null;
+    const fairPer = parseFloat(document.getElementById(`per-fairper-input-${code}`)?.value) || null;
+    payload.push({ stock_code: code, forward_net_income: ni, fair_per: fairPer });
   });
   const res = await fetch('/api/rebalance/per', {
     method:  'PUT',
@@ -9399,7 +9404,7 @@ async function perShowHistory(stockCode, stockName) {
     document.getElementById('per-history-tbody').innerHTML = rows.map(r => `<tr>
       <td>${r.recorded_date}</td>
       <td class="num" style="color:#60a5fa">${r.eps ? r.eps.toLocaleString() : '—'}</td>
-      <td class="num">${r.per ? r.per.toFixed(1) + 'x' : '—'}</td>
+      <td class="num">${r.per ? r.per.toFixed(1) + '배' : '—'}</td>
       <td class="num">${r.listed_shares ? (r.listed_shares / 1e4).toFixed(0) + '만주' : '—'}</td>
       <td class="num">${r.net_income ? (r.net_income / 1e8).toFixed(0) + '억' : '—'}</td>
       <td class="num">${r.mac ? (r.mac / 1e8).toFixed(0) + '억' : '—'}</td>
