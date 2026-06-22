@@ -3236,7 +3236,7 @@ canvas { max-height: 220px; }
           <div style="display:flex;align-items:center;gap:16px">
             <label style="font-size:12px;color:#94a3b8;display:flex;align-items:center;gap:6px">
               단계 수
-              <input type="number" id="per-phase-count" min="2" max="10" value="3"
+              <input type="number" id="per-phase-count" min="2" max="20" value="3"
                 style="width:52px;padding:4px 6px;border-radius:4px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;text-align:center;outline:none"
                 oninput="perRenderPhases()"/>
             </label>
@@ -3517,7 +3517,7 @@ canvas { max-height: 220px; }
           <div style="display:flex;align-items:center;gap:16px">
             <label style="font-size:12px;color:#94a3b8;display:flex;align-items:center;gap:6px">
               단계 수
-              <input type="number" id="rp-phase-count" min="2" max="10" value="3"
+              <input type="number" id="rp-phase-count" min="2" max="20" value="3"
                 style="width:52px;padding:4px 6px;border-radius:4px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;text-align:center;outline:none"
                 oninput="rpRenderPhases()"/>
             </label>
@@ -4034,7 +4034,7 @@ canvas { max-height: 220px; }
           <div style="display:flex;align-items:center;gap:16px">
             <label style="font-size:12px;color:#94a3b8;display:flex;align-items:center;gap:6px">
               단계 수
-              <input type="number" id="mp-phase-count" min="2" max="10" value="3"
+              <input type="number" id="mp-phase-count" min="2" max="20" value="3"
                 style="width:52px;padding:4px 6px;border-radius:4px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;text-align:center;outline:none"
                 oninput="mpRenderPhases()"/>
             </label>
@@ -9731,7 +9731,7 @@ function perRenderTrades() {
 function perRenderPhases() {
   const panel  = document.getElementById('per-phase-panel');
   const nRaw   = parseInt(document.getElementById('per-phase-count')?.value) || 3;
-  const nPhases= Math.max(2, Math.min(10, nRaw));
+  const nPhases= Math.max(2, Math.min(20, nRaw));
   const budgetWon = (parseFloat(document.getElementById('per-phase-budget')?.value) || 0) * 10000;
 
   if (!perPortfolioTotal) { panel.style.display = 'none'; return; }
@@ -14035,7 +14035,7 @@ function mpRenderPhases() {
   const panel = document.getElementById('mp-phase-panel');
   if (!panel) return;
   const nRaw    = parseInt(document.getElementById('mp-phase-count')?.value) || 3;
-  const nPhases = Math.max(2, Math.min(10, nRaw));
+  const nPhases = Math.max(2, Math.min(20, nRaw));
   const budgetWon = (parseFloat(document.getElementById('mp-phase-budget')?.value) || 0) * 10000;
 
   if (!_mpPortfolioTotal) { panel.style.display = 'none'; return; }
@@ -14349,7 +14349,7 @@ function rpRenderPhases() {
   const content  = document.getElementById('rp-phase-content');
   if (!content) return;
   const nRaw    = parseInt(document.getElementById('rp-phase-count')?.value) || 3;
-  const nPhases = Math.max(2, Math.min(10, nRaw));
+  const nPhases = Math.max(2, Math.min(20, nRaw));
   const budgetWon = (parseFloat(document.getElementById('rp-phase-budget')?.value) || 0) * 10000;
 
   if (!_rpPortfolioTotal) { content.innerHTML = '<p style="color:#475569;font-size:13px;padding:8px 0">포트폴리오 데이터가 없습니다.</p>'; return; }
