@@ -187,6 +187,7 @@ def get_stock_signals(conn, uid: int) -> tuple[list[dict], list[dict]]:
                 CASE WHEN st.last_price ~ '^[0-9]+$' THEN st.last_price::BIGINT ELSE NULL END
             )                                            AS current_price,
             COALESCE(rt.target_ratio, 0)                AS target_ratio,
+            rt.forward_per, rt.fair_per,
             rt.alert_up, rt.alert_down, rt.watch_up, rt.watch_down
         FROM holdings_agg ha
         LEFT JOIN latest_close lc ON lc.stock_code = ha.stock_code
@@ -217,16 +218,35 @@ def get_stock_signals(conn, uid: int) -> tuple[list[dict], list[dict]]:
             "current_price": int(cur_price) if cur_price is not None else None,
             "eval_amt":      round(eval_amt),
             "target_ratio":  float(r["target_ratio"] or 0),
+            "forward_per":   float(r["forward_per"]) if r["forward_per"] is not None else None,
+            "fair_per":      float(r["fair_per"])    if r["fair_per"]    is not None else None,
             "alert_up":      float(r["alert_up"])   if r["alert_up"]   is not None else None,
             "alert_down":    float(r["alert_down"]) if r["alert_down"] is not None else None,
             "watch_up":      float(r["watch_up"])   if r["watch_up"]   is not None else None,
             "watch_down":    float(r["watch_down"]) if r["watch_down"] is not None else None,
         })
 
+    # PER 기반 목표비율 조정 ─────────────────────────────────────────────────
+    # per_ratio = fair_per / forward_per: >1 저평가(비중 확대), <1 고평가(비중 축소)
+    # 목표비율 합계를 유지하면서 종목 간 비중을 재배분한다.
+    for h in holdings:
+        fwd  = h["forward_per"]
+        fair = h["fair_per"]
+        h["per_ratio"] = (fair / fwd) if (fwd and fair and fwd > 0) else 1.0
+
+    tgt_base = sum(h["target_ratio"] for h in holdings if h["target_ratio"] > 0)
+    tgt_adj  = sum(h["target_ratio"] * h["per_ratio"] for h in holdings if h["target_ratio"] > 0)
+    for h in holdings:
+        if h["target_ratio"] > 0 and tgt_adj > 0:
+            h["eff_target_ratio"] = h["target_ratio"] * h["per_ratio"] / tgt_adj * tgt_base
+        else:
+            h["eff_target_ratio"] = h["target_ratio"]
+    # ─────────────────────────────────────────────────────────────────────────
+
     buy_items, sell_items = [], []
 
     for r in holdings:
-        tgt       = r["target_ratio"]
+        tgt       = r["eff_target_ratio"]
         cur_price = r["current_price"]
         if not tgt or cur_price is None:
             continue
@@ -322,11 +342,22 @@ def get_theme_signals(conn, uid: int) -> tuple[list[dict], list[dict]]:
     g_alert_up   = float(settings.get("rebalance_alert_up",   30))
     g_alert_down = float(settings.get("rebalance_alert_down", 25))
 
-    # 개별 종목 리밸런싱 목표 비중 (rb_dev_rel 계산용)
+    # 개별 종목 리밸런싱 목표 비중 (rb_dev_rel 계산용) + PER 데이터
     rb_rows  = _query(conn,
         "SELECT stock_code, target_ratio FROM rebalance_targets WHERE user_id = %s AND target_ratio > 0",
         (uid,))
     rb_tgts  = {r["stock_code"]: float(r["target_ratio"]) for r in rb_rows}
+
+    per_rows = _query(conn,
+        "SELECT stock_code, forward_per, fair_per FROM rebalance_targets WHERE user_id = %s",
+        (uid,))
+    per_data = {
+        r["stock_code"]: {
+            "forward_per": float(r["forward_per"]) if r["forward_per"] is not None else None,
+            "fair_per":    float(r["fair_per"])    if r["fair_per"]    is not None else None,
+        }
+        for r in per_rows
+    }
 
     stock_total = 0
     stocks = []
@@ -337,12 +368,17 @@ def get_theme_signals(conn, uid: int) -> tuple[list[dict], list[dict]]:
         eval_amt  = qty * (int(cur_price) if cur_price is not None else avg_price)
         stock_total += eval_amt
         themes_list = [t.strip() for t in (r["themes"] or "").split(",") if t.strip()]
+        pd_ = per_data.get(r["stock_code"], {})
+        fwd  = pd_.get("forward_per")
+        fair = pd_.get("fair_per")
+        per_ratio = (fair / fwd) if (fwd and fair and fwd > 0) else 1.0
         stocks.append({
             "stock_code":    r["stock_code"],
             "stock_name":    r["stock_name"],
             "current_price": int(cur_price) if cur_price is not None else 0,
             "eval_amt":      round(eval_amt),
             "themes":        themes_list,
+            "per_ratio":     per_ratio,
         })
 
     # stock_total 기준 current_ratio + rb_dev_rel
@@ -422,10 +458,11 @@ def get_theme_signals(conn, uid: int) -> tuple[list[dict], list[dict]]:
         if adj_amt < TRB_MIN_AMT or not eligible:
             continue
 
-        eligible_eval = sum(s["eval_amt"] for s in eligible) or 1
+        # PER 가중치 반영: 저평가 종목(per_ratio>1)에 더 많이 배분
+        eligible_eval = sum(s["eval_amt"] * s.get("per_ratio", 1.0) for s in eligible) or 1
         trades = []
         for s in eligible:
-            weight = s["eval_amt"] / eligible_eval
+            weight = s["eval_amt"] * s.get("per_ratio", 1.0) / eligible_eval
             alloc  = adj_amt * weight
             sh     = math.floor(alloc / s["current_price"])
             amt    = sh * s["current_price"]

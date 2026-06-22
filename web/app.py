@@ -592,6 +592,8 @@ def _ensure_rebalance_targets_table():
         cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS portfolio_role_score        SMALLINT     DEFAULT 0")
         cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS role_score                 SMALLINT     DEFAULT 0")
         cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS role_weight                DECIMAL(4,2) DEFAULT 1.00")
+        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS forward_per  DECIMAL(6,2) DEFAULT NULL")
+        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS fair_per     DECIMAL(6,2) DEFAULT NULL")
 
 
 def _role_weight_from_score(score: int) -> float:
@@ -2037,6 +2039,7 @@ def api_rebalance():
                 CASE WHEN st.last_price ~ '^[0-9]+$' THEN st.last_price::BIGINT ELSE NULL END
             ) AS current_price,
             COALESCE(rt.target_ratio, 0) AS target_ratio,
+            rt.forward_per, rt.fair_per,
             rt.alert_up, rt.alert_down, rt.watch_up, rt.watch_down
         FROM holdings_agg ha
         LEFT JOIN latest_close lc ON lc.stock_code = ha.stock_code
@@ -2087,6 +2090,8 @@ def api_rebalance():
             "eval_amt":     round(eval_amt),
             "has_price":    cur_price is not None,
             "target_ratio": float(r["target_ratio"] or 0),
+            "forward_per":  float(r["forward_per"]) if r["forward_per"] is not None else None,
+            "fair_per":     float(r["fair_per"])    if r["fair_per"]    is not None else None,
             "alert_up":     float(r["alert_up"])   if r["alert_up"]   is not None else None,
             "alert_down":   float(r["alert_down"]) if r["alert_down"] is not None else None,
             "watch_up":     float(r["watch_up"])   if r["watch_up"]   is not None else None,
@@ -2155,6 +2160,8 @@ def api_rebalance_stock_setting():
     max_change_pp      = _to_float_or_none(data.get("max_change_pp"))
     overweight_band_pp = _to_float_or_none(data.get("overweight_band_pp"))
     review_band_pp     = _to_float_or_none(data.get("review_band_pp"))
+    forward_per        = _to_float_or_none(data.get("forward_per"))
+    fair_per           = _to_float_or_none(data.get("fair_per"))
 
     # 티어 기본값 자동 적용
     TIER_DEFAULTS = {
@@ -2173,8 +2180,9 @@ def api_rebalance_stock_setting():
         conn.cursor().execute("""
             INSERT INTO rebalance_targets
                 (user_id, stock_code, target_ratio, alert_up, alert_down, watch_up, watch_down,
-                 position_tier, max_change_pp, overweight_band_pp, review_band_pp, updated_at)
-            VALUES (%s, %s, COALESCE(%s, 0), %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                 position_tier, max_change_pp, overweight_band_pp, review_band_pp,
+                 forward_per, fair_per, updated_at)
+            VALUES (%s, %s, COALESCE(%s, 0), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
             ON CONFLICT (user_id, stock_code) DO UPDATE SET
                 target_ratio       = COALESCE(EXCLUDED.target_ratio, rebalance_targets.target_ratio),
                 alert_up           = EXCLUDED.alert_up,
@@ -2185,9 +2193,12 @@ def api_rebalance_stock_setting():
                 max_change_pp      = COALESCE(EXCLUDED.max_change_pp,      rebalance_targets.max_change_pp),
                 overweight_band_pp = COALESCE(EXCLUDED.overweight_band_pp, rebalance_targets.overweight_band_pp),
                 review_band_pp     = COALESCE(EXCLUDED.review_band_pp,     rebalance_targets.review_band_pp),
+                forward_per        = COALESCE(EXCLUDED.forward_per,        rebalance_targets.forward_per),
+                fair_per           = COALESCE(EXCLUDED.fair_per,           rebalance_targets.fair_per),
                 updated_at         = NOW()
         """, (uid, stock_code, target_ratio, alert_up, alert_down, watch_up, watch_down,
-              position_tier, max_change_pp, overweight_band_pp, review_band_pp))
+              position_tier, max_change_pp, overweight_band_pp, review_band_pp,
+              forward_per, fair_per))
     return jsonify({"ok": True})
 
 
@@ -2240,6 +2251,38 @@ def api_rebalance_targets_batch():
                 ON CONFLICT (user_id, stock_code)
                 DO UPDATE SET target_ratio = EXCLUDED.target_ratio, updated_at = NOW()
             """, (uid, stock_code, target_ratio))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/rebalance/per", methods=["PUT"])
+def api_rebalance_per():
+    """종목별 PER 정보 저장. body: {stock_code, forward_per, fair_per} 또는 배열."""
+    uid = _current_uid()
+    payload = request.get_json() or []
+    items = payload if isinstance(payload, list) else [payload]
+
+    def _safe_float(v):
+        try:
+            return float(v) if v not in (None, "") else None
+        except (ValueError, TypeError):
+            return None
+
+    with get_conn() as conn:
+        cur = conn.cursor()
+        for item in items:
+            stock_code = (item.get("stock_code") or "").strip()
+            if not stock_code:
+                continue
+            forward_per = _safe_float(item.get("forward_per"))
+            fair_per    = _safe_float(item.get("fair_per"))
+            cur.execute("""
+                INSERT INTO rebalance_targets (user_id, stock_code, target_ratio, forward_per, fair_per, updated_at)
+                VALUES (%s, %s, 0, %s, %s, NOW())
+                ON CONFLICT (user_id, stock_code) DO UPDATE SET
+                    forward_per = COALESCE(EXCLUDED.forward_per, rebalance_targets.forward_per),
+                    fair_per    = COALESCE(EXCLUDED.fair_per,    rebalance_targets.fair_per),
+                    updated_at  = NOW()
+            """, (uid, stock_code, forward_per, fair_per))
     return jsonify({"ok": True})
 
 
