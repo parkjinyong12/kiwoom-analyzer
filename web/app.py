@@ -592,10 +592,32 @@ def _ensure_rebalance_targets_table():
         cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS portfolio_role_score        SMALLINT     DEFAULT 0")
         cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS role_score                 SMALLINT     DEFAULT 0")
         cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS role_weight                DECIMAL(4,2) DEFAULT 1.00")
-        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS forward_per      DECIMAL(6,2)  DEFAULT NULL")
-        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS fair_per         DECIMAL(6,2)  DEFAULT NULL")
-        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS forward_eps      DECIMAL(12,2) DEFAULT NULL")
-        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS eps_growth_rate  DECIMAL(6,2)  DEFAULT NULL")
+        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS forward_per        DECIMAL(6,2)   DEFAULT NULL")
+        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS fair_per           DECIMAL(6,2)   DEFAULT NULL")
+        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS forward_eps        DECIMAL(12,2)  DEFAULT NULL")
+        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS eps_growth_rate    DECIMAL(6,2)   DEFAULT NULL")
+        cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS forward_net_income BIGINT         DEFAULT NULL")
+
+
+def _ensure_stock_eps_history_table():
+    """EPS 동기화 히스토리 테이블 (하루 1건 upsert)."""
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS stock_eps_history (
+                id            SERIAL PRIMARY KEY,
+                stock_code    VARCHAR(20)   NOT NULL,
+                recorded_date DATE          NOT NULL,
+                eps           DECIMAL(12,2),
+                per           DECIMAL(6,2),
+                listed_shares BIGINT,
+                net_income    BIGINT,
+                mac           BIGINT,
+                created_at    TIMESTAMP DEFAULT NOW(),
+                UNIQUE (stock_code, recorded_date)
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_seh_stock_date ON stock_eps_history (stock_code, recorded_date DESC)")
 
 
 def _role_weight_from_score(score: int) -> float:
@@ -2030,6 +2052,12 @@ def api_rebalance():
             FROM manual_holdings
             WHERE user_id = %s
             GROUP BY stock_code
+        ),
+        latest_eps AS (
+            SELECT DISTINCT ON (stock_code)
+                stock_code, eps AS current_eps, listed_shares, recorded_date AS eps_date
+            FROM stock_eps_history
+            ORDER BY stock_code, recorded_date DESC
         )
         SELECT
             ha.stock_code,
@@ -2041,13 +2069,16 @@ def api_rebalance():
                 CASE WHEN st.last_price ~ '^[0-9]+$' THEN st.last_price::BIGINT ELSE NULL END
             ) AS current_price,
             COALESCE(rt.target_ratio, 0) AS target_ratio,
+            rt.forward_net_income,
             rt.forward_per, rt.fair_per,
             rt.forward_eps, rt.eps_growth_rate,
-            rt.alert_up, rt.alert_down, rt.watch_up, rt.watch_down
+            rt.alert_up, rt.alert_down, rt.watch_up, rt.watch_down,
+            le.current_eps, le.listed_shares, le.eps_date
         FROM holdings_agg ha
         LEFT JOIN latest_close lc ON lc.stock_code = ha.stock_code
         LEFT JOIN stocks st ON st.stock_code = ha.stock_code
         LEFT JOIN rebalance_targets rt ON rt.stock_code = ha.stock_code AND rt.user_id = %s
+        LEFT JOIN latest_eps le ON le.stock_code = ha.stock_code
         ORDER BY ha.stock_name
     """, (uid, uid))
 
@@ -2093,10 +2124,14 @@ def api_rebalance():
             "eval_amt":     round(eval_amt),
             "has_price":    cur_price is not None,
             "target_ratio": float(r["target_ratio"] or 0),
+            "forward_net_income": int(r["forward_net_income"]) if r["forward_net_income"] is not None else None,
             "forward_per":     float(r["forward_per"])     if r["forward_per"]     is not None else None,
             "fair_per":        float(r["fair_per"])        if r["fair_per"]        is not None else None,
             "forward_eps":     float(r["forward_eps"])     if r["forward_eps"]     is not None else None,
             "eps_growth_rate": float(r["eps_growth_rate"]) if r["eps_growth_rate"] is not None else None,
+            "current_eps":     float(r["current_eps"])     if r["current_eps"]     is not None else None,
+            "listed_shares":   int(r["listed_shares"])     if r["listed_shares"]   is not None else None,
+            "eps_date":        str(r["eps_date"])          if r["eps_date"]        is not None else None,
             "alert_up":     float(r["alert_up"])   if r["alert_up"]   is not None else None,
             "alert_down":   float(r["alert_down"]) if r["alert_down"] is not None else None,
             "watch_up":     float(r["watch_up"])   if r["watch_up"]   is not None else None,
@@ -2261,11 +2296,14 @@ def api_rebalance_targets_batch():
 
 @app.route("/api/rebalance/per", methods=["PUT"])
 def api_rebalance_per():
-    """종목별 PER 구성 요소 저장 및 자동 계산.
+    """종목별 PER 저장.
 
-    body: {stock_code, forward_eps, eps_growth_rate} 단건 또는 배열.
-    - forward_per  = 현재가(DB 자동 조회) / forward_eps
-    - fair_per     = eps_growth_rate  (PEG=1 룰: Lynch 공식)
+    body: [{stock_code, forward_net_income}]  (억원 단위)
+    - listed_shares  = stock_eps_history 최신값
+    - forward_eps    = forward_net_income × 1억 / listed_shares
+    - eps_growth_rate= (forward_eps / current_eps - 1) × 100  (current_eps = history 최신)
+    - forward_per    = current_price / forward_eps
+    - fair_per       = eps_growth_rate (PEG=1)
     """
     uid = _current_uid()
     payload = request.get_json() or []
@@ -2301,14 +2339,36 @@ def api_rebalance_per():
             """, (codes, codes))
             price_map = {row[0]: row[1] for row in cur.fetchall()}
 
+        # 최신 EPS 히스토리 일괄 조회 (listed_shares, current_eps)
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT DISTINCT ON (stock_code) stock_code, eps, listed_shares
+                FROM stock_eps_history
+                WHERE stock_code = ANY(%s)
+                ORDER BY stock_code, recorded_date DESC
+            """, (codes,))
+            eps_hist = {row[0]: {"eps": row[1], "listed_shares": row[2]} for row in cur.fetchall()}
+
         with conn.cursor() as cur:
             for item in items:
-                stock_code      = (item.get("stock_code") or "").strip()
+                stock_code         = (item.get("stock_code") or "").strip()
                 if not stock_code:
                     continue
-                forward_eps     = _sf(item.get("forward_eps"))
-                eps_growth_rate = _sf(item.get("eps_growth_rate"))
-                current_price   = price_map.get(stock_code)
+                forward_net_income = _sf(item.get("forward_net_income"))  # 억원
+                current_price      = price_map.get(stock_code)
+                hist               = eps_hist.get(stock_code, {})
+                listed_shares      = hist.get("listed_shares")
+                current_eps        = float(hist.get("eps") or 0) or None
+
+                # 선행 EPS = 예상순이익(억원) × 1억 / 상장주식수
+                forward_eps = None
+                if forward_net_income and forward_net_income > 0 and listed_shares and listed_shares > 0:
+                    forward_eps = round(forward_net_income * 1e8 / listed_shares, 2)
+
+                # EPS 성장률 = (선행EPS / 현재EPS - 1) × 100
+                eps_growth_rate = None
+                if forward_eps and current_eps and current_eps > 0:
+                    eps_growth_rate = round((forward_eps / current_eps - 1) * 100, 2)
 
                 # 선행 PER = 현재가 / 선행 EPS
                 forward_per = None
@@ -2321,16 +2381,98 @@ def api_rebalance_per():
                 cur.execute("""
                     INSERT INTO rebalance_targets
                         (user_id, stock_code, target_ratio,
-                         forward_eps, eps_growth_rate, forward_per, fair_per, updated_at)
-                    VALUES (%s, %s, 0, %s, %s, %s, %s, NOW())
+                         forward_net_income, forward_eps, eps_growth_rate, forward_per, fair_per, updated_at)
+                    VALUES (%s, %s, 0, %s, %s, %s, %s, %s, NOW())
                     ON CONFLICT (user_id, stock_code) DO UPDATE SET
-                        forward_eps     = EXCLUDED.forward_eps,
-                        eps_growth_rate = EXCLUDED.eps_growth_rate,
-                        forward_per     = COALESCE(EXCLUDED.forward_per, rebalance_targets.forward_per),
-                        fair_per        = COALESCE(EXCLUDED.fair_per,    rebalance_targets.fair_per),
-                        updated_at      = NOW()
-                """, (uid, stock_code, forward_eps, eps_growth_rate, forward_per, fair_per))
+                        forward_net_income = EXCLUDED.forward_net_income,
+                        forward_eps        = COALESCE(EXCLUDED.forward_eps,    rebalance_targets.forward_eps),
+                        eps_growth_rate    = COALESCE(EXCLUDED.eps_growth_rate, rebalance_targets.eps_growth_rate),
+                        forward_per        = COALESCE(EXCLUDED.forward_per,    rebalance_targets.forward_per),
+                        fair_per           = COALESCE(EXCLUDED.fair_per,       rebalance_targets.fair_per),
+                        updated_at         = NOW()
+                """, (uid, stock_code,
+                      int(forward_net_income) if forward_net_income else None,
+                      forward_eps, eps_growth_rate, forward_per, fair_per))
     return jsonify({"ok": True})
+
+
+@app.route("/api/stock/eps/sync", methods=["POST"])
+def api_stock_eps_sync():
+    """ka10001로 종목 EPS/상장주식 동기화 → stock_eps_history upsert.
+
+    body: {stock_codes: ["005930", ...]}  (생략 시 rebalance_targets 전체)
+    응답: {synced: [...], errors: [...]}
+    """
+    uid = _current_uid()
+    body = request.get_json() or {}
+    codes = body.get("stock_codes")
+
+    if not codes:
+        rows = query(
+            "SELECT stock_code FROM rebalance_targets WHERE user_id = %s AND target_ratio > 0",
+            (uid,),
+        )
+        codes = [r["stock_code"] for r in rows]
+
+    if not codes:
+        return jsonify({"synced": [], "errors": []})
+
+    from agents.market_data import MarketDataAgent
+    import datetime
+    agent = MarketDataAgent()
+    today = datetime.date.today().isoformat()
+
+    synced, errors = [], []
+    with get_conn() as conn:
+        cur = conn.cursor()
+        for code in codes:
+            try:
+                info = agent.get_stock_fundamentals(code)
+                cur.execute("""
+                    INSERT INTO stock_eps_history
+                        (stock_code, recorded_date, eps, per, listed_shares, net_income, mac)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (stock_code, recorded_date) DO UPDATE SET
+                        eps           = COALESCE(EXCLUDED.eps,           stock_eps_history.eps),
+                        per           = COALESCE(EXCLUDED.per,           stock_eps_history.per),
+                        listed_shares = COALESCE(EXCLUDED.listed_shares, stock_eps_history.listed_shares),
+                        net_income    = COALESCE(EXCLUDED.net_income,    stock_eps_history.net_income),
+                        mac           = COALESCE(EXCLUDED.mac,           stock_eps_history.mac),
+                        created_at    = NOW()
+                """, (
+                    code, today,
+                    info.get("eps"), info.get("per"),
+                    info.get("listed_shares"), info.get("net_income"), info.get("mac"),
+                ))
+                synced.append({"stock_code": code, **info})
+            except Exception as e:
+                errors.append({"stock_code": code, "error": str(e)})
+
+    return jsonify({"synced": synced, "errors": errors})
+
+
+@app.route("/api/stock/eps/history")
+def api_stock_eps_history():
+    """종목 EPS 히스토리 조회.
+
+    ?stock_code=005930&limit=30
+    """
+    stock_code = request.args.get("stock_code", "").strip()
+    limit = min(int(request.args.get("limit", 30)), 200)
+    if not stock_code:
+        return jsonify([])
+
+    rows = query("""
+        SELECT stock_code,
+               TO_CHAR(recorded_date, 'YYYY-MM-DD') AS recorded_date,
+               eps, per, listed_shares, net_income, mac,
+               TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI') AS created_at
+        FROM stock_eps_history
+        WHERE stock_code = %s
+        ORDER BY recorded_date DESC
+        LIMIT %s
+    """, (stock_code, limit))
+    return jsonify([dict(r) for r in rows])
 
 
 # ---------------------------------------------------------------------------
@@ -5295,6 +5437,11 @@ except Exception:
 
 try:
     _ensure_rebalance_targets_table()
+except Exception:
+    pass
+
+try:
+    _ensure_stock_eps_history_table()
 except Exception:
     pass
 

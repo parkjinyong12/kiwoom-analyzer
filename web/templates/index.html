@@ -3099,9 +3099,10 @@ canvas { max-height: 220px; }
     <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
       <div>
         <div class="page-title">PER 관리</div>
-        <div class="page-sub">EPS · 성장률 입력 → 선행 PER · 적정 PER 자동 계산 → 리밸런싱 목표비율 자동 반영</div>
+        <div class="page-sub">예상순이익 입력 → EPS·선행PER·적정PER 자동 계산 → 리밸런싱 목표비율 자동 반영</div>
       </div>
       <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost" style="font-size:12px" onclick="perSyncEps()" id="per-sync-btn">EPS 동기화</button>
         <button class="btn btn-ghost" style="font-size:12px" onclick="loadPerManage()">새로고침</button>
         <button class="btn btn-primary" style="font-size:12px" id="per-batch-save-btn" onclick="perSaveAll()" disabled>일괄 저장</button>
       </div>
@@ -3115,9 +3116,9 @@ canvas { max-height: 220px; }
         <div class="card-note">목표비율 설정 종목</div>
       </div>
       <div class="card">
-        <div class="card-label">EPS 입력 완료</div>
+        <div class="card-label">EPS 동기화 완료</div>
         <div class="card-value blue" id="per-set-cnt" style="font-size:22px">-</div>
-        <div class="card-note">선행EPS + 성장률 모두 입력</div>
+        <div class="card-note">상장주식수 확인된 종목</div>
       </div>
       <div class="card">
         <div class="card-label">저평가</div>
@@ -3133,16 +3134,23 @@ canvas { max-height: 220px; }
 
     <!-- 계산 방법 안내 -->
     <div style="background:#0c1a2e;border:1px solid #1e3a5f;border-radius:8px;padding:14px 18px;margin-bottom:16px;font-size:12px;color:#7dd3fc;line-height:2">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;flex-wrap:wrap">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;flex-wrap:wrap">
         <div>
-          <strong style="color:#93c5fd">📊 선행 PER 자동 계산</strong><br>
-          <code style="background:#1e3a5f;padding:2px 6px;border-radius:3px;font-size:11px">선행 PER = 현재가 ÷ 12개월 선행 EPS</code><br>
-          <span style="color:#64748b">현재가는 DB에서 자동 조회. 선행 EPS(애널리스트 컨센서스)만 입력하면 됩니다.</span>
+          <strong style="color:#93c5fd">① 입력 — 예상순이익 (억원)</strong><br>
+          <code style="background:#1e3a5f;padding:2px 6px;border-radius:3px;font-size:11px">forward_net_income</code><br>
+          <span style="color:#64748b">애널리스트 컨센서스 12개월 예상 당기순이익. 이것만 입력하면 됩니다.</span>
         </div>
         <div>
-          <strong style="color:#86efac">📈 적정 PER 자동 계산 (PEG=1 룰)</strong><br>
-          <code style="background:#1e3a5f;padding:2px 6px;border-radius:3px;font-size:11px">적정 PER = EPS 3년 성장률(%)</code><br>
-          <span style="color:#64748b">Peter Lynch 공식. 성장률 20% → 적정 PER 20배. per_ratio = 적정 ÷ 선행.</span>
+          <strong style="color:#93c5fd">② 자동 — 선행 EPS / 선행 PER</strong><br>
+          <code style="background:#1e3a5f;padding:2px 6px;border-radius:3px;font-size:11px">선행EPS = 예상순이익×1억 ÷ 상장주식수</code><br>
+          <code style="background:#1e3a5f;padding:2px 6px;border-radius:3px;font-size:11px">선행PER = 현재가 ÷ 선행EPS</code><br>
+          <span style="color:#64748b">상장주식수 · 현재EPS는 EPS 동기화(ka10001) 버튼으로 가져옵니다.</span>
+        </div>
+        <div>
+          <strong style="color:#86efac">③ 자동 — 적정 PER / per_ratio (PEG=1)</strong><br>
+          <code style="background:#1e3a5f;padding:2px 6px;border-radius:3px;font-size:11px">성장률 = (선행EPS÷현재EPS−1)×100</code><br>
+          <code style="background:#1e3a5f;padding:2px 6px;border-radius:3px;font-size:11px">적정PER = 성장률 · per_ratio = 적정÷선행</code><br>
+          <span style="color:#64748b">per_ratio &gt; 1 → 저평가 → 목표비율 상향. Peter Lynch 공식.</span>
         </div>
       </div>
     </div>
@@ -3150,7 +3158,7 @@ canvas { max-height: 220px; }
     <!-- 테이블 -->
     <div class="panel">
       <div class="panel-header">
-        <span>종목별 EPS / 성장률 입력</span>
+        <span>종목별 예상순이익 입력 · PER 자동 계산</span>
         <span id="per-dirty-hint" style="font-size:11px;color:#f59e0b;display:none">미저장 변경 있음 — 일괄 저장을 눌러주세요</span>
       </div>
       <div style="overflow-x:auto">
@@ -3159,19 +3167,49 @@ canvas { max-height: 220px; }
             <tr>
               <th>종목명</th>
               <th style="text-align:right">현재가<br><span style="font-size:10px;color:#4ade80">자동</span></th>
-              <th style="text-align:right;min-width:130px">12개월 선행 EPS<br><span style="font-size:10px;color:#64748b">입력 → 선행PER 자동</span></th>
-              <th style="text-align:right;min-width:130px">EPS 3년 성장률(%)<br><span style="font-size:10px;color:#64748b">입력 → 적정PER 자동</span></th>
+              <th style="text-align:right">현재 EPS<br><span style="font-size:10px;color:#4ade80">동기화</span></th>
+              <th style="text-align:right">상장주식수<br><span style="font-size:10px;color:#4ade80">동기화</span></th>
+              <th style="text-align:right;min-width:140px">예상순이익 (억원)<br><span style="font-size:10px;color:#fbbf24">입력</span></th>
+              <th style="text-align:right">선행 EPS<br><span style="font-size:10px;color:#4ade80">자동</span></th>
+              <th style="text-align:right">EPS 성장률<br><span style="font-size:10px;color:#4ade80">자동</span></th>
               <th style="text-align:right">선행 PER<br><span style="font-size:10px;color:#4ade80">자동</span></th>
               <th style="text-align:right">적정 PER<br><span style="font-size:10px;color:#4ade80">자동(PEG)</span></th>
               <th style="text-align:right">per_ratio</th>
-              <th style="text-align:right">목표비율<br>→ 조정 후</th>
+              <th style="text-align:right">목표→조정</th>
               <th style="text-align:center">평가</th>
             </tr>
           </thead>
           <tbody id="per-tbody">
-            <tr><td colspan="9" class="loading">로딩 중...</td></tr>
+            <tr><td colspan="12" class="loading">로딩 중...</td></tr>
           </tbody>
         </table>
+      </div>
+    </div>
+
+    <!-- EPS 히스토리 패널 (종목 클릭 시 표시) -->
+    <div id="per-history-panel" style="display:none;margin-top:16px">
+      <div class="panel">
+        <div class="panel-header">
+          <span id="per-history-title">EPS 히스토리</span>
+          <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="document.getElementById('per-history-panel').style.display='none'">✕ 닫기</button>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>날짜</th>
+                <th style="text-align:right">EPS</th>
+                <th style="text-align:right">PER</th>
+                <th style="text-align:right">상장주식수</th>
+                <th style="text-align:right">당기순이익</th>
+                <th style="text-align:right">시가총액</th>
+              </tr>
+            </thead>
+            <tbody id="per-history-tbody">
+              <tr><td colspan="6" class="loading">로딩 중...</td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   </section>
@@ -9112,7 +9150,7 @@ let perDirtySet = new Set();   // 변경된 종목코드
 
 async function loadPerManage() {
   document.getElementById('per-tbody').innerHTML =
-    '<tr><td colspan="9" class="loading">로딩 중...</td></tr>';
+    '<tr><td colspan="12" class="loading">로딩 중...</td></tr>';
   try {
     const res  = await fetch('/api/rebalance');
     const json = await res.json();
@@ -9123,32 +9161,47 @@ async function loadPerManage() {
     perRender();
   } catch (e) {
     document.getElementById('per-tbody').innerHTML =
-      `<tr><td colspan="9" style="color:#f87171;text-align:center">로드 실패: ${e}</td></tr>`;
+      `<tr><td colspan="12" style="color:#f87171;text-align:center">로드 실패: ${e}</td></tr>`;
   }
 }
 
-// 입력값으로 선행 PER / 적정 PER / per_ratio / eff_target 계산
+// 예상순이익 입력값으로 모든 파생지표 계산
 function perCalc(h) {
-  const eps  = parseFloat(document.getElementById(`per-eps-${h.stock_code}`)?.value)   || h.forward_eps     || null;
-  const grow = parseFloat(document.getElementById(`per-grow-${h.stock_code}`)?.value)  || h.eps_growth_rate || null;
-  const price = h.current_price || null;
+  const ni = parseFloat(document.getElementById(`per-ni-${h.stock_code}`)?.value) || h.forward_net_income || null;
+  const price       = h.current_price   || null;
+  const curEps      = h.current_eps     || null;
+  const listedShares= h.listed_shares   || null;
 
-  const fwdPer  = (eps && eps > 0 && price && price > 0) ? price / eps : null;
-  const fairPer = (grow && grow > 0) ? grow : null;   // PEG=1 룰
-  const ratio   = (fwdPer && fairPer && fwdPer > 0) ? fairPer / fwdPer : 1.0;
-  return { eps, grow, fwdPer, fairPer, ratio };
+  // 선행 EPS = 예상순이익(억) × 1억 / 상장주식수
+  let fwdEps = null;
+  if (ni && ni > 0 && listedShares && listedShares > 0) {
+    fwdEps = Math.round(ni * 1e8 / listedShares);
+  }
+
+  // EPS 성장률 = (선행EPS / 현재EPS - 1) × 100
+  let grow = null;
+  if (fwdEps && curEps && curEps > 0) {
+    grow = Math.round((fwdEps / curEps - 1) * 100 * 10) / 10;
+  }
+
+  // 선행 PER = 현재가 / 선행EPS
+  const fwdPer  = (fwdEps && fwdEps > 0 && price && price > 0) ? Math.round(price / fwdEps * 10) / 10 : null;
+  // 적정 PER = 성장률 (PEG=1)
+  const fairPer = (grow && grow > 0) ? grow : null;
+  const ratio   = (fwdPer && fairPer && fwdPer > 0) ? Math.round(fairPer / fwdPer * 100) / 100 : 1.0;
+
+  return { ni, fwdEps, grow, fwdPer, fairPer, ratio };
 }
 
 function perRender() {
   if (!perData.length) {
     document.getElementById('per-tbody').innerHTML =
-      '<tr><td colspan="9" style="color:#64748b;text-align:center;padding:20px">목표비율이 설정된 종목이 없습니다</td></tr>';
+      '<tr><td colspan="12" style="color:#64748b;text-align:center;padding:20px">목표비율이 설정된 종목이 없습니다</td></tr>';
     perUpdateSummary();
     return;
   }
 
-  // per_ratio 먼저 계산 후 eff_target 정규화
-  perData.forEach(h => { const c = perCalc(h); Object.assign(h, {_c: c}); });
+  perData.forEach(h => { h._c = perCalc(h); });
   perRecomputeEff();
 
   const tbody = document.getElementById('per-tbody');
@@ -9160,7 +9213,7 @@ function perRowHtml(h) {
   const c       = h._c;
   const isDirty = perDirtySet.has(h.stock_code);
   const bord    = isDirty ? '#f59e0b' : '#1e2535';
-  const inp     = `padding:5px 8px;border-radius:5px;border:1px solid ${bord};background:#0f1117;color:#e2e8f0;font-size:13px;text-align:right;outline:none`;
+  const inp     = `padding:5px 8px;border-radius:5px;border:1px solid ${bord};background:#0f1117;color:#e2e8f0;font-size:13px;text-align:right;outline:none;width:110px`;
 
   let badge = '미입력', badgeColor = '#475569';
   if (c.fwdPer && c.fairPer) {
@@ -9171,27 +9224,27 @@ function perRowHtml(h) {
   const effColor = h._effTarget > h.target_ratio ? '#4ade80'
                  : h._effTarget < h.target_ratio ? '#f87171' : '#94a3b8';
   const ratioColor = c.fwdPer && c.fairPer ? badgeColor : '#475569';
+  const syncDate = h.eps_date ? `<div style="font-size:10px;color:#475569">${h.eps_date}</div>` : '';
 
   return `<tr id="per-row-${h.stock_code}">
-    <td style="font-weight:600;color:#f1f5f9">${h.stock_name}
+    <td style="font-weight:600;color:#f1f5f9">
+      <a href="#" onclick="perShowHistory('${h.stock_code}','${h.stock_name}');return false"
+         style="color:#f1f5f9;text-decoration:none">${h.stock_name}</a>
       <span style="font-size:11px;color:#475569;margin-left:4px">${h.stock_code}</span>
     </td>
     <td class="num" style="color:#4ade80">${h.current_price ? h.current_price.toLocaleString() + '원' : '—'}</td>
+    <td class="num" style="color:#60a5fa">${h.current_eps ? h.current_eps.toLocaleString() : '—'}${syncDate}</td>
+    <td class="num" style="color:#60a5fa">${h.listed_shares ? (h.listed_shares / 1e4).toFixed(0) + '만주' : '—'}</td>
     <td class="num">
-      <input type="number" id="per-eps-${h.stock_code}" min="0" step="1"
-        value="${h.forward_eps ?? ''}" placeholder="EPS 입력"
-        style="width:90px;${inp}" oninput="perMarkDirty('${h.stock_code}')"/>
-      <div style="font-size:10px;color:#60a5fa;text-align:right;margin-top:2px" id="per-fwdlabel-${h.stock_code}">
-        ${c.fwdPer ? '선행PER ' + c.fwdPer.toFixed(1) + 'x' : ''}
-      </div>
+      <input type="number" id="per-ni-${h.stock_code}" min="0" step="1"
+        value="${h.forward_net_income ?? ''}" placeholder="예상순이익"
+        style="${inp}" oninput="perMarkDirty('${h.stock_code}')"/>
     </td>
-    <td class="num">
-      <input type="number" id="per-grow-${h.stock_code}" min="0" max="200" step="0.1"
-        value="${h.eps_growth_rate ?? ''}" placeholder="성장률 %"
-        style="width:90px;${inp}" oninput="perMarkDirty('${h.stock_code}')"/>
-      <div style="font-size:10px;color:#86efac;text-align:right;margin-top:2px" id="per-fairlabel-${h.stock_code}">
-        ${c.fairPer ? '적정PER ' + c.fairPer.toFixed(1) + 'x' : ''}
-      </div>
+    <td class="num" style="color:#93c5fd" id="per-fwdeps-${h.stock_code}">
+      ${c.fwdEps ? c.fwdEps.toLocaleString() : '—'}
+    </td>
+    <td class="num" style="color:#86efac" id="per-grow-${h.stock_code}">
+      ${c.grow !== null ? c.grow.toFixed(1) + '%' : '—'}
     </td>
     <td class="num" style="color:#60a5fa;font-weight:600" id="per-fwdper-${h.stock_code}">
       ${c.fwdPer ? c.fwdPer.toFixed(1) + 'x' : '—'}
@@ -9224,22 +9277,20 @@ function perRecomputeEff() {
 }
 
 function perUpdateSummary() {
-  const total   = perData.length;
-  const withAll = perData.filter(h => h._c?.fwdPer && h._c?.fairPer).length;
-  const cheap   = perData.filter(h => h._c?.fwdPer && h._c?.fairPer && h._c.fairPer > h._c.fwdPer).length;
-  const exp     = perData.filter(h => h._c?.fwdPer && h._c?.fairPer && h._c.fairPer < h._c.fwdPer).length;
+  const total    = perData.length;
+  const synced   = perData.filter(h => h.listed_shares).length;
+  const cheap    = perData.filter(h => h._c?.fwdPer && h._c?.fairPer && h._c.fairPer > h._c.fwdPer).length;
+  const exp      = perData.filter(h => h._c?.fwdPer && h._c?.fairPer && h._c.fairPer < h._c.fwdPer).length;
   document.getElementById('per-total-cnt').textContent = total;
-  document.getElementById('per-set-cnt').textContent   = withAll;
+  document.getElementById('per-set-cnt').textContent   = synced;
   document.getElementById('per-cheap-cnt').textContent = cheap;
   document.getElementById('per-exp-cnt').textContent   = exp;
 }
 
 function perMarkDirty(stockCode) {
   perDirtySet.add(stockCode);
-  ['per-eps-' + stockCode, 'per-grow-' + stockCode].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.style.borderColor = '#f59e0b';
-  });
+  const el = document.getElementById(`per-ni-${stockCode}`);
+  if (el) el.style.borderColor = '#f59e0b';
   document.getElementById('per-dirty-hint').style.display = '';
   document.getElementById('per-batch-save-btn').disabled  = false;
   perRefreshRow(stockCode);
@@ -9251,7 +9302,6 @@ function perRefreshRow(stockCode) {
   h._c = perCalc(h);
   perRecomputeEff();
 
-  // 해당 행 inline 업데이트
   perData.forEach(d => {
     const c = d._c;
     let badge = '미입력', badgeColor = '#475569';
@@ -9263,15 +9313,14 @@ function perRefreshRow(stockCode) {
     const effColor   = d._effTarget > d.target_ratio ? '#4ade80'
                      : d._effTarget < d.target_ratio ? '#f87171' : '#94a3b8';
     const ratioColor = c.fwdPer && c.fairPer ? badgeColor : '#475569';
-
     const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
     const sty = (id, k, v) => { const el = document.getElementById(id); if (el) el.style[k] = v; };
 
-    set(`per-fwdlabel-${d.stock_code}`,  c.fwdPer  ? '선행PER ' + c.fwdPer.toFixed(1)  + 'x' : '');
-    set(`per-fairlabel-${d.stock_code}`, c.fairPer ? '적정PER ' + c.fairPer.toFixed(1) + 'x' : '');
-    set(`per-fwdper-${d.stock_code}`,    c.fwdPer  ? c.fwdPer.toFixed(1)  + 'x' : '—');
-    set(`per-fairper-${d.stock_code}`,   c.fairPer ? c.fairPer.toFixed(1) + 'x' : '—');
-    set(`per-ratio-${d.stock_code}`,     (c.fwdPer && c.fairPer) ? c.ratio.toFixed(2) : '—');
+    set(`per-fwdeps-${d.stock_code}`,  c.fwdEps !== null ? c.fwdEps.toLocaleString() : '—');
+    set(`per-grow-${d.stock_code}`,    c.grow   !== null ? c.grow.toFixed(1) + '%'   : '—');
+    set(`per-fwdper-${d.stock_code}`,  c.fwdPer  ? c.fwdPer.toFixed(1)  + 'x' : '—');
+    set(`per-fairper-${d.stock_code}`, c.fairPer ? c.fairPer.toFixed(1) + 'x' : '—');
+    set(`per-ratio-${d.stock_code}`,   (c.fwdPer && c.fairPer) ? c.ratio.toFixed(2) : '—');
     sty(`per-ratio-${d.stock_code}`, 'color', ratioColor);
 
     const effEl = document.getElementById(`per-eff-${d.stock_code}`);
@@ -9293,9 +9342,8 @@ async function perSaveAll() {
   if (!perDirtySet.size) return;
   const payload = [];
   perDirtySet.forEach(code => {
-    const eps  = parseFloat(document.getElementById(`per-eps-${code}`)?.value)  || null;
-    const grow = parseFloat(document.getElementById(`per-grow-${code}`)?.value) || null;
-    payload.push({ stock_code: code, forward_eps: eps, eps_growth_rate: grow });
+    const ni = parseFloat(document.getElementById(`per-ni-${code}`)?.value) || null;
+    payload.push({ stock_code: code, forward_net_income: ni });
   });
   const res = await fetch('/api/rebalance/per', {
     method:  'PUT',
@@ -9309,6 +9357,56 @@ async function perSaveAll() {
     await loadPerManage();
   } else {
     alert('저장 실패: ' + res.status);
+  }
+}
+
+async function perSyncEps() {
+  const btn = document.getElementById('per-sync-btn');
+  btn.disabled = true;
+  btn.textContent = 'EPS 동기화 중...';
+  try {
+    const res  = await fetch('/api/stock/eps/sync', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const json = await res.json();
+    const ok   = json.synced?.length ?? 0;
+    const err  = json.errors?.length ?? 0;
+    btn.textContent = `완료 (${ok}종목)${err ? ' / 오류 ' + err : ''}`;
+    await loadPerManage();
+  } catch (e) {
+    btn.textContent = '동기화 실패';
+    alert('EPS 동기화 오류: ' + e);
+  } finally {
+    setTimeout(() => { btn.disabled = false; btn.textContent = 'EPS 동기화'; }, 3000);
+  }
+}
+
+async function perShowHistory(stockCode, stockName) {
+  const panel = document.getElementById('per-history-panel');
+  document.getElementById('per-history-title').textContent = `EPS 히스토리 — ${stockName} (${stockCode})`;
+  document.getElementById('per-history-tbody').innerHTML =
+    '<tr><td colspan="6" class="loading">로딩 중...</td></tr>';
+  panel.style.display = '';
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  try {
+    const res  = await fetch(`/api/stock/eps/history?stock_code=${stockCode}&limit=30`);
+    const rows = await res.json();
+    if (!rows.length) {
+      document.getElementById('per-history-tbody').innerHTML =
+        '<tr><td colspan="6" style="color:#64748b;text-align:center">히스토리 없음</td></tr>';
+      return;
+    }
+    document.getElementById('per-history-tbody').innerHTML = rows.map(r => `<tr>
+      <td>${r.recorded_date}</td>
+      <td class="num" style="color:#60a5fa">${r.eps ? r.eps.toLocaleString() : '—'}</td>
+      <td class="num">${r.per ? r.per.toFixed(1) + 'x' : '—'}</td>
+      <td class="num">${r.listed_shares ? (r.listed_shares / 1e4).toFixed(0) + '만주' : '—'}</td>
+      <td class="num">${r.net_income ? (r.net_income / 1e8).toFixed(0) + '억' : '—'}</td>
+      <td class="num">${r.mac ? (r.mac / 1e8).toFixed(0) + '억' : '—'}</td>
+    </tr>`).join('');
+  } catch (e) {
+    document.getElementById('per-history-tbody').innerHTML =
+      `<tr><td colspan="6" style="color:#f87171;text-align:center">오류: ${e}</td></tr>`;
   }
 }
 

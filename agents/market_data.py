@@ -318,6 +318,40 @@ class MarketDataAgent:
         return results
 
     # ------------------------------------------------------------------
+    # 주식 기본정보 + 펀더멘털 (ka10001)
+    # ------------------------------------------------------------------
+
+    def get_stock_fundamentals(self, ticker: str) -> dict:
+        """주식기본정보요청 (ka10001) — EPS·PER·상장주식·순이익 포함.
+
+        Returns dict with keys: stock_code, eps, per, listed_shares, net_income, mac.
+        API가 빈 문자열을 반환하는 경우 해당 값은 None.
+        """
+        data = self._post("/api/dostk/stkinfo", "ka10001", {"stk_cd": ticker})
+
+        def _num(raw) -> float | None:
+            try:
+                s = str(raw or "").replace(",", "").replace("+", "").strip()
+                return float(s) if s not in ("", "0", "-") else None
+            except (ValueError, TypeError):
+                return None
+
+        eps_val     = _num(data.get("eps"))
+        per_val     = _num(data.get("per"))
+        flo_stk_val = _num(data.get("flo_stk"))
+        cup_nga_val = _num(data.get("cup_nga"))
+        mac_val     = _num(data.get("mac"))
+
+        return {
+            "stock_code":    data.get("stk_cd", ticker),
+            "eps":           eps_val,
+            "per":           per_val,
+            "listed_shares": int(flo_stk_val) if flo_stk_val is not None else None,
+            "net_income":    int(cup_nga_val) if cup_nga_val is not None else None,
+            "mac":           int(mac_val)     if mac_val     is not None else None,
+        }
+
+    # ------------------------------------------------------------------
     # 종목정보 (ka10100)
     # ------------------------------------------------------------------
 
