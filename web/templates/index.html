@@ -14129,7 +14129,7 @@ async function rpLoad() {
     const res  = await fetch('/api/rebalance');
     const json = await res.json();
     // 보유 종목 + 목표비율 설정된 종목 모두 포함
-    _rpData = (json.holdings || []).filter(h => h.target_ratio > 0 || (h.quantity > 0 && h.current_price > 0));
+    _rpData = (json.holdings || []).filter(h => h.target_ratio > 0 || (h.total_qty > 0 && h.current_price > 0));
     _rpPortfolioTotal = json.portfolio_total || 0;
     _rpDirty.clear();
     document.getElementById('rp-save-btn').disabled = true;
@@ -14153,16 +14153,16 @@ function rpRenderTable() {
 
   tbody.innerHTML = _rpData.map(h => {
     const price    = h.current_price || 0;
-    const qty      = h.quantity      || 0;
-    const evalAmt  = qty * price;
-    const curRatio = _rpPortfolioTotal > 0 ? evalAmt / _rpPortfolioTotal * 100 : 0;
+    const qty      = h.total_qty     || 0;      // API 필드명 total_qty
+    const evalAmt  = h.eval_amt      || 0;      // API가 직접 계산해서 줌
+    const curRatio = h.current_ratio ?? (_rpPortfolioTotal > 0 ? evalAmt / _rpPortfolioTotal * 100 : 0);
     const tgt      = _rpGetTarget(h.stock_code) ?? h.target_ratio ?? 0;
     const tgtAmt   = _rpPortfolioTotal * tgt / 100;
     const diff     = tgt - curRatio;
     const tradeAmt = tgtAmt - evalAmt;
     const tradeQty = price > 0 ? Math.round(tradeAmt / price) : 0;
-    const diffColor= Math.abs(diff) < 0.5 ? '#64748b' : diff > 0 ? '#4ade80' : '#f87171';
-    const tradeColor= tradeQty > 0 ? '#4ade80' : tradeQty < 0 ? '#f87171' : '#64748b';
+    const diffColor  = Math.abs(diff) < 0.5 ? '#64748b' : diff > 0 ? '#4ade80' : '#f87171';
+    const tradeColor = tradeQty > 0 ? '#4ade80' : tradeQty < 0 ? '#f87171' : '#64748b';
 
     if (Math.abs(tradeQty) > 0) needCnt++;
     if (tradeAmt > 0) totalBuy  += tradeAmt;
@@ -14205,7 +14205,7 @@ function rpRenderTable() {
       <span style="color:#64748b;margin:0 4px">/</span>
       <span style="color:#f87171">-${Math.round(totalSell).toLocaleString()}원</span>
     </td>
-    <td class="num" style="font-size:12px;color:#64748b">매수 ${_rpData.filter(h=>Math.round((_rpPortfolioTotal*(_rpGetTarget(h.stock_code)??h.target_ratio??0)/100)-(h.quantity||0)*(h.current_price||0))>0).length} / 매도 ${_rpData.filter(h=>Math.round((_rpPortfolioTotal*(_rpGetTarget(h.stock_code)??h.target_ratio??0)/100)-(h.quantity||0)*(h.current_price||0))<0).length}종목</td>
+    <td class="num" style="font-size:12px;color:#64748b">매수 ${needCnt}종목 포함</td>
   </tr>`;
 
   // 카드 업데이트
@@ -14268,9 +14268,9 @@ function rpRenderPhases() {
     .filter(h => h.current_price > 0)
     .map(h => {
       const tgt      = _rpGetTarget(h.stock_code) ?? h.target_ratio ?? 0;
-      const qty      = h.quantity || 0;
+      const qty      = h.total_qty  || 0;       // API 필드명 total_qty
       const price    = h.current_price;
-      const evalAmt  = qty * price;
+      const evalAmt  = h.eval_amt   || qty * price;
       const tgtAmt   = _rpPortfolioTotal * tgt / 100;
       const totalQty = Math.round((tgtAmt - evalAmt) / price);
       return { ...h, tgt, qty, price, evalAmt, tgtAmt, totalQty };
