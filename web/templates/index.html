@@ -3276,6 +3276,124 @@ canvas { max-height: 220px; }
     </div>
   </section>
 
+  <!-- ===== 예상순이익 계산기 모달 ===== -->
+  <div id="ni-calc-overlay" style="display:none;position:fixed;inset:0;z-index:9200;background:rgba(0,0,0,0.75)" onclick="if(event.target===this)niCalcClose()">
+    <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#111827;border:1px solid #1e2535;border-radius:12px;width:500px;max-width:95vw;max-height:90vh;overflow-y:auto">
+      <!-- 헤더 -->
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid #1e2535;position:sticky;top:0;background:#111827;z-index:1">
+        <div>
+          <span style="font-size:15px;font-weight:700;color:#e2e8f0">예상순이익 계산기</span>
+          <span id="ni-calc-name" style="font-size:12px;color:#64748b;margin-left:10px"></span>
+        </div>
+        <button onclick="niCalcClose()" style="background:none;border:none;color:#64748b;font-size:20px;cursor:pointer;line-height:1;padding:0 4px">✕</button>
+      </div>
+
+      <!-- 방법 1: 분기별 합산 -->
+      <div style="padding:16px 20px;border-bottom:1px solid #1e2535">
+        <div style="font-size:13px;font-weight:600;color:#fbbf24;margin-bottom:4px">방법 1 · 분기별 합산</div>
+        <div id="ni-q-hint" style="font-size:11px;color:#64748b;margin-bottom:10px"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:#94a3b8">
+            <span id="ni-q1-label"></span>
+            <div style="display:flex;align-items:center;gap:4px">
+              <input id="ni-q1" type="number" min="0" step="1" placeholder="억원"
+                style="flex:1;padding:6px 8px;border-radius:4px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;text-align:right;outline:none"
+                oninput="niCalcUpdate()"/>
+              <span style="font-size:11px;color:#475569">억</span>
+            </div>
+          </label>
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:#94a3b8">
+            <span id="ni-q2-label"></span>
+            <div style="display:flex;align-items:center;gap:4px">
+              <input id="ni-q2" type="number" min="0" step="1" placeholder="억원"
+                style="flex:1;padding:6px 8px;border-radius:4px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;text-align:right;outline:none"
+                oninput="niCalcUpdate()"/>
+              <span style="font-size:11px;color:#475569">억</span>
+            </div>
+          </label>
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:#94a3b8">
+            <span id="ni-q3-label"></span>
+            <div style="display:flex;align-items:center;gap:4px">
+              <input id="ni-q3" type="number" min="0" step="1" placeholder="억원"
+                style="flex:1;padding:6px 8px;border-radius:4px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;text-align:right;outline:none"
+                oninput="niCalcUpdate()"/>
+              <span style="font-size:11px;color:#475569">억</span>
+            </div>
+          </label>
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:#94a3b8">
+            <span id="ni-q4-label"></span>
+            <div style="display:flex;align-items:center;gap:4px">
+              <input id="ni-q4" type="number" min="0" step="1" placeholder="억원"
+                style="flex:1;padding:6px 8px;border-radius:4px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;text-align:right;outline:none"
+                oninput="niCalcUpdate()"/>
+              <span style="font-size:11px;color:#475569">억</span>
+            </div>
+          </label>
+        </div>
+        <div style="margin-top:12px;display:flex;align-items:center;justify-content:space-between">
+          <div style="font-size:13px;color:#94a3b8">
+            4분기 합계:
+            <span id="ni-q-total" style="color:#fbbf24;font-weight:700;margin-left:6px">—</span>
+          </div>
+          <button onclick="niCalcApplyQ()"
+            style="background:none;border:1px solid #fbbf24;color:#fbbf24;cursor:pointer;font-size:11px;padding:3px 10px;border-radius:4px"
+            title="이 값을 최종 예상순이익으로">이 값으로 ↓</button>
+        </div>
+      </div>
+
+      <!-- 방법 2: 연간 가중 -->
+      <div style="padding:16px 20px;border-bottom:1px solid #1e2535">
+        <div style="font-size:13px;font-weight:600;color:#a78bfa;margin-bottom:4px">방법 2 · 연간 가중 <span style="font-size:11px;font-weight:400;color:#64748b">(12개월 선행 자동 계산)</span></div>
+        <div id="ni-annual-hint" style="font-size:11px;color:#64748b;margin-bottom:10px"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:#94a3b8">
+            <span id="ni-y1-label"></span>
+            <div style="display:flex;align-items:center;gap:4px">
+              <input id="ni-y1" type="number" min="0" step="1" placeholder="억원"
+                style="flex:1;padding:6px 8px;border-radius:4px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;text-align:right;outline:none"
+                oninput="niCalcUpdate()"/>
+              <span style="font-size:11px;color:#475569">억</span>
+            </div>
+          </label>
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:#94a3b8">
+            <span id="ni-y2-label"></span>
+            <div style="display:flex;align-items:center;gap:4px">
+              <input id="ni-y2" type="number" min="0" step="1" placeholder="억원"
+                style="flex:1;padding:6px 8px;border-radius:4px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;text-align:right;outline:none"
+                oninput="niCalcUpdate()"/>
+              <span style="font-size:11px;color:#475569">억</span>
+            </div>
+          </label>
+        </div>
+        <div style="margin-top:12px;display:flex;align-items:center;justify-content:space-between">
+          <div style="font-size:13px;color:#94a3b8">
+            12개월 선행:
+            <span id="ni-annual-result" style="color:#a78bfa;font-weight:700;margin-left:6px">—</span>
+          </div>
+          <button onclick="niCalcApplyAnnual()"
+            style="background:none;border:1px solid #a78bfa;color:#a78bfa;cursor:pointer;font-size:11px;padding:3px 10px;border-radius:4px"
+            title="이 값을 최종 예상순이익으로">이 값으로 ↓</button>
+        </div>
+      </div>
+
+      <!-- 최종 결과 -->
+      <div style="padding:16px 20px">
+        <div style="font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:10px">최종 예상순이익 (12개월, 억원)</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input id="ni-calc-result" type="number" min="0" step="1" placeholder="직접 입력 또는 위 방법으로 채우기"
+            style="flex:1;padding:8px 12px;border-radius:6px;border:1px solid #1e3a5f;background:#0f1117;color:#e2e8f0;font-size:14px;text-align:right;outline:none"
+            oninput="niCalcSave()"/>
+          <span style="font-size:12px;color:#475569;white-space:nowrap">억원</span>
+        </div>
+        <div id="ni-calc-memo" style="font-size:11px;color:#475569;margin-top:6px;min-height:16px"></div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+          <button onclick="niCalcClose()" class="btn btn-ghost" style="font-size:13px">취소</button>
+          <button onclick="niCalcConfirm()" class="btn btn-primary" style="font-size:13px">적용</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ===== 정성 점수 페이지 ===== -->
   <section id="page-qualitative" class="page">
     <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
@@ -9327,9 +9445,14 @@ function perRowHtml(h) {
     <td class="num" style="color:#60a5fa">${h.current_eps ? h.current_eps.toLocaleString() : '—'}${syncDate}</td>
     <td class="num" style="color:#60a5fa">${h.listed_shares ? h.listed_shares.toLocaleString() + '주' : '—'}</td>
     <td class="num">
-      <input type="number" id="per-ni-${h.stock_code}" min="0" step="1"
-        value="${h.forward_net_income ?? ''}" placeholder="억원 (백만원÷100)"
-        style="${inp}" oninput="perMarkDirty('${h.stock_code}')"/>
+      <div style="display:flex;align-items:center;gap:4px">
+        <input type="number" id="per-ni-${h.stock_code}" min="0" step="1"
+          value="${h.forward_net_income ?? ''}" placeholder="억원"
+          style="${inp};width:90px" oninput="perMarkDirty('${h.stock_code}')"/>
+        <button onclick="niCalcOpen('${h.stock_code}','${h.stock_name}')"
+          style="background:none;border:1px solid #1e3a5f;color:#60a5fa;cursor:pointer;font-size:10px;padding:2px 6px;border-radius:3px;white-space:nowrap;flex-shrink:0"
+          title="예상순이익 계산기">계산기</button>
+      </div>
     </td>
     <td class="num" style="color:#93c5fd" id="per-fwdeps-${h.stock_code}">
       ${c.fwdEps ? c.fwdEps.toLocaleString() : '—'}
@@ -9591,6 +9714,141 @@ function perRenderPhases() {
     </div>`;
   }).join('') + '<div style="height:8px"></div>';
 }
+
+// ── 예상순이익 계산기 ──────────────────────────────────────────────────────
+let _niCalcCode = null;
+
+function _niQuarterInfo() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1; // 1~12
+  const q = Math.ceil(month / 3);   // 현재 분기 1~4
+  // 다음 4분기 레이블
+  const quarters = [];
+  let cy = year, cq = q + 1;
+  for (let i = 0; i < 4; i++) {
+    if (cq > 4) { cq = 1; cy++; }
+    quarters.push({ label: `${cy % 100} Q${cq}`, year: cy, q: cq });
+    cq++;
+  }
+  // 연간 가중 계산에 필요한 정보
+  const remQ = 4 - q;          // 올해 남은 분기 수 (현재 분기 이후)
+  const nextQ = 4 - remQ;      // 내년에서 가져올 분기 수
+  return { year, q, quarters, remQ, nextQ, y1: year, y2: year + 1 };
+}
+
+function niCalcOpen(code, name) {
+  _niCalcCode = code;
+  document.getElementById('ni-calc-name').textContent = `${name} (${code})`;
+
+  const info = _niQuarterInfo();
+  // 분기 레이블 세팅
+  info.quarters.forEach((qt, i) => {
+    document.getElementById(`ni-q${i+1}-label`).textContent = qt.label;
+  });
+  document.getElementById('ni-q-hint').textContent =
+    `현재 ${info.year}년 Q${info.q} 기준 → 다음 4분기 순이익 합산`;
+  document.getElementById('ni-y1-label').textContent = `${info.y1}년 연간`;
+  document.getElementById('ni-y2-label').textContent = `${info.y2}년 연간`;
+  document.getElementById('ni-annual-hint').textContent =
+    `${info.y1}년 남은 ${info.remQ}분기 + ${info.y2}년 ${info.nextQ}분기 → 12개월 선행 순이익`;
+
+  // 저장된 값 복원
+  const saved = _niCalcLoad(code);
+  ['q1','q2','q3','q4','y1','y2','result'].forEach(k => {
+    const el = document.getElementById(`ni-${k}`);
+    if (el) el.value = saved[k] ?? '';
+  });
+
+  niCalcUpdate();
+  document.getElementById('ni-calc-overlay').style.display = '';
+  document.getElementById('ni-q1').focus();
+}
+
+function niCalcClose() {
+  document.getElementById('ni-calc-overlay').style.display = 'none';
+  _niCalcCode = null;
+}
+
+function niCalcUpdate() {
+  const v = k => parseFloat(document.getElementById(`ni-${k}`)?.value) || 0;
+
+  // 방법 1: 분기별 합산
+  const qSum = v('q1') + v('q2') + v('q3') + v('q4');
+  const qAny = v('q1') || v('q2') || v('q3') || v('q4');
+  document.getElementById('ni-q-total').textContent =
+    qAny ? qSum.toLocaleString() + '억원' : '—';
+
+  // 방법 2: 연간 가중
+  const info = _niQuarterInfo();
+  const y1v = v('y1'), y2v = v('y2');
+  let annualResult = null;
+  if (y1v > 0 || y2v > 0) {
+    annualResult = Math.round(y1v * info.remQ / 4 + y2v * info.nextQ / 4);
+    document.getElementById('ni-annual-result').textContent =
+      annualResult.toLocaleString() + '억원';
+  } else {
+    document.getElementById('ni-annual-result').textContent = '—';
+  }
+
+  // 메모
+  const res = parseFloat(document.getElementById('ni-calc-result')?.value) || 0;
+  if (res > 0) {
+    const epsHint = res * 1e8;
+    document.getElementById('ni-calc-memo').textContent =
+      `선행EPS 참고: 약 ${epsHint.toLocaleString()}원 ÷ 상장주식수`;
+  } else {
+    document.getElementById('ni-calc-memo').textContent = '';
+  }
+
+  niCalcSave();
+}
+
+function niCalcApplyQ() {
+  const v = k => parseFloat(document.getElementById(`ni-${k}`)?.value) || 0;
+  const qSum = v('q1') + v('q2') + v('q3') + v('q4');
+  if (!qSum) return;
+  document.getElementById('ni-calc-result').value = qSum;
+  niCalcUpdate();
+}
+
+function niCalcApplyAnnual() {
+  const info = _niQuarterInfo();
+  const v = k => parseFloat(document.getElementById(`ni-${k}`)?.value) || 0;
+  const res = Math.round(v('y1') * info.remQ / 4 + v('y2') * info.nextQ / 4);
+  if (!res) return;
+  document.getElementById('ni-calc-result').value = res;
+  niCalcUpdate();
+}
+
+function niCalcConfirm() {
+  if (!_niCalcCode) return;
+  const val = parseFloat(document.getElementById('ni-calc-result')?.value);
+  if (!val || isNaN(val)) { niCalcClose(); return; }
+  const el = document.getElementById(`per-ni-${_niCalcCode}`);
+  if (el) {
+    el.value = val;
+    perMarkDirty(_niCalcCode);
+  }
+  niCalcSave();
+  niCalcClose();
+}
+
+function _niCalcKey(code) { return `ni_calc_${code}`; }
+
+function _niCalcLoad(code) {
+  try { return JSON.parse(localStorage.getItem(_niCalcKey(code)) || '{}'); }
+  catch { return {}; }
+}
+
+function niCalcSave() {
+  if (!_niCalcCode) return;
+  const v = k => document.getElementById(`ni-${k}`)?.value ?? '';
+  const obj = { q1: v('q1'), q2: v('q2'), q3: v('q3'), q4: v('q4'),
+                y1: v('y1'), y2: v('y2'), result: v('calc-result') };
+  localStorage.setItem(_niCalcKey(_niCalcCode), JSON.stringify(obj));
+}
+// ──────────────────────────────────────────────────────────────────────────────
 
 function perMarkDirty(stockCode) {
   perDirtySet.add(stockCode);
