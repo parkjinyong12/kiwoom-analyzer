@@ -14458,7 +14458,7 @@ function rpRenderPhases() {
         </div>
         <button onclick="rpApplyPhase(${pIdx})" id="rp-phase-apply-${pIdx}"
           style="background:none;border:1px solid #1e3a5f;color:#4ade80;cursor:pointer;font-size:11px;padding:3px 10px;border-radius:4px;white-space:nowrap;flex-shrink:0"
-          title="이 단계 거래를 완료했으면 클릭 → 보유종목 업데이트 후 새로고침">${p}단계 거래 완료</button>
+          title="${p}단계 목표비율 DB 반영">${p}단계 목표 적용</button>
       </div>
       <div style="border:1px solid #1e3a5f;border-top:none;border-radius:0 0 6px 6px;overflow-x:auto">
         <table class="data-table" style="margin:0">
@@ -14494,10 +14494,36 @@ function rpRenderPhases() {
 async function rpApplyPhase(phaseIdx) {
   const phase = _rpPhaseData[phaseIdx];
   if (!phase) return;
-  // DB 쓰기 없음 — 실제 거래 후 보유종목을 업데이트하면 자연히 다음 단계가 재계산됨
-  if (!confirm(`${phase.p}단계 거래를 완료했습니까?\n보유종목이 업데이트되어 있으면 새로고침 후 남은 단계가 자동 재계산됩니다.`)) return;
-  await rpLoad();
-  rpSwitchTab('plan');
+
+  const lines = phase.targets.map(t => {
+    const h    = _rpData.find(x => x.stock_code === t.stock_code);
+    const orig = (h?._db_target ?? h?.target_ratio ?? 0).toFixed(2);
+    const diff = (t.target_ratio - (h?._db_target ?? h?.target_ratio ?? 0)).toFixed(2);
+    const sign = parseFloat(diff) >= 0 ? '+' : '';
+    return `${h?.stock_name ?? t.stock_code}: ${orig}% → ${t.target_ratio.toFixed(2)}% (${sign}${diff}pp)`;
+  }).join('\n');
+
+  if (!confirm(`${phase.p}단계 완료 — 리밸런싱 목표비율을 아래와 같이 업데이트합니다.\n\n${lines}\n\n진행하시겠습니까?`)) return;
+
+  const btn = document.getElementById(`rp-phase-apply-${phaseIdx}`);
+  if (btn) { btn.disabled = true; btn.textContent = '적용 중...'; }
+
+  try {
+    const res = await fetch('/api/rebalance/targets', {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(phase.targets.map(t => ({ stock_code: t.stock_code, target_ratio: t.target_ratio }))),
+    });
+    if (res.ok) {
+      await rpLoad();
+      rpSwitchTab('plan');
+    } else {
+      alert('적용 실패: ' + res.status);
+      if (btn) { btn.disabled = false; btn.textContent = `${phase.p}단계 거래 완료`; }
+    }
+  } catch(e) {
+    alert('오류: ' + e);
+    if (btn) { btn.disabled = false; btn.textContent = `${phase.p}단계 거래 완료`; }
+  }
 }
 // ──────────────────────────────────────────────────────────────────────────────
 
