@@ -3223,6 +3223,31 @@ canvas { max-height: 220px; }
       </div>
     </div>
 
+    <!-- 단계별 조정 계획 패널 -->
+    <div id="per-phase-panel" style="display:none;margin-top:16px">
+      <div class="panel">
+        <div class="panel-header">
+          <span>단계별 조정 계획</span>
+          <div style="display:flex;align-items:center;gap:16px">
+            <label style="font-size:12px;color:#94a3b8;display:flex;align-items:center;gap:6px">
+              단계 수
+              <input type="number" id="per-phase-count" min="2" max="10" value="3"
+                style="width:52px;padding:4px 6px;border-radius:4px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;text-align:center;outline:none"
+                oninput="perRenderPhases()"/>
+            </label>
+            <label style="font-size:12px;color:#94a3b8;display:flex;align-items:center;gap:6px">
+              단계별 한도
+              <input type="number" id="per-phase-budget" min="0" step="100" placeholder="무제한"
+                style="width:120px;padding:4px 8px;border-radius:4px;border:1px solid #1e2535;background:#0f1117;color:#e2e8f0;font-size:13px;text-align:right;outline:none"
+                oninput="perRenderPhases()"/>
+              <span style="font-size:11px;color:#475569">만원</span>
+            </label>
+          </div>
+        </div>
+        <div id="per-phase-content" style="padding-bottom:8px"></div>
+      </div>
+    </div>
+
     <!-- EPS 히스토리 패널 (종목 클릭 시 표시) -->
     <div id="per-history-panel" style="display:none;margin-top:16px">
       <div class="panel">
@@ -9406,6 +9431,140 @@ function perRenderTrades() {
         매수 ${rows.filter(h=>h.tradeQty>0).length}종목 / 매도 ${rows.filter(h=>h.tradeQty<0).length}종목
       </td>
     </tr>`;
+  perRenderPhases();
+}
+
+function perRenderPhases() {
+  const panel  = document.getElementById('per-phase-panel');
+  const nRaw   = parseInt(document.getElementById('per-phase-count')?.value) || 3;
+  const nPhases= Math.max(2, Math.min(10, nRaw));
+  const budgetWon = (parseFloat(document.getElementById('per-phase-budget')?.value) || 0) * 10000;
+
+  if (!perPortfolioTotal) { panel.style.display = 'none'; return; }
+
+  // 전체 필요 거래 계산
+  const all = perData
+    .filter(h => h.current_price && h.total_qty != null)
+    .map(h => {
+      const eff      = h._effTarget ?? h.target_ratio;
+      const tgtAmt   = perPortfolioTotal * eff / 100;
+      const totalDiff= tgtAmt - h.eval_amt;
+      const totalQty = Math.round(totalDiff / h.current_price);
+      return { ...h, eff, tgtAmt, totalDiff, totalQty };
+    })
+    .filter(h => Math.abs(h.totalQty) > 0);
+
+  if (!all.length) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+
+  // 단계별 거래 목록 생성 -------------------------------------------------
+  let phasesList = [];
+
+  if (budgetWon > 0) {
+    // 예산 한도 방식: 매도 우선 → per_ratio 높은 매수 순
+    const pending = all.map(h => ({ ...h, remQty: h.totalQty }));
+    for (let p = 1; p <= nPhases; p++) {
+      const sells = pending.filter(h => h.remQty < 0).sort((a,b) => (a._c?.ratio??1)-(b._c?.ratio??1));
+      const buys  = pending.filter(h => h.remQty > 0).sort((a,b) => (b._c?.ratio??1)-(a._c?.ratio??1));
+      let used = 0;
+      const rows = [];
+      for (const h of [...sells, ...buys]) {
+        if (h.remQty === 0) continue;
+        const remaining = budgetWon - used;
+        const maxQty = Math.floor(remaining / h.current_price);
+        const qty = h.remQty < 0 ? -Math.min(Math.abs(h.remQty), maxQty)
+                                  :  Math.min(h.remQty, maxQty);
+        if (qty === 0) continue;
+        const amt = qty * h.current_price;
+        used += Math.abs(amt);
+        rows.push({ ...h, phaseQty: qty, phaseAmt: amt });
+        h.remQty -= qty;
+      }
+      if (rows.length) phasesList.push({ p, rows });
+      if (pending.every(h => h.remQty === 0)) break;
+    }
+    // 잔여 처리
+    const leftover = pending.filter(h => h.remQty !== 0);
+    if (leftover.length) {
+      phasesList.push({ p: phasesList.length + 1,
+        rows: leftover.map(h => ({ ...h, phaseQty: h.remQty, phaseAmt: h.remQty * h.current_price })) });
+    }
+  } else {
+    // 균등 분할 방식
+    for (let p = 1; p <= nPhases; p++) {
+      const rows = all.map(h => {
+        const qNow  = Math.round(h.totalQty * p / nPhases);
+        const qPrev = Math.round(h.totalQty * (p-1) / nPhases);
+        const qty   = qNow - qPrev;
+        if (qty === 0) return null;
+        return { ...h, phaseQty: qty, phaseAmt: qty * h.current_price };
+      }).filter(Boolean);
+      if (rows.length) phasesList.push({ p, rows });
+    }
+  }
+
+  // 누적 수량 추적용
+  const cumQty = Object.fromEntries(all.map(h => [h.stock_code, 0]));
+
+  const content = document.getElementById('per-phase-content');
+  content.innerHTML = phasesList.map(({ p, rows }) => {
+    const buyAmt  = rows.filter(r=>r.phaseQty>0).reduce((s,r)=>s+r.phaseAmt,0);
+    const sellAmt = rows.filter(r=>r.phaseQty<0).reduce((s,r)=>s+Math.abs(r.phaseAmt),0);
+    const buyCnt  = rows.filter(r=>r.phaseQty>0).length;
+    const sellCnt = rows.filter(r=>r.phaseQty<0).length;
+
+    // 이 단계 반영 후 누적 수량
+    rows.forEach(r => { cumQty[r.stock_code] = (cumQty[r.stock_code]||0) + r.phaseQty; });
+
+    const rowsHtml = [...rows]
+      .sort((a,b)=>Math.abs(b.phaseAmt)-Math.abs(a.phaseAmt))
+      .map(r => {
+        const isBuy  = r.phaseQty > 0;
+        const col    = isBuy ? '#4ade80' : '#f87171';
+        const newQty = r.total_qty + (cumQty[r.stock_code] || 0);
+        const newRat = perPortfolioTotal > 0 ? (newQty * r.current_price) / perPortfolioTotal * 100 : 0;
+        const gap    = r.eff - newRat;
+        return `<tr>
+          <td style="font-weight:600">${r.stock_name}
+            <span style="font-size:11px;color:#475569;margin-left:4px">${r.stock_code}</span></td>
+          <td class="num">${r.current_price.toLocaleString()}원</td>
+          <td class="num" style="color:${col};font-weight:700">${isBuy?'+':''}${r.phaseQty.toLocaleString()}주</td>
+          <td class="num" style="color:${col}">${isBuy?'+':''}${Math.round(r.phaseAmt).toLocaleString()}원</td>
+          <td class="num">
+            <span style="color:#e2e8f0">${newRat.toFixed(1)}%</span>
+            <span style="font-size:10px;color:${Math.abs(gap)<0.5?'#4ade80':'#64748b'};margin-left:4px">목표 ${r.eff.toFixed(1)}% (잔여 ${gap.toFixed(1)}pp)</span>
+          </td>
+          <td style="text-align:center">
+            <span style="background:${col}22;color:${col};padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700">${isBuy?'매수':'매도'}</span>
+          </td>
+        </tr>`;
+      }).join('');
+
+    return `<div style="margin:8px 16px 0">
+      <div onclick="const b=this.nextElementSibling;b.style.display=b.style.display==='none'?'':'none'"
+           style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:#0c1a2e;border:1px solid #1e3a5f;border-radius:6px 6px 0 0;cursor:pointer;user-select:none">
+        <span style="font-weight:700;color:#93c5fd;font-size:14px">${p}단계</span>
+        <div style="display:flex;gap:20px;font-size:12px">
+          ${buyCnt>0?`<span style="color:#4ade80">↑ 매수 ${buyCnt}종목 &nbsp;${(buyAmt/1e4).toFixed(0)}만원</span>`:''}
+          ${sellCnt>0?`<span style="color:#f87171">↓ 매도 ${sellCnt}종목 &nbsp;${(sellAmt/1e4).toFixed(0)}만원</span>`:''}
+          <span style="color:#475569">▾</span>
+        </div>
+      </div>
+      <div style="border:1px solid #1e3a5f;border-top:none;border-radius:0 0 6px 6px;overflow-x:auto">
+        <table class="data-table" style="margin:0">
+          <thead><tr>
+            <th>종목명</th>
+            <th style="text-align:right">현재가</th>
+            <th style="text-align:right">거래수량</th>
+            <th style="text-align:right">거래금액</th>
+            <th style="text-align:right">${p}단계 후 비율 (목표 대비)</th>
+            <th style="text-align:center">액션</th>
+          </tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>
+    </div>`;
+  }).join('') + '<div style="height:8px"></div>';
 }
 
 function perMarkDirty(stockCode) {
