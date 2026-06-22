@@ -3169,7 +3169,7 @@ canvas { max-height: 220px; }
               <th style="text-align:right">현재가<br><span style="font-size:10px;color:#4ade80">자동</span></th>
               <th style="text-align:right">현재 EPS<br><span style="font-size:10px;color:#4ade80">동기화</span></th>
               <th style="text-align:right">상장주식수<br><span style="font-size:10px;color:#4ade80">동기화</span></th>
-              <th style="text-align:right;min-width:140px">예상순이익 (억원)<br><span style="font-size:10px;color:#fbbf24">입력</span></th>
+              <th style="text-align:right;min-width:140px">예상순이익<br><span style="font-size:10px;color:#fbbf24">억원 입력</span><br><span style="font-size:10px;color:#475569">백만원÷100</span></th>
               <th style="text-align:right">선행 EPS<br><span style="font-size:10px;color:#4ade80">자동</span></th>
               <th style="text-align:right">EPS 성장률<br><span style="font-size:10px;color:#4ade80">자동</span></th>
               <th style="text-align:right">선행 PER<br><span style="font-size:10px;color:#4ade80">자동</span></th>
@@ -9237,7 +9237,7 @@ function perRowHtml(h) {
     <td class="num" style="color:#60a5fa">${h.listed_shares ? (h.listed_shares / 1e4).toFixed(0) + '만주' : '—'}</td>
     <td class="num">
       <input type="number" id="per-ni-${h.stock_code}" min="0" step="1"
-        value="${h.forward_net_income ?? ''}" placeholder="예상순이익"
+        value="${h.forward_net_income ?? ''}" placeholder="억원 (백만원÷100)"
         style="${inp}" oninput="perMarkDirty('${h.stock_code}')"/>
     </td>
     <td class="num" style="color:#93c5fd" id="per-fwdeps-${h.stock_code}">

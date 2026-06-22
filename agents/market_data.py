@@ -346,7 +346,8 @@ class MarketDataAgent:
             "stock_code":    data.get("stk_cd", ticker),
             "eps":           eps_val,
             "per":           per_val,
-            "listed_shares": int(flo_stk_val) if flo_stk_val is not None else None,
+            # flo_stk 단위 = 千株(천주). ×1000 해서 실제 주식수(주)로 변환
+            "listed_shares": int(flo_stk_val * 1000) if flo_stk_val is not None else None,
             "net_income":    int(cup_nga_val) if cup_nga_val is not None else None,
             "mac":           int(mac_val)     if mac_val     is not None else None,
         }
