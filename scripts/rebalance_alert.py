@@ -57,6 +57,7 @@ def _ensure_alert_log_table(conn):
             CREATE TABLE IF NOT EXISTS rebalance_alert_log (
                 id               SERIAL PRIMARY KEY,
                 sent_at          TIMESTAMP DEFAULT NOW(),
+                user_id          INTEGER,
                 signal_hash      VARCHAR(64) NOT NULL,
                 stock_buy_cnt    INTEGER NOT NULL DEFAULT 0,
                 stock_sell_cnt   INTEGER NOT NULL DEFAULT 0,
@@ -66,6 +67,19 @@ def _ensure_alert_log_table(conn):
                 status           VARCHAR(20),
                 error_msg        TEXT
             )
+        """)
+        # 기존 테이블에 user_id 컬럼 없으면 추가 (마이그레이션)
+        cur.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'rebalance_alert_log'
+                      AND column_name = 'user_id'
+                ) THEN
+                    ALTER TABLE rebalance_alert_log ADD COLUMN user_id INTEGER;
+                END IF;
+            END $$
         """)
     conn.commit()
 
@@ -478,24 +492,25 @@ def _build_signal_hash(sb, ss, tb, ts) -> str:
     return hashlib.sha256("|".join(parts).encode()).hexdigest()
 
 
-def _get_last_hash(conn) -> str | None:
+def _get_last_hash(conn, uid: int) -> str | None:
     try:
         row = _query_one(conn,
-            "SELECT signal_hash FROM rebalance_alert_log ORDER BY sent_at DESC LIMIT 1")
+            "SELECT signal_hash FROM rebalance_alert_log WHERE user_id = %s ORDER BY sent_at DESC LIMIT 1",
+            (uid,))
         return row["signal_hash"] if row else None
     except Exception:
         return None
 
 
-def _save_log(conn, signal_hash, sb, ss, tb, ts, recipients, status, error_msg=None):
+def _save_log(conn, uid, signal_hash, sb, ss, tb, ts, recipients, status, error_msg=None):
     try:
         with conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO rebalance_alert_log
-                    (signal_hash, stock_buy_cnt, stock_sell_cnt, theme_buy_cnt, theme_sell_cnt,
+                    (user_id, signal_hash, stock_buy_cnt, stock_sell_cnt, theme_buy_cnt, theme_sell_cnt,
                      recipients, status, error_msg)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            """, (signal_hash, len(sb), len(ss), len(tb), len(ts),
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (uid, signal_hash, len(sb), len(ss), len(tb), len(ts),
                   ",".join(recipients), status, error_msg))
         conn.commit()
     except Exception as e:
@@ -749,7 +764,7 @@ def main(force: bool = False, dry_run: bool = False) -> None:
                 continue
 
             cur_hash  = _build_signal_hash(sb, ss, tb, ts)
-            last_hash = _get_last_hash(conn)
+            last_hash = _get_last_hash(conn, uid)
 
             if not force and cur_hash == last_hash:
                 logger.info("uid=%d: 신호 변화 없음 (hash=%s…) — 발송 생략", uid, cur_hash[:8])
@@ -765,7 +780,7 @@ def main(force: bool = False, dry_run: bool = False) -> None:
             recipients = get_recipients_for_user(conn, uid)
             ok         = send_email(html, recipients, sb, ss, tb, ts)
             status     = "success" if ok else "failed"
-            _save_log(conn, cur_hash, sb, ss, tb, ts, recipients, status)
+            _save_log(conn, uid, cur_hash, sb, ss, tb, ts, recipients, status)
             any_sent   = True
 
         if not any_sent and not dry_run:
