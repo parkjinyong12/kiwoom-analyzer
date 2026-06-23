@@ -9494,7 +9494,8 @@ const TRB_MIN_AMT   = 50000; // 관망 최소금액 5만원
 // ─── PER 관리 ─────────────────────────────────────────
 let perData          = [];   // 종목별 데이터 캐시
 let perDirtySet      = new Set();
-let perPortfolioTotal = 0;   // 전체 포트폴리오 평가액 (주식+현금)
+let perPortfolioTotal = 0;   // 전체 포트폴리오 평가액 (주식+현금) — PER 표시용
+let perStockTotal     = 0;   // 주식 평가액 합계 — 단계 계획 목표비율 계산용 (이메일/화면 기준과 동일)
 let _perPhaseData    = [];   // 단계별 조정 계획 캐시 [{p, stocks:[{stock_code,newRatio}]}]
 
 async function loadPerManage() {
@@ -9505,6 +9506,7 @@ async function loadPerManage() {
     const json = await res.json();
     perData = (json.holdings || []).filter(h => h.target_ratio > 0);
     perPortfolioTotal = json.portfolio_total || 0;
+    perStockTotal     = json.stock_total     || 0;
     perDirtySet.clear();
     document.getElementById('per-batch-save-btn').disabled = true;
     document.getElementById('per-dirty-hint').style.display = 'none';
@@ -9737,11 +9739,14 @@ function perRenderPhases() {
   if (!perPortfolioTotal) { panel.style.display = 'none'; return; }
 
   // 전체 필요 거래 계산
+  // ⚠ target_ratio는 주식총액(stock_total) 기준 % — perPortfolioTotal(포트폴리오 전체)이 아닌
+  //   perStockTotal을 사용해야 이메일/주식간 리밸런싱 화면과 동일한 기준이 됨
+  const _base = perStockTotal > 0 ? perStockTotal : perPortfolioTotal;
   const all = perData
     .filter(h => h.current_price && h.total_qty != null)
     .map(h => {
-      const eff      = h._effTarget ?? h.target_ratio;
-      const tgtAmt   = perPortfolioTotal * eff / 100;
+      const eff      = h.target_ratio;   // PER 조정 없이 원래 목표비율 기준으로 단계 계획
+      const tgtAmt   = _base * eff / 100;
       const totalDiff= tgtAmt - h.eval_amt;
       const totalQty = Math.round(totalDiff / h.current_price);
       return { ...h, eff, tgtAmt, totalDiff, totalQty };
@@ -9812,10 +9817,11 @@ function perRenderPhases() {
     rows.forEach(r => { cumQty[r.stock_code] = (cumQty[r.stock_code]||0) + r.phaseQty; });
 
     // 전체 종목 기준 이 단계 이후 목표비율 (거래 없는 종목은 현재 target 유지)
+    // stock_total 기준으로 저장해야 이메일/주식간 리밸런싱 화면과 동일한 기준이 됨
     const phaseTargets = all.map(h => {
       const cum     = cumQty[h.stock_code] || 0;
       const newQty  = h.total_qty + cum;
-      const newRatio= perPortfolioTotal > 0 ? Math.round((newQty * h.current_price / perPortfolioTotal * 100) * 100) / 100 : h.eff;
+      const newRatio= _base > 0 ? Math.round((newQty * h.current_price / _base * 100) * 100) / 100 : h.eff;
       return { stock_code: h.stock_code, stock_name: h.stock_name, target_ratio: newRatio, eff: h.eff };
     });
     _perPhaseData.push({ p, targets: phaseTargets });
@@ -9826,7 +9832,7 @@ function perRenderPhases() {
         const isBuy  = r.phaseQty > 0;
         const col    = isBuy ? '#4ade80' : '#f87171';
         const newQty = r.total_qty + (cumQty[r.stock_code] || 0);
-        const newRat = perPortfolioTotal > 0 ? (newQty * r.current_price) / perPortfolioTotal * 100 : 0;
+        const newRat = _base > 0 ? (newQty * r.current_price) / _base * 100 : 0;
         const gap    = r.eff - newRat;
         return `<tr>
           <td style="font-weight:600">${r.stock_name}
@@ -14165,6 +14171,7 @@ function mpRenderPhases() {
 // ── 단계별 실행 계획 ──────────────────────────────────────────────────────────
 let _rpData           = [];
 let _rpPortfolioTotal = 0;
+let _rpStockTotal     = 0;   // 주식 평가액 — 단계 목표비율 계산 기준 (이메일/화면과 동일)
 let _rpPhaseData      = [];
 let _rpDirty          = new Set();
 let _rpActiveTab      = 'target';
@@ -14198,6 +14205,7 @@ async function rpLoad() {
     // 보유 종목 + 목표비율 설정된 종목 모두 포함
     const rawData = (json.holdings || []).filter(h => h.target_ratio > 0 || (h.total_qty > 0 && h.current_price > 0));
     _rpPortfolioTotal = json.portfolio_total || 0;
+    _rpStockTotal     = json.stock_total     || 0;
     // target_ratio = 현재 단계 목표 (DB), plan_target_ratio = 최종 목표 (DB)
     _rpData = rawData.map(h => ({
       ...h,
@@ -14421,9 +14429,11 @@ function rpRenderPhases() {
     rows.forEach(r => { cumQty[r.stock_code] = (cumQty[r.stock_code]||0) + r.phaseQty; });
 
     // 이 단계까지 완료 후 중간 목표비율
+    // stock_total 기준으로 저장해야 이메일/주식간 리밸런싱 화면과 동일한 기준이 됨
+    const _rbase = _rpStockTotal > 0 ? _rpStockTotal : _rpPortfolioTotal;
     const phaseTargets = all.map(h => {
       const newQty   = h.qty + (cumQty[h.stock_code] || 0);
-      const newRatio = Math.round((newQty * h.price / _rpPortfolioTotal * 100) * 100) / 100;
+      const newRatio = Math.round((newQty * h.price / _rbase * 100) * 100) / 100;
       return { stock_code: h.stock_code, stock_name: h.stock_name, target_ratio: newRatio, final_tgt: h.tgt };
     });
     _rpPhaseData.push({ p, targets: phaseTargets });
@@ -14435,7 +14445,7 @@ function rpRenderPhases() {
         const isBuy  = r.phaseQty > 0;
         const col    = isBuy ? '#4ade80' : '#f87171';
         const newQty = r.qty + (cumQty[r.stock_code] || 0);
-        const newRat = _rpPortfolioTotal > 0 ? newQty * r.price / _rpPortfolioTotal * 100 : 0;
+        const newRat = _rbase > 0 ? newQty * r.price / _rbase * 100 : 0;
         const gap    = r.tgt - newRat;
         return `<tr>
           <td style="font-weight:600;white-space:nowrap">${r.stock_name}
