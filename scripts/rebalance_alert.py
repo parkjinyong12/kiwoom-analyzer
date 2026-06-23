@@ -231,39 +231,10 @@ def get_stock_signals(conn, uid: int) -> tuple[list[dict], list[dict]]:
             "watch_down":    float(r["watch_down"]) if r["watch_down"] is not None else None,
         })
 
-    # PER 기반 목표비율 조정 ─────────────────────────────────────────────────
-    # per_ratio = fair_per / forward_per: >1 저평가(비중 확대), <1 고평가(비중 축소)
-    # forward_per 미저장 시 현재가/선행EPS로 대체; fair_per 미저장 시 eps_growth_rate 사용
-    for h in holdings:
-        fwd = h["forward_per"]
-        if fwd is None and h["forward_eps"] and h["forward_eps"] > 0 and h["current_price"]:
-            fwd = h["current_price"] / h["forward_eps"]
-        fair = h["fair_per"]
-        if fair is None and h["eps_growth_rate"] and h["eps_growth_rate"] > 0:
-            fair = h["eps_growth_rate"]
-        h["per_ratio"] = (fair / fwd) if (fwd and fair and fwd > 0) else 1.0
-
-    # PER 입력 종목끼리만 그룹 내 재분배 → 미입력 종목은 원래 비율 유지
-    per_set     = [h for h in holdings if h["target_ratio"] > 0 and h["per_ratio"] != 1.0]
-    per_not_set = [h for h in holdings if h["target_ratio"] > 0 and h["per_ratio"] == 1.0]
-    group_base  = sum(h["target_ratio"] for h in per_set)
-    group_adj   = sum(h["target_ratio"] * h["per_ratio"] for h in per_set)
-    for h in per_set:
-        h["eff_target_ratio"] = (
-            h["target_ratio"] * h["per_ratio"] / group_adj * group_base
-            if group_adj > 0 else h["target_ratio"]
-        )
-    for h in per_not_set:
-        h["eff_target_ratio"] = h["target_ratio"]
-    for h in holdings:
-        if h["target_ratio"] <= 0:
-            h["eff_target_ratio"] = h["target_ratio"]
-    # ─────────────────────────────────────────────────────────────────────────
-
     buy_items, sell_items = [], []
 
     for r in holdings:
-        tgt       = r["eff_target_ratio"]
+        tgt       = r["target_ratio"]
         cur_price = r["current_price"]
         if not tgt or cur_price is None:
             continue
@@ -365,17 +336,6 @@ def get_theme_signals(conn, uid: int) -> tuple[list[dict], list[dict]]:
         (uid,))
     rb_tgts  = {r["stock_code"]: float(r["target_ratio"]) for r in rb_rows}
 
-    per_rows = _query(conn,
-        "SELECT stock_code, forward_per, fair_per FROM rebalance_targets WHERE user_id = %s",
-        (uid,))
-    per_data = {
-        r["stock_code"]: {
-            "forward_per": float(r["forward_per"]) if r["forward_per"] is not None else None,
-            "fair_per":    float(r["fair_per"])    if r["fair_per"]    is not None else None,
-        }
-        for r in per_rows
-    }
-
     stock_total = 0
     stocks = []
     for r in rows:
@@ -385,17 +345,12 @@ def get_theme_signals(conn, uid: int) -> tuple[list[dict], list[dict]]:
         eval_amt  = qty * (int(cur_price) if cur_price is not None else avg_price)
         stock_total += eval_amt
         themes_list = [t.strip() for t in (r["themes"] or "").split(",") if t.strip()]
-        pd_ = per_data.get(r["stock_code"], {})
-        fwd  = pd_.get("forward_per")
-        fair = pd_.get("fair_per")
-        per_ratio = (fair / fwd) if (fwd and fair and fwd > 0) else 1.0
         stocks.append({
             "stock_code":    r["stock_code"],
             "stock_name":    r["stock_name"],
             "current_price": int(cur_price) if cur_price is not None else 0,
             "eval_amt":      round(eval_amt),
             "themes":        themes_list,
-            "per_ratio":     per_ratio,
         })
 
     # stock_total 기준 current_ratio + rb_dev_rel
@@ -475,11 +430,10 @@ def get_theme_signals(conn, uid: int) -> tuple[list[dict], list[dict]]:
         if adj_amt < TRB_MIN_AMT or not eligible:
             continue
 
-        # PER 가중치 반영: 저평가 종목(per_ratio>1)에 더 많이 배분
-        eligible_eval = sum(s["eval_amt"] * s.get("per_ratio", 1.0) for s in eligible) or 1
+        eligible_eval = sum(s["eval_amt"] for s in eligible) or 1
         trades = []
         for s in eligible:
-            weight = s["eval_amt"] * s.get("per_ratio", 1.0) / eligible_eval
+            weight = s["eval_amt"] / eligible_eval
             alloc  = adj_amt * weight
             sh     = math.floor(alloc / s["current_price"])
             amt    = sh * s["current_price"]
