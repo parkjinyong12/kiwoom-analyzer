@@ -600,6 +600,22 @@ def _ensure_rebalance_targets_table():
         cur.execute("ALTER TABLE rebalance_targets ADD COLUMN IF NOT EXISTS plan_target_ratio  DECIMAL(6,2)   DEFAULT NULL")
 
 
+def _ensure_rebalance_plan_progress_table():
+    """단계별 실행 계획 진행 상태 저장 (몇 단계까지 적용했는지, 총 단계 수, 단계별 한도)."""
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS rebalance_plan_progress (
+                user_id         INTEGER      NOT NULL,
+                applied_step    INTEGER      NOT NULL DEFAULT 0,
+                total_steps     INTEGER      NOT NULL DEFAULT 3,
+                phase_budget    DECIMAL(14,2),
+                last_applied_at TIMESTAMP,
+                PRIMARY KEY (user_id)
+            )
+        """)
+
+
 def _ensure_stock_eps_history_table():
     """EPS 동기화 히스토리 테이블 (하루 1건 upsert)."""
     with get_conn() as conn:
@@ -2320,6 +2336,47 @@ def api_rebalance_plan():
                 ON CONFLICT (user_id, stock_code)
                 DO UPDATE SET plan_target_ratio = EXCLUDED.plan_target_ratio, updated_at = NOW()
             """, (uid, stock_code, plan_ratio))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/rebalance/plan/progress")
+def api_rebalance_plan_progress_get():
+    """단계별 계획 진행 상태 조회."""
+    uid = _current_uid()
+    r = query_one(
+        "SELECT applied_step, total_steps, phase_budget FROM rebalance_plan_progress WHERE user_id=%s",
+        (uid,),
+    )
+    if not r:
+        return jsonify({"applied_step": 0, "total_steps": 3, "phase_budget": None})
+    return jsonify({
+        "applied_step": r["applied_step"],
+        "total_steps":  r["total_steps"],
+        "phase_budget": float(r["phase_budget"]) if r["phase_budget"] is not None else None,
+    })
+
+
+@app.route("/api/rebalance/plan/progress", methods=["PUT"])
+def api_rebalance_plan_progress_put():
+    """단계별 계획 진행 상태 저장. body: {applied_step, total_steps, phase_budget}"""
+    uid  = _current_uid()
+    body = request.get_json() or {}
+    applied_step  = int(body.get("applied_step", 0))
+    total_steps   = max(2, int(body.get("total_steps", 3)))
+    phase_budget  = body.get("phase_budget")
+    phase_budget  = float(phase_budget) if phase_budget is not None else None
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO rebalance_plan_progress
+                (user_id, applied_step, total_steps, phase_budget, last_applied_at)
+            VALUES (%s, %s, %s, %s, NOW())
+            ON CONFLICT (user_id) DO UPDATE SET
+                applied_step    = EXCLUDED.applied_step,
+                total_steps     = EXCLUDED.total_steps,
+                phase_budget    = EXCLUDED.phase_budget,
+                last_applied_at = NOW()
+        """, (uid, applied_step, total_steps, phase_budget))
     return jsonify({"ok": True})
 
 
@@ -5467,6 +5524,11 @@ except Exception:
 
 try:
     _ensure_rebalance_targets_table()
+except Exception:
+    pass
+
+try:
+    _ensure_rebalance_plan_progress_table()
 except Exception:
     pass
 
