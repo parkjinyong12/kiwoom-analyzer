@@ -187,8 +187,6 @@ def get_stock_signals(conn, uid: int) -> tuple[list[dict], list[dict]]:
                 CASE WHEN st.last_price ~ '^[0-9]+$' THEN st.last_price::BIGINT ELSE NULL END
             )                                            AS current_price,
             COALESCE(rt.target_ratio, 0)                AS target_ratio,
-            rt.forward_per, rt.fair_per,
-            rt.forward_eps, rt.eps_growth_rate,
             rt.alert_up, rt.alert_down, rt.watch_up, rt.watch_down
         FROM holdings_agg ha
         LEFT JOIN latest_close lc ON lc.stock_code = ha.stock_code
@@ -219,12 +217,6 @@ def get_stock_signals(conn, uid: int) -> tuple[list[dict], list[dict]]:
             "current_price": int(cur_price) if cur_price is not None else None,
             "eval_amt":      round(eval_amt),
             "target_ratio":  float(r["target_ratio"] or 0),
-            "forward_eps":      float(r["forward_eps"])     if r["forward_eps"]     is not None else None,
-            "eps_growth_rate":  float(r["eps_growth_rate"]) if r["eps_growth_rate"] is not None else None,
-            # forward_per: 저장값 우선, 없으면 현재가/선행EPS로 대체
-            "forward_per":   float(r["forward_per"]) if r["forward_per"] is not None
-                             else None,  # _apply_per_adjustment 에서 fallback 처리
-            "fair_per":      float(r["fair_per"])    if r["fair_per"]    is not None else None,
             "alert_up":      float(r["alert_up"])   if r["alert_up"]   is not None else None,
             "alert_down":    float(r["alert_down"]) if r["alert_down"] is not None else None,
             "watch_up":      float(r["watch_up"])   if r["watch_up"]   is not None else None,
