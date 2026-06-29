@@ -2685,12 +2685,14 @@ canvas { max-height: 220px; }
               <th style="text-align:right">현금성자산</th>
               <th style="text-align:right">대출금</th>
               <th style="text-align:right">추정자산</th>
+              <th style="text-align:right">전일 대비</th>
+              <th style="text-align:right">변화율</th>
               <th style="text-align:right">담보비율</th>
               <th style="text-align:center;width:60px">삭제</th>
             </tr>
           </thead>
           <tbody id="cs-tbody">
-            <tr><td colspan="7" class="loading">로딩 중...</td></tr>
+            <tr><td colspan="9" class="loading">로딩 중...</td></tr>
           </tbody>
         </table>
       </div>
@@ -12555,7 +12557,7 @@ function csSetPeriod(days) {
 
 async function csLoad() {
   const tbody = document.getElementById('cs-tbody');
-  tbody.innerHTML = '<tr><td colspan="7" class="loading">로딩 중...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="9" class="loading">로딩 중...</td></tr>';
   try {
     const res  = await fetch(`/api/credit_snapshots?days=${_csDays}`);
     const rows = await res.json();
@@ -12564,7 +12566,7 @@ async function csLoad() {
     document.getElementById('cs-count').textContent = confirmedRows.length ? `(${confirmedRows.length}건)` : '';
 
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:20px;color:#475569">기록 없음 — 매일 20:10에 자동 저장됩니다.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:20px;color:#475569">기록 없음 — 매일 20:10에 자동 저장됩니다.</td></tr>';
       _csLastRows = []; _csLastPreview = null;
       csRenderChart([], null);
       return;
@@ -12574,6 +12576,30 @@ async function csLoad() {
     _csLastRows = confirmedRows; _csLastPreview = previewRow;
     csRenderChart(confirmedRows, previewRow);
 
+    // 전일 대비 계산: rows는 DESC 순서 (preview가 맨 앞일 수 있음)
+    // confirmed 배열 내 인덱스 기준으로 다음 항목이 전날
+    function csDelta(r) {
+      if (r.is_preview) {
+        return confirmedRows.length > 0
+          ? r.estimated_asset - confirmedRows[0].estimated_asset
+          : null;
+      }
+      const idx = confirmedRows.indexOf(r);
+      return idx < confirmedRows.length - 1
+        ? r.estimated_asset - confirmedRows[idx + 1].estimated_asset
+        : null;
+    }
+
+    function csDeltaHtml(delta, prevAsset) {
+      if (delta === null) return '<td class="num" style="color:#475569">—</td><td class="num" style="color:#475569">—</td>';
+      const col  = delta > 0 ? '#4ade80' : delta < 0 ? '#f87171' : '#64748b';
+      const sign = delta > 0 ? '+' : '';
+      const rate = prevAsset && prevAsset !== 0 ? delta / Math.abs(prevAsset) * 100 : null;
+      const rateStr = rate !== null ? `${sign}${rate.toFixed(2)}%` : '—';
+      return `<td class="num" style="color:${col};font-weight:600">${sign}${delta.toLocaleString()}</td>`
+           + `<td class="num" style="color:${col}">${rateStr}</td>`;
+    }
+
     tbody.innerHTML = rows.map(r => {
       const estColor = r.estimated_asset >= 0 ? '#4ade80' : '#f87171';
       const crRatio  = r.collateral_ratio !== null ? r.collateral_ratio.toFixed(1) + '%' : '—';
@@ -12581,6 +12607,17 @@ async function csLoad() {
         : r.collateral_ratio >= (rbCollateralRequired + 10) ? '#4ade80'
         : r.collateral_ratio >= rbCollateralRequired        ? '#f59e0b'
         : '#f87171';
+      const delta = csDelta(r);
+      // 전날 추정자산 (변화율 분모)
+      let prevAsset = null;
+      if (r.is_preview) {
+        prevAsset = confirmedRows.length > 0 ? confirmedRows[0].estimated_asset : null;
+      } else {
+        const idx = confirmedRows.indexOf(r);
+        prevAsset = idx < confirmedRows.length - 1 ? confirmedRows[idx + 1].estimated_asset : null;
+      }
+      const deltaHtml = csDeltaHtml(delta, prevAsset);
+
       if (r.is_preview) {
         return `<tr style="opacity:0.7;border-bottom:1px dashed #334155">
           <td style="font-weight:600;color:#94a3b8">${r.record_date}
@@ -12590,6 +12627,7 @@ async function csLoad() {
           <td class="num" style="color:#34d399">${r.cash_eval > 0 ? r.cash_eval.toLocaleString() : '—'}</td>
           <td class="num" style="color:#f87171">${r.loan_amount > 0 ? r.loan_amount.toLocaleString() : '—'}</td>
           <td class="num" style="color:${estColor};font-weight:700">${r.estimated_asset.toLocaleString()}</td>
+          ${deltaHtml}
           <td class="num" style="color:${crColor}">${crRatio}</td>
           <td class="center"><span style="font-size:11px;color:#475569">배치 대기</span></td>
         </tr>`;
@@ -12600,6 +12638,7 @@ async function csLoad() {
         <td class="num" style="color:#34d399">${r.cash_eval > 0 ? r.cash_eval.toLocaleString() : '—'}</td>
         <td class="num" style="color:#f87171">${r.loan_amount > 0 ? r.loan_amount.toLocaleString() : '—'}</td>
         <td class="num" style="color:${estColor};font-weight:700">${r.estimated_asset.toLocaleString()}</td>
+        ${deltaHtml}
         <td class="num" style="color:${crColor}">${crRatio}</td>
         <td class="center">
           <button class="btn btn-danger" style="font-size:11px;padding:2px 7px"
@@ -12608,7 +12647,7 @@ async function csLoad() {
       </tr>`;
     }).join('');
   } catch(e) {
-    tbody.innerHTML = '<tr><td colspan="7" style="color:#f87171;text-align:center;padding:16px">로딩 실패</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="color:#f87171;text-align:center;padding:16px">로딩 실패</td></tr>';
   }
 }
 
