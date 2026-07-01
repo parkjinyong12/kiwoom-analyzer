@@ -13049,7 +13049,7 @@ function csRenderChartComp(rows, previewRow, canvas) {
   }
 }
 
-// ── 성과 비교 차트 (추정자산 변화율 vs 코스피 vs 레버리지 조정 코스피) ──
+// ── 성과 비교 차트 (내 추정자산 변화율 − 레버리지 조정 코스피 = 초과 성과) ──
 async function csRenderChartPerf(rows, previewRow, canvas) {
   try {
     if (!rows.length) return;
@@ -13060,7 +13060,7 @@ async function csRenderChartPerf(rows, previewRow, canvas) {
     const asc = [...rows].reverse();
 
     // 각 날짜별 변화율 계산 (전날 데이터 필요하므로 i>=1부터)
-    const labels = [], myRates = [], kospiRates = [], levKospiRates = [], leverages = [];
+    const labels = [], diffs = [], leverages = [];
     for (let i = 1; i < asc.length; i++) {
       const cur  = asc[i];
       const prev = asc[i - 1];
@@ -13085,11 +13085,13 @@ async function csRenderChartPerf(rows, previewRow, canvas) {
 
       // 레버리지 조정 코스피
       const levKospi = (kospiRate !== null && lev !== null) ? kospiRate * lev : null;
+      if (levKospi === null) continue;
+
+      // 초과 성과 = 내 변화율 - 레버리지 조정 코스피
+      const diff = myRate - levKospi;
 
       labels.push(date.substring(5));
-      myRates.push(parseFloat(myRate.toFixed(2)));
-      kospiRates.push(kospiRate !== null ? parseFloat(kospiRate.toFixed(2)) : null);
-      levKospiRates.push(levKospi !== null ? parseFloat(levKospi.toFixed(2)) : null);
+      diffs.push(parseFloat(diff.toFixed(2)));
       leverages.push(lev !== null ? parseFloat(lev.toFixed(2)) : null);
     }
 
@@ -13102,10 +13104,10 @@ async function csRenderChartPerf(rows, previewRow, canvas) {
 
     const c2d = canvas.getContext('2d');
 
-    // 막대 색상: 내 자산 변화율 양/음에 따라
-    const barColors = myRates.map(v =>
+    // 막대 색상: 초과 성과 양/음에 따라
+    const barColors = diffs.map(v =>
       v > 0 ? 'rgba(74,222,128,0.75)' : v < 0 ? 'rgba(248,113,113,0.75)' : 'rgba(100,116,139,0.5)');
-    const barBorders = myRates.map(v =>
+    const barBorders = diffs.map(v =>
       v > 0 ? '#4ade80' : v < 0 ? '#f87171' : '#64748b');
 
     if (_csChart2) { _csChart2.destroy(); _csChart2 = null; }
@@ -13115,41 +13117,13 @@ async function csRenderChartPerf(rows, previewRow, canvas) {
         labels,
         datasets: [
           {
-            label: '내 추정자산 변화율',
-            data: myRates,
+            label: '초과 성과 (변화율 − 레버리지 조정 코스피)',
+            data: diffs,
             type: 'bar',
             backgroundColor: barColors,
             borderColor: barBorders,
             borderWidth: 1,
             yAxisID: 'y',
-            order: 3,
-          },
-          {
-            label: '코스피 등락률',
-            data: kospiRates,
-            type: 'line',
-            borderColor: 'rgba(148,163,184,0.8)',
-            backgroundColor: 'transparent',
-            borderWidth: 1.8,
-            tension: 0.25,
-            pointRadius: asc.length <= 60 ? 2 : 0,
-            pointHoverRadius: 5,
-            yAxisID: 'y',
-            order: 1,
-          },
-          {
-            label: '레버리지 조정 코스피',
-            data: levKospiRates,
-            type: 'line',
-            borderColor: '#a78bfa',
-            backgroundColor: 'transparent',
-            borderWidth: 2,
-            borderDash: [4, 3],
-            tension: 0.25,
-            pointRadius: asc.length <= 60 ? 2 : 0,
-            pointHoverRadius: 5,
-            yAxisID: 'y',
-            order: 2,
           },
         ],
       },
