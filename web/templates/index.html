@@ -2691,6 +2691,7 @@ canvas { max-height: 220px; }
               <th style="text-align:right">변화율</th>
               <th style="text-align:right;color:#a78bfa" title="주식평가금 / 추정자산">레버리지</th>
               <th style="text-align:right;color:#a78bfa" title="코스피 등락률 × 레버리지">코스피×레버리지</th>
+              <th style="text-align:right;color:#c4b5fd" title="변화율 - 코스피×레버리지">초과 성과</th>
               <th style="text-align:right">담보비율</th>
               <th style="text-align:center;width:60px">삭제</th>
             </tr>
@@ -12633,6 +12634,7 @@ async function csLoad() {
       }
       if (!prevRow) {
         return '<td class="num" style="color:#475569">—</td>'
+             + '<td class="num" style="color:#475569">—</td>'
              + '<td class="num" style="color:#475569">—</td>';
       }
 
@@ -12658,8 +12660,18 @@ async function csLoad() {
       const lkColor  = levKospi === null ? '#475569'
         : levKospi > 0 ? '#c4b5fd' : levKospi < 0 ? '#f87171' : '#64748b';
 
+      // 초과 성과 = 내 변화율 - 레버리지×코스피
+      const myRate = (prevEst && prevEst !== 0)
+        ? (r.estimated_asset - prevEst) / Math.abs(prevEst) * 100 : null;
+      const excess = (myRate !== null && levKospi !== null) ? myRate - levKospi : null;
+      const exSign  = excess !== null ? (excess > 0 ? '+' : '') : '';
+      const exStr   = excess !== null ? `${exSign}${excess.toFixed(2)}%` : '—';
+      const exColor = excess === null ? '#475569'
+        : excess > 0 ? '#4ade80' : excess < 0 ? '#f87171' : '#64748b';
+
       return `<td class="num" style="color:${levColor}">${levStr}</td>`
-           + `<td class="num" style="color:${lkColor};font-weight:600">${lkStr}</td>`;
+           + `<td class="num" style="color:${lkColor};font-weight:600">${lkStr}</td>`
+           + `<td class="num" style="color:${exColor};font-weight:600">${exStr}</td>`;
     }
 
     tbody.innerHTML = rows.map(r => {
@@ -13179,6 +13191,25 @@ async function csRenderChartPerf(rows, previewRow, canvas) {
           ctx.moveTo(chartArea.left, px);
           ctx.lineTo(chartArea.right, px);
           ctx.stroke();
+          ctx.restore();
+        },
+      }, {
+        id: 'perfBarLabels',
+        afterDatasetsDraw(chart) {
+          const {ctx} = chart;
+          const meta = chart.getDatasetMeta(0);
+          const data = chart.data.datasets[0].data;
+          ctx.save();
+          ctx.font = '10px sans-serif';
+          ctx.textAlign = 'center';
+          meta.data.forEach((bar, i) => {
+            const v = data[i];
+            if (v == null) return;
+            const sign = v > 0 ? '+' : '';
+            ctx.fillStyle = v > 0 ? '#4ade80' : v < 0 ? '#f87171' : '#94a3b8';
+            const yPos = v >= 0 ? bar.y - 4 : bar.y + 12;
+            ctx.fillText(`${sign}${v.toFixed(2)}%`, bar.x, yPos);
+          });
           ctx.restore();
         },
       }],
