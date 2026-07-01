@@ -2873,6 +2873,52 @@ def api_credit_snapshots_delete(record_date: str):
     return jsonify({"ok": True})
 
 
+@app.route("/api/kospi_history")
+def api_kospi_history():
+    """코스피 일별 종가 조회 (Yahoo Finance ^KS11)."""
+    import requests as _req
+    import datetime as _dt
+    import calendar as _cal
+
+    days = min(int(request.args.get("days", 90)), 730)
+    end_dt   = _dt.date.today()
+    start_dt = end_dt - _dt.timedelta(days=days + 30)
+
+    period1 = _cal.timegm(start_dt.timetuple())
+    period2 = _cal.timegm(end_dt.timetuple()) + 86400
+
+    url = (
+        "https://query1.finance.yahoo.com/v8/finance/chart/%5EKS11"
+        f"?interval=1d&period1={period1}&period2={period2}"
+    )
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json",
+    }
+    try:
+        resp = _req.get(url, headers=headers, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        chart = data["chart"]["result"][0]
+        timestamps = chart["timestamp"]
+        closes = chart["indicators"]["quote"][0]["close"]
+        result = []
+        for ts, c in zip(timestamps, closes):
+            if c is None:
+                continue
+            # Yahoo Finance uses UTC midnight; KST market closes at 06:30 UTC same date
+            d = (_dt.datetime.utcfromtimestamp(ts) + _dt.timedelta(hours=9)).strftime("%Y-%m-%d")
+            result.append({"date": d, "close": round(float(c), 2)})
+        return jsonify(result)
+    except Exception as e:
+        logging.warning("코스피 이력 조회 실패: %s", e)
+        return jsonify([])
+
+
 # ---------------------------------------------------------------------------
 # API — 테마 리밸런싱
 # ---------------------------------------------------------------------------

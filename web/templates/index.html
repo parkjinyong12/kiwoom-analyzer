@@ -2669,6 +2669,8 @@ canvas { max-height: 220px; }
                 onclick="csSetTab('ratio')">담보비율</button>
         <button id="cs-tab-comp"  class="btn btn-ghost" style="font-size:11px;padding:3px 10px"
                 onclick="csSetTab('comp')">주식평가금 · 대출금</button>
+        <button id="cs-tab-perf"  class="btn btn-ghost" style="font-size:11px;padding:3px 10px"
+                onclick="csSetTab('perf')">성과 비교</button>
       </div>
       <!-- 차트 -->
       <div style="padding:8px 16px 8px;position:relative;height:240px">
@@ -2687,12 +2689,15 @@ canvas { max-height: 220px; }
               <th style="text-align:right">추정자산</th>
               <th style="text-align:right">전일 대비</th>
               <th style="text-align:right">변화율</th>
+              <th style="text-align:right;color:#a78bfa" title="주식평가금 / 추정자산">레버리지</th>
+              <th style="text-align:right;color:#94a3b8">코스피</th>
+              <th style="text-align:right;color:#a78bfa" title="코스피 등락률 × 레버리지">코스피×레버리지</th>
               <th style="text-align:right">담보비율</th>
               <th style="text-align:center;width:60px">삭제</th>
             </tr>
           </thead>
           <tbody id="cs-tbody">
-            <tr><td colspan="9" class="loading">로딩 중...</td></tr>
+            <tr><td colspan="12" class="loading">로딩 중...</td></tr>
           </tbody>
         </table>
       </div>
@@ -12536,15 +12541,29 @@ async function loadCredit() {
 
 // ─── 신용 일별 스냅샷 히스토리 ───────────────────────────────
 let _csDays = 90;
-let _csTab  = 'ratio';   // 'ratio' | 'comp'
+let _csTab  = 'ratio';   // 'ratio' | 'comp' | 'perf'
 let _csChart = null;
 let _csChart2 = null;
+let _csKospiCache = null;   // { days: N, map: Map<date, close> }
+
+async function _csGetKospi(days) {
+  if (_csKospiCache && _csKospiCache.days === days) return _csKospiCache.map;
+  try {
+    const res = await fetch(`/api/kospi_history?days=${days}`);
+    const arr = await res.json();
+    const map = new Map(arr.map(r => [r.date, r.close]));
+    _csKospiCache = { days, map };
+    return map;
+  } catch(e) {
+    return new Map();
+  }
+}
 let _csLastRows = [];
 let _csLastPreview = null;
 
 function csSetPeriod(days) {
   _csDays = days;
-  // 활성 버튼 표시
+  _csKospiCache = null;   // 기간 변경 시 KOSPI 캐시 초기화
   [30, 90, 180, 730].forEach(d => {
     const btn = document.getElementById(`cs-btn-${d}`);
     if (!btn) return;
@@ -12557,16 +12576,20 @@ function csSetPeriod(days) {
 
 async function csLoad() {
   const tbody = document.getElementById('cs-tbody');
-  tbody.innerHTML = '<tr><td colspan="9" class="loading">로딩 중...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="12" class="loading">로딩 중...</td></tr>';
   try {
-    const res  = await fetch(`/api/credit_snapshots?days=${_csDays}`);
-    const rows = await res.json();
+    const [snapRes, kospiArr] = await Promise.all([
+      fetch(`/api/credit_snapshots?days=${_csDays}`).then(r => r.json()),
+      _csGetKospi(_csDays),
+    ]);
+    const rows = snapRes;
+    const kospiMap = kospiArr;
 
     const confirmedRows = rows.filter(r => !r.is_preview);
     document.getElementById('cs-count').textContent = confirmedRows.length ? `(${confirmedRows.length}건)` : '';
 
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:20px;color:#475569">기록 없음 — 매일 20:10에 자동 저장됩니다.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;padding:20px;color:#475569">기록 없음 — 매일 20:10에 자동 저장됩니다.</td></tr>';
       _csLastRows = []; _csLastPreview = null;
       csRenderChart([], null);
       return;
@@ -12577,7 +12600,6 @@ async function csLoad() {
     csRenderChart(confirmedRows, previewRow);
 
     // 전일 대비 계산: rows는 DESC 순서 (preview가 맨 앞일 수 있음)
-    // confirmed 배열 내 인덱스 기준으로 다음 항목이 전날
     function csDelta(r) {
       if (r.is_preview) {
         return confirmedRows.length > 0
@@ -12600,6 +12622,53 @@ async function csLoad() {
            + `<td class="num" style="color:${col}">${rateStr}</td>`;
     }
 
+    // 레버리지 · 코스피 비교 셀 생성
+    function csLevKospiHtml(r) {
+      // 전날 행 찾기
+      let prevRow = null;
+      if (r.is_preview) {
+        prevRow = confirmedRows.length > 0 ? confirmedRows[0] : null;
+      } else {
+        const idx = confirmedRows.indexOf(r);
+        prevRow = idx < confirmedRows.length - 1 ? confirmedRows[idx + 1] : null;
+      }
+      if (!prevRow) {
+        return '<td class="num" style="color:#475569">—</td>'
+             + '<td class="num" style="color:#475569">—</td>'
+             + '<td class="num" style="color:#475569">—</td>';
+      }
+
+      // 레버리지 = 전날 주식평가금 / 전날 추정자산
+      const prevEst = prevRow.estimated_asset;
+      const lev = (prevEst > 0 && prevRow.stock_eval > 0)
+        ? prevRow.stock_eval / prevEst : null;
+      const levStr = lev !== null ? lev.toFixed(2) + 'x' : '—';
+      const levColor = lev !== null
+        ? (lev >= 2 ? '#f87171' : lev >= 1.5 ? '#f59e0b' : '#94a3b8')
+        : '#475569';
+
+      // 코스피 등락률
+      const kCur  = kospiMap.get(r.record_date);
+      const kPrev = kospiMap.get(prevRow.record_date);
+      const kospiRate = (kCur != null && kPrev != null && kPrev !== 0)
+        ? (kCur - kPrev) / kPrev * 100 : null;
+      const kospiSign  = kospiRate !== null ? (kospiRate > 0 ? '+' : '') : '';
+      const kospiStr   = kospiRate !== null ? `${kospiSign}${kospiRate.toFixed(2)}%` : '—';
+      const kospiColor = kospiRate === null ? '#475569'
+        : kospiRate > 0 ? '#4ade80' : kospiRate < 0 ? '#f87171' : '#64748b';
+
+      // 레버리지 × 코스피
+      const levKospi = (lev !== null && kospiRate !== null) ? kospiRate * lev : null;
+      const lkSign   = levKospi !== null ? (levKospi > 0 ? '+' : '') : '';
+      const lkStr    = levKospi !== null ? `${lkSign}${levKospi.toFixed(2)}%` : '—';
+      const lkColor  = levKospi === null ? '#475569'
+        : levKospi > 0 ? '#c4b5fd' : levKospi < 0 ? '#f87171' : '#64748b';
+
+      return `<td class="num" style="color:${levColor}">${levStr}</td>`
+           + `<td class="num" style="color:${kospiColor}">${kospiStr}</td>`
+           + `<td class="num" style="color:${lkColor};font-weight:600">${lkStr}</td>`;
+    }
+
     tbody.innerHTML = rows.map(r => {
       const estColor = r.estimated_asset >= 0 ? '#4ade80' : '#f87171';
       const crRatio  = r.collateral_ratio !== null ? r.collateral_ratio.toFixed(1) + '%' : '—';
@@ -12608,7 +12677,6 @@ async function csLoad() {
         : r.collateral_ratio >= rbCollateralRequired        ? '#f59e0b'
         : '#f87171';
       const delta = csDelta(r);
-      // 전날 추정자산 (변화율 분모)
       let prevAsset = null;
       if (r.is_preview) {
         prevAsset = confirmedRows.length > 0 ? confirmedRows[0].estimated_asset : null;
@@ -12616,7 +12684,8 @@ async function csLoad() {
         const idx = confirmedRows.indexOf(r);
         prevAsset = idx < confirmedRows.length - 1 ? confirmedRows[idx + 1].estimated_asset : null;
       }
-      const deltaHtml = csDeltaHtml(delta, prevAsset);
+      const deltaHtml   = csDeltaHtml(delta, prevAsset);
+      const levKospiHtml = csLevKospiHtml(r);
 
       if (r.is_preview) {
         return `<tr style="opacity:0.7;border-bottom:1px dashed #334155">
@@ -12628,6 +12697,7 @@ async function csLoad() {
           <td class="num" style="color:#f87171">${r.loan_amount > 0 ? r.loan_amount.toLocaleString() : '—'}</td>
           <td class="num" style="color:${estColor};font-weight:700">${r.estimated_asset.toLocaleString()}</td>
           ${deltaHtml}
+          ${levKospiHtml}
           <td class="num" style="color:${crColor}">${crRatio}</td>
           <td class="center"><span style="font-size:11px;color:#475569">배치 대기</span></td>
         </tr>`;
@@ -12639,6 +12709,7 @@ async function csLoad() {
         <td class="num" style="color:#f87171">${r.loan_amount > 0 ? r.loan_amount.toLocaleString() : '—'}</td>
         <td class="num" style="color:${estColor};font-weight:700">${r.estimated_asset.toLocaleString()}</td>
         ${deltaHtml}
+        ${levKospiHtml}
         <td class="num" style="color:${crColor}">${crRatio}</td>
         <td class="center">
           <button class="btn btn-danger" style="font-size:11px;padding:2px 7px"
@@ -12647,13 +12718,13 @@ async function csLoad() {
       </tr>`;
     }).join('');
   } catch(e) {
-    tbody.innerHTML = '<tr><td colspan="9" style="color:#f87171;text-align:center;padding:16px">로딩 실패</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="12" style="color:#f87171;text-align:center;padding:16px">로딩 실패</td></tr>';
   }
 }
 
 function csSetTab(tab) {
   _csTab = tab;
-  ['ratio','comp'].forEach(t => {
+  ['ratio','comp','perf'].forEach(t => {
     const btn = document.getElementById(`cs-tab-${t}`);
     if (!btn) return;
     btn.style.background  = t === tab ? '#334155' : '';
@@ -12680,6 +12751,7 @@ function csRenderChart(rows, previewRow) {
   if (emptyEl) emptyEl.style.display = 'none';
 
   if (_csTab === 'comp') { csRenderChartComp(rows, previewRow, canvas); return; }
+  if (_csTab === 'perf') { csRenderChartPerf(rows, previewRow, canvas); return; }
 
   const asc        = [...rows].reverse();
   const hasPreview = !!previewRow;
@@ -12974,6 +13046,178 @@ function csRenderChartComp(rows, previewRow, canvas) {
     });
   } catch(e) {
     console.error('csRenderChartComp error:', e);
+  }
+}
+
+// ── 성과 비교 차트 (추정자산 변화율 vs 코스피 vs 레버리지 조정 코스피) ──
+async function csRenderChartPerf(rows, previewRow, canvas) {
+  try {
+    if (!rows.length) return;
+
+    const kospiMap = await _csGetKospi(_csDays);
+
+    // 오름차순 (과거→최신)
+    const asc = [...rows].reverse();
+
+    // 각 날짜별 변화율 계산 (전날 데이터 필요하므로 i>=1부터)
+    const labels = [], myRates = [], kospiRates = [], levKospiRates = [], leverages = [];
+    for (let i = 1; i < asc.length; i++) {
+      const cur  = asc[i];
+      const prev = asc[i - 1];
+      const date = cur.record_date;
+
+      // 내 추정자산 변화율
+      const prevEst = prev.estimated_asset;
+      if (!prevEst || prevEst === 0) continue;
+      const myRate = (cur.estimated_asset - prevEst) / Math.abs(prevEst) * 100;
+
+      // 레버리지 = 전날 주식평가금 / 전날 추정자산 (단, 추정자산>0)
+      const lev = (prevEst > 0 && prev.stock_eval > 0)
+        ? prev.stock_eval / prevEst
+        : null;
+
+      // 코스피 등락률
+      const kCur  = kospiMap.get(date);
+      const kPrev = kospiMap.get(prev.record_date);
+      const kospiRate = (kCur != null && kPrev != null && kPrev !== 0)
+        ? (kCur - kPrev) / kPrev * 100
+        : null;
+
+      // 레버리지 조정 코스피
+      const levKospi = (kospiRate !== null && lev !== null) ? kospiRate * lev : null;
+
+      labels.push(date.substring(5));
+      myRates.push(parseFloat(myRate.toFixed(2)));
+      kospiRates.push(kospiRate !== null ? parseFloat(kospiRate.toFixed(2)) : null);
+      levKospiRates.push(levKospi !== null ? parseFloat(levKospi.toFixed(2)) : null);
+      leverages.push(lev !== null ? parseFloat(lev.toFixed(2)) : null);
+    }
+
+    if (!labels.length) {
+      canvas.style.display = 'none';
+      const emptyEl = document.getElementById('cs-chart-empty');
+      if (emptyEl) emptyEl.style.display = 'flex';
+      return;
+    }
+
+    const c2d = canvas.getContext('2d');
+
+    // 막대 색상: 내 자산 변화율 양/음에 따라
+    const barColors = myRates.map(v =>
+      v > 0 ? 'rgba(74,222,128,0.75)' : v < 0 ? 'rgba(248,113,113,0.75)' : 'rgba(100,116,139,0.5)');
+    const barBorders = myRates.map(v =>
+      v > 0 ? '#4ade80' : v < 0 ? '#f87171' : '#64748b');
+
+    if (_csChart2) { _csChart2.destroy(); _csChart2 = null; }
+    _csChart2 = new Chart(c2d, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          {
+            label: '내 추정자산 변화율',
+            data: myRates,
+            type: 'bar',
+            backgroundColor: barColors,
+            borderColor: barBorders,
+            borderWidth: 1,
+            yAxisID: 'y',
+            order: 3,
+          },
+          {
+            label: '코스피 등락률',
+            data: kospiRates,
+            type: 'line',
+            borderColor: 'rgba(148,163,184,0.8)',
+            backgroundColor: 'transparent',
+            borderWidth: 1.8,
+            tension: 0.25,
+            pointRadius: asc.length <= 60 ? 2 : 0,
+            pointHoverRadius: 5,
+            yAxisID: 'y',
+            order: 1,
+          },
+          {
+            label: '레버리지 조정 코스피',
+            data: levKospiRates,
+            type: 'line',
+            borderColor: '#a78bfa',
+            backgroundColor: 'transparent',
+            borderWidth: 2,
+            borderDash: [4, 3],
+            tension: 0.25,
+            pointRadius: asc.length <= 60 ? 2 : 0,
+            pointHoverRadius: 5,
+            yAxisID: 'y',
+            order: 2,
+          },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: {
+            labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 10,
+                      padding: 14, usePointStyle: true },
+          },
+          tooltip: {
+            backgroundColor: 'rgba(15,17,23,0.92)', titleColor: '#94a3b8',
+            bodyColor: '#e2e8f0', borderColor: '#1e2535', borderWidth: 1,
+            callbacks: {
+              afterBody: items => {
+                const idx = items[0]?.dataIndex;
+                if (idx == null) return '';
+                const lev = leverages[idx];
+                return lev !== null ? [`레버리지: ${lev.toFixed(2)}x`] : [];
+              },
+              label: item => {
+                const v = item.parsed.y;
+                if (v == null) return ` ${item.dataset.label}: —`;
+                const sign = v > 0 ? '+' : '';
+                return ` ${item.dataset.label}: ${sign}${v.toFixed(2)}%`;
+              },
+            },
+          },
+          // 0% 기준선
+          annotation: undefined,
+        },
+        scales: {
+          x: {
+            ticks: { color: '#475569', font: { size: 10 }, maxTicksLimit: 12 },
+            grid:  { color: 'rgba(255,255,255,0.04)' },
+          },
+          y: {
+            position: 'left',
+            ticks: { color: '#94a3b8', font: { size: 10 }, callback: v => v + '%' },
+            grid:  { color: 'rgba(255,255,255,0.05)' },
+          },
+        },
+        // 0선 플러그인
+        _zeroLine: true,
+      },
+      plugins: [{
+        id: 'perfZeroLine',
+        afterDatasetsDraw(chart) {
+          const {ctx, chartArea, scales} = chart;
+          const y = scales.y;
+          if (!y) return;
+          const px = y.getPixelForValue(0);
+          if (px < chartArea.top || px > chartArea.bottom) return;
+          ctx.save();
+          ctx.strokeStyle = 'rgba(100,116,139,0.4)';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([4, 4]);
+          ctx.beginPath();
+          ctx.moveTo(chartArea.left, px);
+          ctx.lineTo(chartArea.right, px);
+          ctx.stroke();
+          ctx.restore();
+        },
+      }],
+    });
+  } catch(e) {
+    console.error('csRenderChartPerf error:', e);
   }
 }
 
