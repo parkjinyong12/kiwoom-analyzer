@@ -2900,7 +2900,7 @@ def api_kospi_history():
         "Accept": "application/json",
     }
     try:
-        resp = _req.get(url, headers=headers, timeout=10)
+        resp = _req.get(url, headers=headers, timeout=3)
         resp.raise_for_status()
         data = resp.json()
         chart = data["chart"]["result"][0]
