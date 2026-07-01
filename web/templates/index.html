@@ -2690,7 +2690,6 @@ canvas { max-height: 220px; }
               <th style="text-align:right">전일 대비</th>
               <th style="text-align:right">변화율</th>
               <th style="text-align:right;color:#a78bfa" title="주식평가금 / 추정자산">레버리지</th>
-              <th style="text-align:right;color:#94a3b8">코스피</th>
               <th style="text-align:right;color:#a78bfa" title="코스피 등락률 × 레버리지">코스피×레버리지</th>
               <th style="text-align:right">담보비율</th>
               <th style="text-align:center;width:60px">삭제</th>
@@ -12634,7 +12633,6 @@ async function csLoad() {
       }
       if (!prevRow) {
         return '<td class="num" style="color:#475569">—</td>'
-             + '<td class="num" style="color:#475569">—</td>'
              + '<td class="num" style="color:#475569">—</td>';
       }
 
@@ -12647,15 +12645,11 @@ async function csLoad() {
         ? (lev >= 2 ? '#f87171' : lev >= 1.5 ? '#f59e0b' : '#94a3b8')
         : '#475569';
 
-      // 코스피 등락률
+      // 코스피 등락률 (레버리지×코스피 계산용, 컬럼 미표시)
       const kCur  = kospiMap.get(r.record_date);
       const kPrev = kospiMap.get(prevRow.record_date);
       const kospiRate = (kCur != null && kPrev != null && kPrev !== 0)
         ? (kCur - kPrev) / kPrev * 100 : null;
-      const kospiSign  = kospiRate !== null ? (kospiRate > 0 ? '+' : '') : '';
-      const kospiStr   = kospiRate !== null ? `${kospiSign}${kospiRate.toFixed(2)}%` : '—';
-      const kospiColor = kospiRate === null ? '#475569'
-        : kospiRate > 0 ? '#4ade80' : kospiRate < 0 ? '#f87171' : '#64748b';
 
       // 레버리지 × 코스피
       const levKospi = (lev !== null && kospiRate !== null) ? kospiRate * lev : null;
@@ -12665,7 +12659,6 @@ async function csLoad() {
         : levKospi > 0 ? '#c4b5fd' : levKospi < 0 ? '#f87171' : '#64748b';
 
       return `<td class="num" style="color:${levColor}">${levStr}</td>`
-           + `<td class="num" style="color:${kospiColor}">${kospiStr}</td>`
            + `<td class="num" style="color:${lkColor};font-weight:600">${lkStr}</td>`;
     }
 
