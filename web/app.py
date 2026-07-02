@@ -345,6 +345,26 @@ def _ensure_macro_rates_table():
         """)
 
 
+def _ensure_index_prices_table():
+    """코스피/코스닥 등 지수 일별 시세 테이블 (네이버 동기화 데이터)."""
+    with get_conn() as conn:
+        conn.cursor().execute("""
+            CREATE TABLE IF NOT EXISTS index_prices (
+                id           SERIAL PRIMARY KEY,
+                index_code   VARCHAR(20) NOT NULL,
+                trade_date   DATE NOT NULL,
+                close_price  NUMERIC(12,2) NOT NULL,
+                open_price   NUMERIC(12,2),
+                high_price   NUMERIC(12,2),
+                low_price    NUMERIC(12,2),
+                change_price NUMERIC(12,2),
+                change_pct   NUMERIC(6,2),
+                updated_at   TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE (index_code, trade_date)
+            )
+        """)
+
+
 def _ensure_cash_assets_table():
     with get_conn() as conn:
         cur = conn.cursor()
@@ -711,6 +731,13 @@ BATCH_JOBS = {
         "match": "scripts/snapshot_credit",
         "cmd": "python -u scripts/snapshot_credit.py",
         "log_prefix": "snapshot_credit",
+    },
+    "sync_index": {
+        "name": "코스피/코스닥 지수 동기화",
+        "desc": "네이버 증권에서 코스피·코스닥 일별 시세를 가져와 DB 기록 (18:30 자동 실행)",
+        "match": "scripts/sync_index",
+        "cmd": "python -u scripts/sync_index.py",
+        "log_prefix": "sync_index",
     },
     "run_once": {
         "name": "매매신호 갱신",
@@ -2874,14 +2901,12 @@ def api_credit_snapshots_delete(record_date: str):
     return jsonify({"ok": True})
 
 
-@app.route("/api/kospi_history")
-def api_kospi_history():
-    """코스피 일별 종가 조회 (Yahoo Finance ^KS11)."""
+def _fetch_kospi_yahoo_fallback(days: int) -> list[dict]:
+    """DB(index_prices)에 데이터가 없을 때만 쓰는 Yahoo Finance(^KS11) 폴백."""
     import requests as _req
     import datetime as _dt
     import calendar as _cal
 
-    days = min(int(request.args.get("days", 90)), 730)
     end_dt   = _dt.date.today()
     start_dt = end_dt - _dt.timedelta(days=days + 30)
 
@@ -2914,10 +2939,28 @@ def api_kospi_history():
             # Yahoo Finance uses UTC midnight; KST market closes at 06:30 UTC same date
             d = (_dt.datetime.utcfromtimestamp(ts) + _dt.timedelta(hours=9)).strftime("%Y-%m-%d")
             result.append({"date": d, "close": round(float(c), 2)})
-        return jsonify(result)
+        return result
     except Exception as e:
-        logging.warning("코스피 이력 조회 실패: %s", e)
-        return jsonify([])
+        logging.warning("코스피 이력 조회 실패 (Yahoo 폴백): %s", e)
+        return []
+
+
+@app.route("/api/kospi_history")
+def api_kospi_history():
+    """코스피 일별 종가 조회. index_prices(네이버 동기화) 우선, 비어있으면 Yahoo 폴백."""
+    days = min(int(request.args.get("days", 90)), 730)
+    rows = query("""
+        SELECT trade_date, close_price
+        FROM index_prices
+        WHERE index_code = 'KOSPI' AND trade_date >= CURRENT_DATE - %s::int
+        ORDER BY trade_date ASC
+    """, (days,))
+    if rows:
+        return jsonify([
+            {"date": r["trade_date"].strftime("%Y-%m-%d"), "close": float(r["close_price"])}
+            for r in rows
+        ])
+    return jsonify(_fetch_kospi_yahoo_fallback(days))
 
 
 # ---------------------------------------------------------------------------
@@ -3366,6 +3409,134 @@ def api_macro_rates_sync_naver(mid):
             (close_price, mid),
         )
     return jsonify({"ok": True, "value": close_price, "key": key})
+
+
+# ---------------------------------------------------------------------------
+# API — 지수 시세 관리 (코스피/코스닥)
+# ---------------------------------------------------------------------------
+
+_INDEX_CODES = {"KOSPI": "코스피", "KOSDAQ": "코스닥"}
+
+
+def _num_or_none(raw):
+    if raw in (None, "", "-"):
+        return None
+    try:
+        return float(str(raw).replace(",", ""))
+    except (TypeError, ValueError):
+        return None
+
+
+def _fetch_naver_index_prices(code: str, pages: int = 5, page_size: int = 20) -> list[dict]:
+    """네이버 모바일 증권 API에서 지수 일별 시세 조회.
+
+    stock.naver.com/domestic/index/{code}/price 페이지가 내부적으로 호출하는
+    m.stock.naver.com REST API를 직접 사용 (페이지네이션 지원).
+    응답 예: [{"localTradedAt":"2026-07-01","closePrice":"8,303.41", ...}, ...]
+    """
+    import requests as _req
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Referer": "https://m.stock.naver.com/",
+        "Accept": "application/json",
+    }
+    url = f"https://m.stock.naver.com/api/index/{code}/price"
+    out: list[dict] = []
+    for page in range(1, pages + 1):
+        resp = _req.get(url, headers=headers, params={"page": page, "pageSize": page_size}, timeout=10)
+        resp.raise_for_status()
+        rows = resp.json()
+        if not rows:
+            break
+        for r in rows:
+            close = _num_or_none(r.get("closePrice"))
+            if close is None:
+                continue
+            out.append({
+                "trade_date":   r["localTradedAt"],
+                "close_price":  close,
+                "open_price":   _num_or_none(r.get("openPrice")),
+                "high_price":   _num_or_none(r.get("highPrice")),
+                "low_price":    _num_or_none(r.get("lowPrice")),
+                "change_price": _num_or_none(r.get("compareToPreviousClosePrice")),
+                "change_pct":   _num_or_none(r.get("fluctuationsRatio")),
+            })
+        if len(rows) < page_size:
+            break
+    return out
+
+
+def _save_index_prices(code: str, rows: list[dict]) -> int:
+    if not rows:
+        return 0
+    with get_conn() as conn:
+        cur = conn.cursor()
+        for r in rows:
+            cur.execute("""
+                INSERT INTO index_prices
+                    (index_code, trade_date, close_price, open_price, high_price, low_price, change_price, change_pct, updated_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s, NOW())
+                ON CONFLICT (index_code, trade_date) DO UPDATE SET
+                    close_price  = EXCLUDED.close_price,
+                    open_price   = EXCLUDED.open_price,
+                    high_price   = EXCLUDED.high_price,
+                    low_price    = EXCLUDED.low_price,
+                    change_price = EXCLUDED.change_price,
+                    change_pct   = EXCLUDED.change_pct,
+                    updated_at   = NOW()
+            """, (code, r["trade_date"], r["close_price"], r["open_price"], r["high_price"],
+                  r["low_price"], r["change_price"], r["change_pct"]))
+    return len(rows)
+
+
+@app.route("/api/index_prices")
+def api_index_prices_list():
+    """지수 일별 시세 목록 조회 (DB)."""
+    code = (request.args.get("code") or "KOSPI").strip().upper()
+    if code not in _INDEX_CODES:
+        return jsonify({"error": "지원하지 않는 지수 코드"}), 400
+    days = min(int(request.args.get("days", 90)), 3650)
+    rows = query("""
+        SELECT trade_date, close_price, open_price, high_price, low_price, change_price, change_pct,
+               TO_CHAR(updated_at, 'YYYY-MM-DD HH24:MI') AS updated_at
+        FROM index_prices
+        WHERE index_code = %s AND trade_date >= CURRENT_DATE - %s::int
+        ORDER BY trade_date DESC
+    """, (code, days))
+    return jsonify([{
+        "date":       r["trade_date"].strftime("%Y-%m-%d"),
+        "close":      float(r["close_price"]),
+        "open":       float(r["open_price"])   if r["open_price"]   is not None else None,
+        "high":       float(r["high_price"])   if r["high_price"]   is not None else None,
+        "low":        float(r["low_price"])    if r["low_price"]    is not None else None,
+        "change":     float(r["change_price"]) if r["change_price"] is not None else None,
+        "change_pct": float(r["change_pct"])   if r["change_pct"]   is not None else None,
+        "updated_at": r["updated_at"],
+    } for r in rows])
+
+
+@app.route("/api/index_prices/sync", methods=["POST"])
+def api_index_prices_sync():
+    """네이버 증권에서 코스피/코스닥 일별 시세를 가져와 DB에 upsert."""
+    data = request.get_json() or {}
+    code = (data.get("code") or "").strip().upper()
+    if code not in _INDEX_CODES:
+        return jsonify({"error": "지원하지 않는 지수 코드 (KOSPI, KOSDAQ만 가능)"}), 400
+    pages = min(int(data.get("pages") or 5), 20)
+    try:
+        rows = _fetch_naver_index_prices(code, pages=pages)
+    except Exception as e:
+        logging.exception("네이버 지수 시세 조회 실패: %s", code)
+        return jsonify({"error": f"네이버 조회 실패: {e}"}), 502
+    if not rows:
+        return jsonify({"error": "조회된 데이터 없음"}), 502
+    count = _save_index_prices(code, rows)
+    return jsonify({"ok": True, "code": code, "count": count})
 
 
 # ---------------------------------------------------------------------------
@@ -5313,6 +5484,17 @@ def _init_scheduler():
     except Exception:
         pass
 
+    # sync_index 기본 스케줄 등록 (장 마감 후 18:30, snapshot_credit보다 먼저 실행)
+    try:
+        with get_conn() as conn:
+            conn.cursor().execute("""
+                INSERT INTO batch_schedules (job_id, enabled, hour, minute, days, interval_mode, interval_minutes)
+                VALUES ('sync_index', true, 18, 30, 'weekdays', false, 60)
+                ON CONFLICT (job_id) DO NOTHING
+            """)
+    except Exception:
+        pass
+
     try:
         rows = query("SELECT job_id, enabled, hour, minute, days, interval_mode, interval_minutes, interval_start, interval_end FROM batch_schedules")
         for r in rows:
@@ -5601,6 +5783,11 @@ except Exception:
 
 try:
     _ensure_macro_rates_table()
+except Exception:
+    pass
+
+try:
+    _ensure_index_prices_table()
 except Exception:
     pass
 

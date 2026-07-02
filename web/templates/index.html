@@ -2153,6 +2153,49 @@ canvas { max-height: 220px; }
         </table>
       </div>
     </div>
+
+    <div class="panel" style="margin-top:12px">
+      <div class="panel-header" style="cursor:default;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+        <div style="display:flex;align-items:baseline;gap:10px">
+          <span>지수 시세 (코스피 · 코스닥)</span>
+          <span style="font-size:11px;color:#475569;font-weight:400">네이버 증권 일별 시세 동기화 — 신용관리 화면의 지수 비교에도 사용됨</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span id="ix-updated" style="font-size:11px;color:#64748b"></span>
+          <button class="btn" id="ix-sync-btn" style="font-size:11px;padding:5px 12px;background:#0c2d1a;color:#4ade80;border:1px solid #166534"
+                  onclick="ixSync()">네이버 동기화</button>
+        </div>
+      </div>
+      <div style="padding:10px 16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+        <div style="display:flex;gap:6px">
+          <button class="btn" id="ix-tab-KOSPI" style="font-size:12px;padding:5px 14px" onclick="ixSetCode('KOSPI')">코스피</button>
+          <button class="btn" id="ix-tab-KOSDAQ" style="font-size:12px;padding:5px 14px" onclick="ixSetCode('KOSDAQ')">코스닥</button>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn" id="ix-days-30"  style="font-size:11px;padding:4px 10px" onclick="ixSetDays(30)">30일</button>
+          <button class="btn" id="ix-days-90"  style="font-size:11px;padding:4px 10px" onclick="ixSetDays(90)">90일</button>
+          <button class="btn" id="ix-days-180" style="font-size:11px;padding:4px 10px" onclick="ixSetDays(180)">180일</button>
+        </div>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>날짜</th>
+              <th style="text-align:right">종가</th>
+              <th style="text-align:right">전일비</th>
+              <th style="text-align:right">등락률</th>
+              <th style="text-align:right">시가</th>
+              <th style="text-align:right">고가</th>
+              <th style="text-align:right">저가</th>
+            </tr>
+          </thead>
+          <tbody id="ix-tbody">
+            <tr><td colspan="7" class="loading">로딩 중...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
   </section>
 
   <!-- 매크로 지표 추가 모달 -->
@@ -12412,6 +12455,7 @@ async function loadMacro() {
     document.getElementById('macro-tbody').innerHTML =
       '<tr><td colspan="6" style="text-align:center;color:#f87171;padding:32px">로드 실패</td></tr>';
   }
+  ixLoad();
 }
 
 const MACRO_NAVER_KEYS = new Set(['USD_KRW','EUR_KRW','JPY_KRW','CNY_KRW','GBP_KRW','GOLD_KRX']);
@@ -12514,6 +12558,95 @@ async function macroDelete(id, name) {
   if (!confirm(`"${name}" 지표를 삭제하시겠습니까?`)) return;
   await fetch(`/api/macro_rates/${id}`, { method: 'DELETE' });
   await loadMacro();
+}
+
+// ─── 지수 시세 (코스피 · 코스닥) ───────────────────────
+let _ixCode = 'KOSPI';
+let _ixDays = 90;
+
+const IX_LABEL = { KOSPI: '코스피', KOSDAQ: '코스닥' };
+
+function ixUpdateControls() {
+  ['KOSPI', 'KOSDAQ'].forEach(c => {
+    const btn = document.getElementById(`ix-tab-${c}`);
+    if (!btn) return;
+    btn.style.background = c === _ixCode ? '#334155' : '';
+    btn.style.color      = c === _ixCode ? '#e2e8f0' : '';
+    btn.style.fontWeight = c === _ixCode ? '600'     : '';
+  });
+  [30, 90, 180].forEach(d => {
+    const btn = document.getElementById(`ix-days-${d}`);
+    if (!btn) return;
+    btn.style.background = d === _ixDays ? '#334155' : '';
+    btn.style.color      = d === _ixDays ? '#e2e8f0' : '';
+    btn.style.fontWeight = d === _ixDays ? '600'     : '';
+  });
+  const syncBtn = document.getElementById('ix-sync-btn');
+  if (syncBtn) syncBtn.textContent = `${IX_LABEL[_ixCode]} 네이버 동기화`;
+}
+
+function ixSetCode(code) {
+  _ixCode = code;
+  ixLoad();
+}
+
+function ixSetDays(days) {
+  _ixDays = days;
+  ixLoad();
+}
+
+async function ixLoad() {
+  ixUpdateControls();
+  const tbody = document.getElementById('ix-tbody');
+  tbody.innerHTML = '<tr><td colspan="7" class="loading">로딩 중...</td></tr>';
+  try {
+    const res  = await fetch(`/api/index_prices?code=${_ixCode}&days=${_ixDays}`);
+    const rows = await res.json();
+    if (!Array.isArray(rows) || !rows.length) {
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:32px;color:#475569">데이터 없음 — "네이버 동기화" 버튼을 눌러 가져오세요</td></tr>';
+      document.getElementById('ix-updated').textContent = '';
+      return;
+    }
+    document.getElementById('ix-updated').textContent = `최근 동기화: ${rows[0].updated_at || '-'}`;
+    tbody.innerHTML = rows.map(r => {
+      const up = r.change != null && r.change > 0;
+      const down = r.change != null && r.change < 0;
+      const color = up ? '#f87171' : (down ? '#60a5fa' : '#94a3b8');
+      const sign  = up ? '+' : '';
+      return `<tr>
+        <td style="font-size:12px">${r.date}</td>
+        <td class="num" style="font-weight:600">${r.close.toLocaleString()}</td>
+        <td class="num" style="color:${color}">${r.change != null ? sign + r.change.toLocaleString() : '-'}</td>
+        <td class="num" style="color:${color}">${r.change_pct != null ? sign + r.change_pct.toFixed(2) + '%' : '-'}</td>
+        <td class="num" style="color:#64748b">${r.open != null ? r.open.toLocaleString() : '-'}</td>
+        <td class="num" style="color:#64748b">${r.high != null ? r.high.toLocaleString() : '-'}</td>
+        <td class="num" style="color:#64748b">${r.low != null ? r.low.toLocaleString() : '-'}</td>
+      </tr>`;
+    }).join('');
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#f87171;padding:32px">로드 실패</td></tr>';
+  }
+}
+
+async function ixSync() {
+  const btn = document.getElementById('ix-sync-btn');
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '동기화 중...';
+  try {
+    const res  = await fetch('/api/index_prices/sync', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ code: _ixCode, pages: 5 }),
+    });
+    const data = await res.json();
+    if (!res.ok) { alert(data.error || '동기화 실패'); return; }
+    await ixLoad();
+  } catch(e) {
+    alert('네트워크 오류: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = orig;
+  }
 }
 
 // ─── 신용 관리 ───────────────────────────────────────
