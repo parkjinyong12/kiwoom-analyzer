@@ -13190,19 +13190,22 @@ function csRenderChartComp(rows, previewRow, canvas) {
 // ── 성과 비교 차트 (내 추정자산 변화율 − 레버리지 조정 코스피 = 초과 성과) ──
 async function csRenderChartPerf(rows, previewRow, canvas) {
   try {
-    if (!rows.length) return;
+    if (!rows.length && !previewRow) return;
 
     const kospiMap = await _csGetKospi(_csDays);
 
-    // 오름차순 (과거→최신)
-    const asc = [...rows].reverse();
+    // 오름차순 (과거→최신) + 미확정(오늘 실시간 계산) 행을 맨 뒤에 추가
+    const asc        = [...rows].reverse();
+    const hasPreview = !!previewRow;
+    const allPts     = hasPreview ? [...asc, previewRow] : asc;
 
     // 각 날짜별 변화율 계산 (전날 데이터 필요하므로 i>=1부터)
-    const labels = [], diffs = [], leverages = [];
-    for (let i = 1; i < asc.length; i++) {
-      const cur  = asc[i];
-      const prev = asc[i - 1];
-      const date = cur.record_date;
+    const labels = [], diffs = [], leverages = [], isPreviewArr = [];
+    for (let i = 1; i < allPts.length; i++) {
+      const cur      = allPts[i];
+      const prev     = allPts[i - 1];
+      const date     = cur.record_date;
+      const isPreview = hasPreview && i === allPts.length - 1;
 
       // 내 추정자산 변화율
       const prevEst = prev.estimated_asset;
@@ -13228,9 +13231,10 @@ async function csRenderChartPerf(rows, previewRow, canvas) {
       // 초과 성과 = 내 변화율 - 레버리지 조정 코스피
       const diff = myRate - levKospi;
 
-      labels.push(date.substring(5));
+      labels.push(date.substring(5) + (isPreview ? ' ✦' : ''));
       diffs.push(parseFloat(diff.toFixed(2)));
       leverages.push(lev !== null ? parseFloat(lev.toFixed(2)) : null);
+      isPreviewArr.push(isPreview);
     }
 
     if (!labels.length) {
@@ -13242,9 +13246,13 @@ async function csRenderChartPerf(rows, previewRow, canvas) {
 
     const c2d = canvas.getContext('2d');
 
-    // 막대 색상: 초과 성과 양/음에 따라
-    const barColors = diffs.map(v =>
-      v > 0 ? 'rgba(74,222,128,0.75)' : v < 0 ? 'rgba(248,113,113,0.75)' : 'rgba(100,116,139,0.5)');
+    // 막대 색상: 초과 성과 양/음에 따라 (미확정 행은 옅게 + 점선 테두리)
+    const barColors = diffs.map((v, i) => {
+      const faded = isPreviewArr[i];
+      if (v > 0) return faded ? 'rgba(74,222,128,0.30)'  : 'rgba(74,222,128,0.75)';
+      if (v < 0) return faded ? 'rgba(248,113,113,0.30)' : 'rgba(248,113,113,0.75)';
+      return faded ? 'rgba(100,116,139,0.2)' : 'rgba(100,116,139,0.5)';
+    });
     const barBorders = diffs.map(v =>
       v > 0 ? '#4ade80' : v < 0 ? '#f87171' : '#64748b');
 
@@ -13261,6 +13269,7 @@ async function csRenderChartPerf(rows, previewRow, canvas) {
             backgroundColor: barColors,
             borderColor: barBorders,
             borderWidth: 1,
+            borderDash: ctx => isPreviewArr[ctx.dataIndex] ? [4, 3] : [],
             yAxisID: 'y',
           },
         ],
@@ -13277,6 +13286,10 @@ async function csRenderChartPerf(rows, previewRow, canvas) {
             backgroundColor: 'rgba(15,17,23,0.92)', titleColor: '#94a3b8',
             bodyColor: '#e2e8f0', borderColor: '#1e2535', borderWidth: 1,
             callbacks: {
+              title: items => {
+                const raw = items[0]?.label || '';
+                return raw.endsWith('✦') ? raw + ' (미확정)' : raw;
+              },
               afterBody: items => {
                 const idx = items[0]?.dataIndex;
                 if (idx == null) return '';
@@ -13287,7 +13300,8 @@ async function csRenderChartPerf(rows, previewRow, canvas) {
                 const v = item.parsed.y;
                 if (v == null) return ` ${item.dataset.label}: —`;
                 const sign = v > 0 ? '+' : '';
-                return ` ${item.dataset.label}: ${sign}${v.toFixed(2)}%`;
+                const s = isPreviewArr[item.dataIndex] ? ' (미확정)' : '';
+                return ` ${item.dataset.label}: ${sign}${v.toFixed(2)}%${s}`;
               },
             },
           },
