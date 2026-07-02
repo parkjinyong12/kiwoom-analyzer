@@ -2788,6 +2788,30 @@ canvas { max-height: 220px; }
 
   </section>
 
+  <!-- ===== 목표비율 변경 이력 모달 (주식간 리밸런싱 · 단계별 실행계획 공용) ===== -->
+  <div class="modal-overlay" id="rth-modal" style="display:none" onclick="event.target===this && rthClose()">
+    <div class="modal" style="width:560px;max-height:80vh;display:flex;flex-direction:column" onclick="event.stopPropagation()">
+      <h3 style="margin-bottom:4px">목표비율 변경 이력</h3>
+      <div style="font-size:11px;color:#64748b;margin-bottom:10px" id="rth-modal-sub">최근 변경 100건</div>
+      <div style="overflow-y:auto;flex:1">
+        <table class="data-table" style="width:100%">
+          <thead>
+            <tr>
+              <th>시각</th><th>종목</th>
+              <th style="text-align:right">이전</th><th style="text-align:right">이후</th>
+              <th style="text-align:right">변경폭</th><th>출처</th>
+            </tr>
+          </thead>
+          <tbody id="rth-tbody"></tbody>
+        </table>
+        <div id="rth-empty" style="display:none;text-align:center;color:#475569;font-size:13px;padding:30px 0">변경 이력이 없습니다</div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="rthClose()">닫기</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ===== 주식 간 리밸런싱 페이지 ===== -->
   <section id="page-stock-rebalance" class="page">
     <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
@@ -2796,6 +2820,7 @@ canvas { max-height: 220px; }
         <div class="page-sub">종목별 목표비율 설정 및 포트폴리오 편차 모니터링</div>
       </div>
       <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost" style="font-size:12px" onclick="rthOpen()">변경 이력</button>
         <button class="btn btn-ghost" style="font-size:12px" onclick="loadRebalance()">새로고침</button>
       </div>
     </div>
@@ -3456,7 +3481,10 @@ canvas { max-height: 220px; }
         <div class="page-title">단계별 실행 계획</div>
         <div class="page-sub">목표비율 설정 → 현재 보유 대비 단계별 매수·매도 수량 계획</div>
       </div>
-      <button class="btn btn-ghost" style="font-size:12px" onclick="rpLoad()">새로고침</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost" style="font-size:12px" onclick="rthOpen()">변경 이력</button>
+        <button class="btn btn-ghost" style="font-size:12px" onclick="rpLoad()">새로고침</button>
+      </div>
     </div>
 
     <!-- 탭 -->
@@ -9244,12 +9272,60 @@ async function rbSaveAllTargets() {
   await fetch('/api/rebalance/targets', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ source: 'manual', items: payload }),
   });
   rbDirtySet.clear();
   document.getElementById('rb-dirty-hint').style.display = 'none';
   document.getElementById('rb-batch-save-btn').style.display = 'none';
   await loadRebalance();
+}
+
+// ── 목표비율 변경 이력 모달 ──────────────────────────────────────────────
+const RTH_SOURCE_LABEL = {
+  manual:            '수동편집',
+  plan_apply:        '단계별계획 적용',
+  per_apply:         'PER 조정 적용',
+  per_phase_apply:   'PER 단계 적용',
+  signal_step_apply: '신호 1단계 적용',
+  signal_apply_all:  '신호 전체 적용',
+};
+
+async function rthOpen(stockCode) {
+  document.getElementById('rth-modal').style.display = 'flex';
+  document.getElementById('rth-modal-sub').textContent = stockCode ? `${stockCode} 최근 변경` : '최근 변경 100건 (전체 종목)';
+  const tbody = document.getElementById('rth-tbody');
+  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#475569;padding:20px">로딩 중...</td></tr>';
+  document.getElementById('rth-empty').style.display = 'none';
+
+  const qs = stockCode ? `?stock_code=${encodeURIComponent(stockCode)}` : '';
+  const rows = await fetch(`/api/rebalance/target_ratio_history${qs}`).then(r => r.json()).catch(() => []);
+
+  if (!rows.length) {
+    tbody.innerHTML = '';
+    document.getElementById('rth-empty').style.display = 'block';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    const before = r.old_ratio !== null ? r.old_ratio.toFixed(2) + '%' : '—';
+    const after  = r.new_ratio.toFixed(2) + '%';
+    const diff   = r.old_ratio !== null ? (r.new_ratio - r.old_ratio) : null;
+    const diffStr = diff !== null ? `${diff > 0 ? '+' : ''}${diff.toFixed(2)}pp` : '—';
+    const diffColor = diff === null ? '#64748b' : diff > 0 ? '#4ade80' : diff < 0 ? '#f87171' : '#64748b';
+    const ts = r.changed_at ? r.changed_at.replace('T', ' ').substring(0, 19) : '—';
+    const srcLabel = RTH_SOURCE_LABEL[r.source] || r.source || '—';
+    return `<tr>
+      <td style="font-size:11px;color:#64748b">${ts}</td>
+      <td>${r.stock_name} <span style="color:#475569;font-size:10px">${r.stock_code}</span></td>
+      <td class="num">${before}</td>
+      <td class="num">${after}</td>
+      <td class="num" style="color:${diffColor};font-weight:600">${diffStr}</td>
+      <td style="font-size:11px;color:#94a3b8">${srcLabel}</td>
+    </tr>`;
+  }).join('');
+}
+
+function rthClose() {
+  document.getElementById('rth-modal').style.display = 'none';
 }
 
 async function rbSaveTarget(stockCode, inputEl) {
@@ -9959,7 +10035,7 @@ async function perApplyPhase(phaseIdx) {
     const res = await fetch('/api/rebalance/targets', {
       method:  'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(phase.targets.map(t => ({ stock_code: t.stock_code, target_ratio: t.target_ratio }))),
+      body:    JSON.stringify({ source: 'per_phase_apply', items: phase.targets.map(t => ({ stock_code: t.stock_code, target_ratio: t.target_ratio })) }),
     });
     if (res.ok) {
       await loadPerManage();
@@ -10191,7 +10267,7 @@ async function perApplyTargets() {
     const res = await fetch('/api/rebalance/targets', {
       method:  'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(targets),
+      body:    JSON.stringify({ source: 'per_apply', items: targets }),
     });
     if (res.ok) {
       btn.textContent = '적용 완료';
@@ -15014,7 +15090,7 @@ async function rpApplyPhase(phaseIdx) {
     const [res] = await Promise.all([
       fetch('/api/rebalance/targets', {
         method: 'PUT', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify(phase.targets.map(t => ({ stock_code: t.stock_code, target_ratio: t.target_ratio }))),
+        body: JSON.stringify({ source: 'plan_apply', items: phase.targets.map(t => ({ stock_code: t.stock_code, target_ratio: t.target_ratio })) }),
       }),
     ]);
     if (res.ok) {
@@ -15170,7 +15246,7 @@ async function mpApplyAllStep() {
       const res = await fetch('/api/rebalance/targets', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ source: 'signal_step_apply', items: payload }),
       });
       if (res.ok) mpLoadSuggestions();
     },
@@ -15191,7 +15267,7 @@ async function mpApplyAll() {
     const res = await fetch('/api/rebalance/targets', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ source: 'signal_apply_all', items: payload }),
     });
     if (res.ok) mpLoadSuggestions();
   }, _mpTradeHtml(items));

@@ -636,6 +636,27 @@ def _ensure_rebalance_plan_progress_table():
         """)
 
 
+def _ensure_rebalance_target_ratio_history_table():
+    """목표비율 변경 이력 (단계별 실행계획 적용, 주식간 리밸런싱 수동편집 등 공통 기록)."""
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS rebalance_target_ratio_history (
+                id          SERIAL PRIMARY KEY,
+                user_id     INTEGER,
+                stock_code  VARCHAR(20)  NOT NULL,
+                old_ratio   DECIMAL(6,2),
+                new_ratio   DECIMAL(6,2) NOT NULL,
+                source      VARCHAR(30),
+                changed_at  TIMESTAMP    DEFAULT NOW()
+            )
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_rtrh_user_stock
+            ON rebalance_target_ratio_history (user_id, stock_code, changed_at DESC)
+        """)
+
+
 def _ensure_stock_eps_history_table():
     """EPS 동기화 히스토리 테이블 (하루 1건 upsert)."""
     with get_conn() as conn:
@@ -2315,9 +2336,19 @@ def api_rebalance_target():
 
 @app.route("/api/rebalance/targets", methods=["PUT"])
 def api_rebalance_targets_batch():
-    """종목 목표 비중 일괄 저장. body: [{stock_code, target_ratio}, ...]"""
-    uid = _current_uid()
-    items = request.get_json() or []
+    """종목 목표 비중 일괄 저장.
+
+    body: [{stock_code, target_ratio}, ...] 또는 {source, items: [...]}
+    실제로 비율이 바뀐 건에 한해 rebalance_target_ratio_history에 기록.
+    """
+    uid  = _current_uid()
+    body = request.get_json() or []
+    if isinstance(body, dict):
+        source = (body.get("source") or "manual")[:30]
+        items  = body.get("items") or []
+    else:
+        source = "manual"
+        items  = body
     if not isinstance(items, list):
         return jsonify({"error": "배열 형식 필요"}), 400
     with get_conn() as conn:
@@ -2332,13 +2363,65 @@ def api_rebalance_targets_batch():
                     continue
             except (ValueError, TypeError):
                 continue
+            cur.execute(
+                "SELECT target_ratio FROM rebalance_targets WHERE user_id=%s AND stock_code=%s",
+                (uid, stock_code),
+            )
+            row = cur.fetchone()
+            old_ratio = float(row["target_ratio"]) if row else None
             cur.execute("""
                 INSERT INTO rebalance_targets (user_id, stock_code, target_ratio, updated_at)
                 VALUES (%s, %s, %s, NOW())
                 ON CONFLICT (user_id, stock_code)
                 DO UPDATE SET target_ratio = EXCLUDED.target_ratio, updated_at = NOW()
             """, (uid, stock_code, target_ratio))
+            if old_ratio is None or abs(old_ratio - target_ratio) > 1e-9:
+                cur.execute("""
+                    INSERT INTO rebalance_target_ratio_history
+                        (user_id, stock_code, old_ratio, new_ratio, source, changed_at)
+                    VALUES (%s, %s, %s, %s, %s, NOW())
+                """, (uid, stock_code, old_ratio, target_ratio, source))
     return jsonify({"ok": True})
+
+
+@app.route("/api/rebalance/target_ratio_history")
+def api_rebalance_target_ratio_history():
+    """목표비율 변경 이력 조회. query: stock_code(선택), limit(기본 100, 최대 500)"""
+    uid        = _current_uid()
+    stock_code = (request.args.get("stock_code") or "").strip()
+    try:
+        limit = min(int(request.args.get("limit", 100)), 500)
+    except (ValueError, TypeError):
+        limit = 100
+
+    where  = "h.user_id = %s"
+    params: list = [uid]
+    if stock_code:
+        where += " AND h.stock_code = %s"
+        params.append(stock_code)
+    params.append(limit)
+
+    rows = query(f"""
+        SELECT h.stock_code, mps.stock_name, h.old_ratio, h.new_ratio, h.source, h.changed_at
+        FROM rebalance_target_ratio_history h
+        LEFT JOIN (
+            SELECT DISTINCT ON (stock_code) stock_code, stock_name
+            FROM market_power_scores WHERE user_id = %s
+            ORDER BY stock_code, scored_at DESC
+        ) mps ON mps.stock_code = h.stock_code
+        WHERE {where}
+        ORDER BY h.changed_at DESC
+        LIMIT %s
+    """, tuple([uid] + params))
+
+    return jsonify([{
+        "stock_code": r["stock_code"],
+        "stock_name": r["stock_name"] or r["stock_code"],
+        "old_ratio":  float(r["old_ratio"]) if r["old_ratio"] is not None else None,
+        "new_ratio":  float(r["new_ratio"]),
+        "source":     r["source"],
+        "changed_at": r["changed_at"].isoformat() if r["changed_at"] else None,
+    } for r in rows])
 
 
 @app.route("/api/rebalance/plan", methods=["PUT"])
@@ -5763,6 +5846,11 @@ except Exception:
 
 try:
     _ensure_stock_eps_history_table()
+except Exception:
+    pass
+
+try:
+    _ensure_rebalance_target_ratio_history_table()
 except Exception:
     pass
 
