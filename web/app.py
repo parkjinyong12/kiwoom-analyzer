@@ -1075,11 +1075,13 @@ def api_supply_divergence():
     window   = int(request.args.get("window", 20))
     price_th = float(request.args.get("price_th", 3.0))
     ig_ratio = float(request.args.get("ignore_ratio", 0.15))
+    min_cap  = int(request.args.get("min_market_cap", 0))
     db = AuditDB(config.database_url)
     rows = db.get_supply_price_divergence(
         window_days=window,
         price_flat_pct=price_th,
         ignore_ratio=ig_ratio,
+        min_market_cap=min_cap,
     )
     return jsonify(rows)
 

@@ -534,6 +534,7 @@ class AuditDB:
         min_data_days: int = 10,
         price_flat_pct: float = 3.0,
         ignore_ratio: float = 0.15,
+        min_market_cap: int = 0,
     ) -> list[dict]:
         """
         수급 상승 + 가격 비상승 종목 탐지 (수급-가격 다이버전스).
@@ -610,7 +611,12 @@ class AuditDB:
                             (a.latest_price - a.oldest_price)::numeric
                             / a.oldest_price * 100, 2)
                         ELSE NULL
-                    END AS price_chg_pct
+                    END AS price_chg_pct,
+                    CASE
+                        WHEN s.last_price ~ '^[0-9]+$' AND s.list_count ~ '^[0-9]+$'
+                        THEN (s.last_price::BIGINT * s.list_count::BIGINT)
+                        ELSE NULL
+                    END AS market_cap
                 FROM agg a
                 LEFT JOIN stocks s ON s.stock_code = a.stock_code
                 """,
@@ -647,6 +653,10 @@ class AuditDB:
             if price_chg is None:
                 continue
             if float(price_chg) > price_flat_pct:
+                continue
+
+            market_cap = row["market_cap"]
+            if min_market_cap > 0 and (market_cap is None or market_cap < min_market_cap):
                 continue
 
             fw  = float(row["for_weighted"]  or 0)
@@ -700,6 +710,7 @@ class AuditDB:
                 "orgn_broken":      orgn_l3 is not None and orgn_l3 < 0,
                 "latest_price":     row["latest_price"],
                 "price_chg_pct":    float(price_chg),
+                "market_cap":       int(market_cap) if market_cap is not None else None,
                 "day_cnt":          row["day_cnt"],
                 "score":            round(score, 2),
             })
